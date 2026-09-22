@@ -5,6 +5,14 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/big-orange947/FoldPoint.git"
+  },
+  "homepage": "https://github.com/big-orange947/FoldPoint#readme",
+  "bugs": {
+    "url": "https://github.com/big-orange947/FoldPoint/issues"
+  },
   "engines": {
     "node": ">=20"
   },
