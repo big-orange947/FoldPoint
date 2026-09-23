@@ -98,10 +98,12 @@ does not have to be exact — the decision compares costs, and a few percent of 
 nothing. Do not pass the remaining window, and do not pass the size of the last output.
 
 `cachedTokens` is the number of tokens in that prompt the provider will serve from its cache.
-Report `0` when you know the prefix has lapsed: the model then bills this call as a cache
-write, which is what it costs. Omit it if unknown: FoldPoint then falls back to the learned
-coverage ratio, and with no history at all it treats the prompt as fully uncached, which is the
-conservative direction.
+Report `0` (or omit it) when you know the prefix has lapsed: the model then bills this call as
+a cache write, which is what it costs. Reporting the prefix size instead is also safe — the
+future estimate never reuses this call's hit count, so both styles reach the same decision. Omit
+it if unknown: FoldPoint then falls back to the learned coverage ratio, and with no history at
+all it treats the prompt as fully uncached for *this* call, which is the conservative
+direction.
 
 ## 4. Boundaries and permissions
 

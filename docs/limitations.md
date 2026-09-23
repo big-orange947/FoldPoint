@@ -76,6 +76,13 @@ policy and otherwise assumes the prefix the current call writes survives. A host
 reliably exceed its TTL should describe that regime with a half-life policy, or report no
 served prefix, rather than expect FoldPoint to infer it from one lapsed gap.
 
+The prefix a later call can reuse is estimated rather than observed: the largest prefix the
+evidence supports (what this call was served, the learned coverage, or the prompt just sent).
+In a session where the cache never serves anything the learned coverage falls to zero and the
+future is priced as rewrites, but a single lapsed call in an otherwise healthy session does not
+make the whole future look like a rewrite. Treat `estimatedCacheLaterCandidateTokens` as an
+estimate with that bias, not as state.
+
 ## 5. Compactors differ, and learning is slow
 
 Different compactors produce very different retention ratios, and the same compactor varies

@@ -94,6 +94,26 @@ extrapolate one lapsed gap into the whole future call cycle — the current call
 prefix, and a later call starts from a live one. A host whose gaps reliably exceed its TTL
 should describe that regime with a half-life policy rather than a hard TTL.
 
+The *prefix* a later call can reuse is a separate quantity from this call's hit count, for the
+same reason: a host that reports `cachedTokens: 0` because the prefix lapsed says nothing about
+the prefix the current call is about to write. The estimate is the largest prefix the evidence
+supports, so reporting more served tokens can never make the future look worse:
+
+```
+laterCandidateTokens:
+  caching not in play                                    -> 0
+  else                                                   -> max(candidateCachedTokens, learnedPrefixTokens)
+
+learnedPrefixTokens:
+  cacheCoverageSamples > 0                               -> T * cacheCoverageRatioEma
+  else                                                   -> T
+```
+
+The last case is the model's own provider convention: the prompt just sent is the prefix. It is
+also the direction that prefers `KEEP`, which is what this project does when there is no
+evidence. `laterCandidateTokens / T` is the reuse fraction applied to the compacted context in
+§8.
+
 `cachingInPlay` is true when a cache discount exists, caching is not disabled, and either a
 prefix was observed or the policy describes one. A prompt is only billed at the cache-write
 price when caching is in play.
@@ -132,12 +152,13 @@ no prefix at all, but caching is in play  -> T * Pwrite
 The two replay costs the model needs are computed with that one rule:
 
 ```
-currentCallReplayCost = costOfCall(T, candidate, aliveProbability,      cachingInPlay)
-laterCallReplayCost   = costOfCall(T, candidate, laterAliveProbability, cachingInPlay)
+currentCallReplayCost = costOfCall(T, candidateCachedTokens,  aliveProbability,      cachingInPlay)
+laterCallReplayCost   = costOfCall(T, laterCandidateTokens,  laterAliveProbability, cachingInPlay)
 ```
 
-They are deliberately separate. `currentCallReplayCost` includes the write this call really
-has to do; `laterCallReplayCost` is a forecast and does not inherit this call's verdict.
+They are deliberately separate, and so are the prefixes they use. `currentCallReplayCost`
+includes the write this call really has to do; `laterCallReplayCost` is a forecast, does not
+inherit this call's verdict, and never reuses this call's served-token count (§2.1).
 
 ## 5. Compaction call cost from usage ratios
 
@@ -201,16 +222,19 @@ bills a rebuilt prefix.
 ## 8. Later post-compaction replay
 
 ```
-postCompactCoverageRatio   = cacheCoverageSamples > 0 ? cacheCoverageRatioEma : 0
+laterCoverageRatio         = laterCandidateTokens / T
+postCompactLaterCandidates = estimatedPostCompactTokens * laterCoverageRatio
 laterPostCompactReplayCost = costOfCall(estimatedPostCompactTokens,
-                                        estimatedPostCompactTokens * postCompactCoverageRatio,
+                                        postCompactLaterCandidates,
                                         laterAliveProbability,
                                         cachingInPlay)
 ```
 
-The later replays are priced with the same rule as any other call, using the *forecast*
-aliveness rather than this call's verdict. With no cache history at all the coverage ratio is
-0, so the compacted context is priced as a prompt that has to be written.
+The compacted context becomes a fresh prefix, so the same reuse fraction applies to it. The
+later replays are priced with the same rule as any other call, using the *forecast* aliveness
+rather than this call's verdict. With no cache history at all the reuse fraction is 1, so the
+compacted context is priced as a prompt that is reused — the same convention as the first
+replay above.
 
 ## 9. Break-even
 
@@ -232,15 +256,20 @@ cache lapsed writes its whole prompt at the cache-write price, while the later c
 enables do not have to. With `C_now == C_later == C` this reduces to the familiar
 `(K + F - L) / (C - L)`.
 
-- `C_later - L <= 0` → `null`: there is no positive per-call saving, so compaction can never
-  repay itself.
-- numerator `<= 0` → `0`: compacting is already not more expensive than the current call alone.
+- `0` when `K + F <= C_now`: compacting already repays itself on the current call alone, so no
+  per-call saving is needed for it to be worth doing. This is checked **before** the
+  denominator: "no recurring saving" must not hide "immediately cheaper".
+- `null` when it is not immediately repaid and `C_later - L <= 0`: there is no positive
+  per-call saving either, so compaction can never repay itself.
 - a division that overflows is reported as `Number.MAX_SAFE_INTEGER` (effectively
   unreachable) so metrics stay JSON-safe.
 
 `computeBreakEvenCalls` is exported as a pure function so the algebra can be tested directly.
 Example: `C_now = C_later = 5, K = 10, F = 4, L = 2` → `1 + (10 + 4 - 5) / (5 - 2) = 4`, and
-indeed `Keep(4) = 5 + 3 * 5 = 20 = Compact(4) = 10 + 4 + 3 * 2`.
+indeed `Keep(4) = 5 + 3 * 5 = 20 = Compact(4) = 10 + 4 + 3 * 2`. With `C_now = 8, C_later = 1,
+K = 1, F = 1, L = 2` the recurring saving is negative, but `K + F = 2 <= 8`, so the answer is
+`0` — compacting is cheaper than the current call on its own, and the horizon net saving decides
+whether the long run is still worth it.
 
 The keep/compact totals are still reported over the declared horizon:
 
@@ -422,30 +451,32 @@ T = 150,000   cachedTokens = 140,000   idleMs = 600,000
 coverageRatio      = 140,000 / 150,000          = 0.9333
 aliveProbability   = 0                          (TTL lapsed)
 effectiveCached    = 140,000 * 0              = 0
-currentReplayCost  = 0 + 150,000 * 3e-6       = 0.4500
+currentCallReplay  = 150,000 * 3.75e-6        = 0.5625   (the whole prompt is written)
+laterCandidate     = max(140,000, 0.9*150,000) = 140,000
+laterReplayCost    = 140,000 * 0.3e-6 + 10,000 * 3e-6 = 0.0720
+laterCoverageRatio = 140,000 / 150,000        = 0.9333
 Ta                 = 150,000 * 0.25           = 37,500
 firstReplayCost    = 37,500 * 3.75e-6         = 0.1406
-postCoverage       = 0.9  (learned)  -> postEffective = 33,750 * 0 = 0
-laterReplayCost    = 0 + 37,500 * 3e-6        = 0.1125
+postCandidates     = 37,500 * 0.9333          = 35,000
+laterReplayCost*   = 35,000 * 0.3e-6 + 2,500 * 3e-6 = 0.0180
 compactCallCost    = 150,000 * 3e-6 + 15,000 * 15e-6 = 0.6750
-keepCost           = 10 * 0.45                = 4.5000
-compactCost        = 0.675 + 0.1406 + 9 * 0.1125 = 1.8281
-netSaving          = 4.5000 - 1.8281          = 2.6719
-savingPerFutureCall= 0.45 - 0.1125            = 0.3375
-breakEvenCalls     = (0.675 + 0.1406 - 0.1125) / 0.3375 = 2.08
+keepCost           = 0.5625 + 9 * 0.0720      = 1.2105
+compactCost        = 0.675 + 0.1406 + 9 * 0.0180 = 0.9776
+netSaving          = 1.2105 - 0.9776          = 0.2329
+savingPerFutureCall= 0.0720 - 0.0180          = 0.0540
+breakEvenCalls     = 1 + (0.675 + 0.1406 - 0.5625) / 0.0540 = 5.69
 confidence         = 0.35 + 0.65 * (0.4*4/6 + 0.2*3/5 + 0.2*3/5 + 0.2*3/5) = 0.757
 penalty            = 0.15                      (utilization 0.75 >= soft window)
-adjustedNetSaving  = 2.6719 * 0.757 - 0.15 * 0.675 = 1.921
+adjustedNetSaving  = 0.2329 * 0.757 - 0.15 * 0.675 = 0.0750
 effectiveHorizon   = 10                        (>= soft window)
 ```
 
-`adjustedNetSaving > 0` and `2.08 <= 10` → **COMPACT**, with `ECONOMIC_TRIGGER`,
+`adjustedNetSaving > 0` and `5.69 <= 10` → **COMPACT**, with `ECONOMIC_TRIGGER`,
 `BREAK_EVEN_WITHIN_HORIZON` and `CACHE_LIKELY_EXPIRED`.
 
 Make the cache warm and cheap instead (`aliveProbability = 1`, `Pcache = $0.30/M`): keeping
 the context costs `140,000 * 0.3e-6 + 10,000 * 3e-6 = 0.072` per call, the per-call saving
 collapses, and the same session becomes **KEEP**.
-
 ## 18. Additions and corrections to the task book
 
 The revision task book allows the data model, state model and defaults to be adjusted, and
@@ -473,7 +504,10 @@ compares), `lowConfidenceThreshold`.
 `compactCostScaleSamples`), `successfulCompactionCount` on both profile and session, and
 `failedCompactionCount` on the session.
 
-**Extra metrics:** `adjustedNetSaving`, `effectiveHorizonCalls`, `estimatedCompactCallCost`.
+**Extra metrics:** `adjustedNetSaving`, `effectiveHorizonCalls`, `estimatedCompactCallCost`,
+`estimatedCurrentCallReplayCost`, `estimatedLaterCallReplayCost`,
+`estimatedCacheLaterAliveProbability` and `estimatedCacheLaterCandidateTokens` — the last three
+exist so the current-call/later-call split is auditable from a decision log.
 
 **Extra reason code:** `BREAK_EVEN_BEYOND_HORIZON`, so "no positive saving" and "a saving
 that is too slow" are distinguishable. The task book's list is a minimum.

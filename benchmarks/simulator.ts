@@ -349,6 +349,10 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
   let unnecessaryCompactionCount = 0;
   let minRemainingHeadroom = Number.POSITIVE_INFINITY;
   let utilizationAtCompactionSum = 0;
+  // The hit rate this host has observed, mirroring the learner's cache-coverage EMA so the
+  // static metric is fed the same input the engine would have learned.
+  let coverageEma = 0;
+  let coverageSamples = 0;
 
   /** Charges one overflow recovery to a branch, at the cache-write price. */
   const chargeRecovery = (branch: BranchState, cost: { value: number }): void => {
@@ -459,15 +463,15 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       // `currentCallReplayCost` is this call as it really is: when the prefix is not alive,
       // the whole prompt is written at the cache-write price. `laterCallReplayCost` is a
       // forecast for the calls after this one, so it does not inherit this call's verdict —
-      // `resolveLaterAliveProbability` is the same function the engine uses.
+      // the same cache model the engine uses, fed with the hit rate this host has observed.
       const cacheModel = estimateCacheModel({
         timestamp,
         idleMs: stepIdleMs,
         contextTokens: beforeTokens,
         cachedTokens: actualCache.cachedTokens,
         cachePolicy: scenario.cachePolicy,
-        cacheCoverageRatioEma: 0,
-        cacheCoverageSamples: 0,
+        cacheCoverageRatioEma: coverageEma,
+        cacheCoverageSamples: coverageSamples,
         hasCacheDiscount: prices.hasCacheDiscount,
       });
       const currentCallReplayCost = costOfCall(
@@ -484,7 +488,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         prices,
         beforeTokens,
         {
-          prefixTokens: cacheModel.candidateCachedTokens,
+          prefixTokens: cacheModel.laterCandidateTokens,
           aliveProbability: cacheModel.laterAliveProbability,
           cachingInPlay: cacheModel.cachingInPlay,
         },
@@ -500,7 +504,8 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         prices,
         afterTokens,
         {
-          prefixTokens: afterTokens * cacheModel.coverageRatio,
+          prefixTokens:
+            afterTokens * (beforeTokens > 0 ? cacheModel.laterCandidateTokens / beforeTokens : 0),
           aliveProbability: cacheModel.laterAliveProbability,
           cachingInPlay: cacheModel.cachingInPlay,
         },
@@ -634,6 +639,16 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       outputTokens: scenario.outputTokens,
       cost: actualCallCost,
     });
+
+    // The host's own view of its hit rate, updated exactly like the learner's coverage EMA.
+    if (chargedPrompt > 0) {
+      const observedCoverageRatio = (callRebuildsCache ? 0 : callCachedTokens) / chargedPrompt;
+      coverageEma =
+        coverageSamples === 0
+          ? observedCoverageRatio
+          : DEFAULTS.emaAlpha * observedCoverageRatio + (1 - DEFAULTS.emaAlpha) * coverageEma;
+      coverageSamples += 1;
+    }
 
     afterCall(actual, chargedPrompt, timestamp);
 

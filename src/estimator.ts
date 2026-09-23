@@ -1,9 +1,4 @@
-import {
-  estimateCacheModel,
-  resolveCacheCoverageRatio,
-  resolveCacheExpiresAt,
-  resolveIdleMs,
-} from "./cache";
+import { estimateCacheModel, resolveCacheExpiresAt, resolveIdleMs } from "./cache";
 import { isResolvedDefaults, NUMERIC_BOUNDS, resolveDefaults } from "./defaults";
 import { clamp, computeConfidence, safeDivide } from "./math";
 import { costOfCall, costOfUsage, resolveUnitPrices, type UnitPrices } from "./pricing";
@@ -59,22 +54,23 @@ export interface BreakEvenInput {
  * `(K + F - L) / (C - L)`.
  *
  * Returns:
- * - `null` when `C_later - L <= 0`: there is no positive per-call saving, so compaction can
- *   never repay itself;
- * - `0` when the numerator is not positive: compacting is already not more expensive than
- *   the current call alone;
+ * - `0` when `K + F <= C_now`: compacting already repays itself on the current call alone,
+ *   so no per-call saving is needed for it to be worth doing. Checked **before** the
+ *   denominator, because "no recurring saving" must not hide "immediately cheaper";
+ * - `null` when it is not immediately repaid and `C_later - L <= 0`: there is no positive
+ *   per-call saving either, so compaction can never repay itself;
  * - `Number.MAX_SAFE_INTEGER` if the division overflows (effectively unreachable).
  */
 export function computeBreakEvenCalls(input: BreakEvenInput): number | null {
-  const denominator = input.laterCallReplayCost - input.laterPostCompactReplayCost;
-  if (!(denominator > 0)) {
-    return null;
-  }
-
   const numerator =
     input.compactCallCost + input.firstPostCompactReplayCost - input.currentCallReplayCost;
   if (numerator <= 0) {
     return 0;
+  }
+
+  const denominator = input.laterCallReplayCost - input.laterPostCompactReplayCost;
+  if (!(denominator > 0)) {
+    return null;
   }
 
   const ratio = 1 + numerator / denominator;
@@ -346,30 +342,27 @@ export function decideFoldPoint(
     0,
   );
   // Later calls: whether they also find the cache gone is a forecast, not this call's
-  // verdict. `laterAliveProbability` deliberately does not inherit a lapsed TTL.
+  // verdict. `laterAliveProbability` deliberately does not inherit a lapsed TTL, and the
+  // candidate is the prefix this call leaves behind — never this call's hit count of 0.
   const laterReplayCost = costOfCall(
     prices,
     contextTokens,
     {
-      prefixTokens: cache.candidateCachedTokens,
+      prefixTokens: cache.laterCandidateTokens,
       aliveProbability: cache.laterAliveProbability,
       cachingInPlay: cache.cachingInPlay,
     },
     0,
   );
 
-  const postCompactCoverageRatio = cacheEnabled
-    ? resolveCacheCoverageRatio({
-        cacheCoverageRatioEma: readStateNumber(learning?.cacheCoverageRatioEma, 0, 0, 1),
-        cacheCoverageSamples,
-      })
-    : 0;
-  const postCompactCandidateTokens = estimatedPostCompactTokens * postCompactCoverageRatio;
+  // The compacted context becomes a fresh prefix, so the same reuse fraction applies to it.
+  const laterCoverageRatio = safeDivide(cache.laterCandidateTokens, contextTokens, 0);
+  const laterPostCompactCandidateTokens = estimatedPostCompactTokens * laterCoverageRatio;
   const laterPostCompactReplayCost = costOfCall(
     prices,
     estimatedPostCompactTokens,
     {
-      prefixTokens: postCompactCandidateTokens,
+      prefixTokens: laterPostCompactCandidateTokens,
       aliveProbability: cache.laterAliveProbability,
       cachingInPlay: cache.cachingInPlay,
     },
@@ -444,6 +437,8 @@ export function decideFoldPoint(
     estimatedCacheAliveProbability: cache.aliveProbability,
     /** The forecast for later calls, which does not inherit this call's verdict. */
     estimatedCacheLaterAliveProbability: cache.laterAliveProbability,
+    /** The prefix a later call could reuse, as distinct from this call's hit count. */
+    estimatedCacheLaterCandidateTokens: cache.laterCandidateTokens,
     estimatedEffectiveCachedTokens: cache.effectiveCachedTokens,
 
     /** Cost of this call, including any prefix it has to write now. */

@@ -60,10 +60,12 @@ describe("17.1-17.3 exact cache numbers", () => {
     );
     expect(decision.metrics.estimatedKeepCost).toBeCloseTo(100_000 * (3.75 / 1_000_000), 12);
     // The later calls are a forecast, not this call's verdict: the model does not assume
-    // that every future call finds the cache gone as well.
+    // that every future call finds the cache gone as well. The prefix a later call can reuse
+    // is the best the evidence supports: the learned coverage (0.9) beats this call's 0.8.
     expect(decision.metrics.estimatedCacheLaterAliveProbability).toBe(1);
+    expect(decision.metrics.estimatedCacheLaterCandidateTokens).toBeCloseTo(90_000, 6);
     expect(decision.metrics.estimatedLaterCallReplayCost).toBeCloseTo(
-      80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE,
+      90_000 * CACHE_READ_PRICE + 10_000 * INPUT_PRICE,
       12,
     );
     expect(decision.metrics.estimatedLaterCallReplayCost).toBeLessThan(
@@ -117,28 +119,109 @@ describe("expired cache with a write premium", () => {
     expect(metrics.estimatedCurrentCallReplayCost).toBeCloseTo(100_000 * WRITE_PRICE, 12);
     expect(metrics.estimatedCurrentCallReplayCost).toBeGreaterThan(100_000 * INPUT_PRICE);
 
-    // Later calls: a forecast that does not inherit this call's verdict.
+    // Later calls: a forecast that does not inherit this call's verdict. The prefix a later
+    // call can reuse is the best the evidence supports (the reported prefix, or the learned
+    // coverage), never this call's hit count of 0.
     expect(metrics.estimatedCacheLaterAliveProbability).toBe(1);
+    expect(metrics.estimatedCacheLaterCandidateTokens).toBeCloseTo(90_000, 6);
     expect(metrics.estimatedLaterCallReplayCost).toBeCloseTo(
-      80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE,
+      90_000 * CACHE_READ_PRICE + 10_000 * INPUT_PRICE,
       12,
     );
 
     // The keep total charges the write once, not once per future call.
     expect(metrics.estimatedKeepCost).toBeCloseTo(
-      100_000 * WRITE_PRICE + 2 * (80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE),
+      100_000 * WRITE_PRICE + 2 * (90_000 * CACHE_READ_PRICE + 10_000 * INPUT_PRICE),
       12,
     );
     expect(metrics.estimatedKeepCost).toBeLessThan(3 * metrics.estimatedCurrentCallReplayCost);
 
-    // Retention 0.25, coverage 0.9: the compacted context is read, not rewritten.
+    // Retention 0.25, and the compacted context is reused at the same fraction.
     expect(metrics.estimatedCompactCallCost).toBeCloseTo(0.45, 12);
-    expect(metrics.estimatedNetSaving).toBeCloseTo(0.543 - 0.57225, 12);
+    expect(metrics.estimatedNetSaving).toBeCloseTo(0.489 - 0.57225, 12);
     expect(metrics.breakEvenCalls).toBeCloseTo(
-      1 + (0.45 + 0.09375 - 0.375) / (0.084 - 0.01425),
+      1 + (0.45 + 0.09375 - 0.375) / (0.057 - 0.01425),
       12,
     );
-    expect(metrics.breakEvenCalls).toBeCloseTo(3.419354838709677, 12);
+    expect(metrics.breakEvenCalls).toBeCloseTo(4.947368421052632, 12);
+  });
+
+  it("17.3e prices the future from the prefix this call leaves behind, not from a 0 hit", () => {
+    // The same session as 17.3b, but the host follows docs/integration.md and reports
+    // `cachedTokens: 0` because the prefix has lapsed. That 0 says nothing about the prefix
+    // the current call is about to write, so the later calls must not be billed as rewrites:
+    // the two hosts have to reach the same decision.
+    const reporting = decideWith(
+      {
+        contextTokens: 100_000,
+        cachedTokens: 80_000,
+        idleMs: 90_000,
+        expectedFutureCalls: 3,
+        profile: profileWithCacheTtl(60_000),
+      },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        cachedTokens: 0,
+        idleMs: 90_000,
+        expectedFutureCalls: 3,
+        profile: profileWithCacheTtl(60_000),
+      },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+    const metrics = decision.metrics;
+
+    // This call is unchanged: it has to write its prompt either way.
+    expect(metrics.estimatedCacheAliveProbability).toBe(0);
+    expect(metrics.estimatedCurrentCallReplayCost).toBeCloseTo(100_000 * WRITE_PRICE, 12);
+
+    // The later candidate comes from the learned coverage (0.9 here), not from this call's 0.
+    expect(metrics.estimatedCacheCoverageRatio).toBe(0);
+    expect(metrics.estimatedCacheLaterCandidateTokens).toBeCloseTo(90_000, 6);
+    expect(metrics.estimatedLaterCallReplayCost).toBeCloseTo(
+      90_000 * CACHE_READ_PRICE + 10_000 * INPUT_PRICE,
+      12,
+    );
+    expect(metrics.estimatedLaterCallReplayCost).toBeLessThan(
+      metrics.estimatedCurrentCallReplayCost,
+    );
+    expect(metrics.estimatedKeepCost).toBeCloseTo(0.489, 12);
+    expect(metrics.estimatedKeepCost).toBeLessThan(3 * metrics.estimatedCurrentCallReplayCost);
+
+    // Same session, same decision, same numbers — whether the host reports the lapsed prefix
+    // or nothing at all.
+    expect(metrics.estimatedKeepCost).toBeCloseTo(reporting.metrics.estimatedKeepCost, 12);
+    expect(metrics.estimatedLaterCallReplayCost).toBeCloseTo(
+      reporting.metrics.estimatedLaterCallReplayCost,
+      12,
+    );
+    expect(metrics.breakEvenCalls).toBeCloseTo(reporting.metrics.breakEvenCalls ?? Number.NaN, 12);
+    expect(decision.action).toBe(reporting.action);
+    expect(decision.action).toBe("KEEP");
+  });
+
+  it("17.3f assumes the prompt just sent is the prefix when there is no evidence at all", () => {
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        cachedTokens: 0,
+        idleMs: 90_000,
+        expectedFutureCalls: 3,
+        profile: profileWithCacheTtl(60_000),
+      },
+      {},
+      {},
+    );
+
+    expect(decision.metrics.estimatedCacheLaterCandidateTokens).toBeCloseTo(100_000, 6);
+    expect(decision.metrics.estimatedLaterCallReplayCost).toBeCloseTo(
+      100_000 * CACHE_READ_PRICE,
+      12,
+    );
   });
 
   it("17.3c does not invent a write premium when caching is not in play", () => {

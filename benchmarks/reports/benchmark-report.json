@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T05:32:09.835Z",
+  "generatedAt": "2026-09-23T07:13:59.808Z",
   "environment": {
     "node": "v22.17.0",
     "platform": "win32"
@@ -392,9 +392,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004999999999967031,
-      "decisionLatencyP99Ms": 0.003911999999987746
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP99Ms": 0.0018090000000040537
     },
     {
       "strategyId": "fixed-50-raw",
@@ -416,11 +416,11 @@
       "averageUtilizationAtCompaction": 0.5582202136752138,
       "judgedCompactionCount": 109,
       "unnecessaryCompactionCount": 89,
-      "meanStaticBreakEvenCallsAtCompaction": 24.526125509041808,
+      "meanStaticBreakEvenCallsAtCompaction": 24.955569846578427,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP50Ms": 0.00029999999998153726,
       "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.0022210000000160144
+      "decisionLatencyP99Ms": 0.001402999999988876
     },
     {
       "strategyId": "fixed-70-raw",
@@ -442,11 +442,11 @@
       "averageUtilizationAtCompaction": 0.7223047530864198,
       "judgedCompactionCount": 76,
       "unnecessaryCompactionCount": 44,
-      "meanStaticBreakEvenCallsAtCompaction": 26.35068727907905,
+      "meanStaticBreakEvenCallsAtCompaction": 27.220041199587126,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.0008030000000258014
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0006030000000191621
     },
     {
       "strategyId": "fixed-80-raw",
@@ -468,11 +468,11 @@
       "averageUtilizationAtCompaction": 0.823303106060606,
       "judgedCompactionCount": 64,
       "unnecessaryCompactionCount": 35,
-      "meanStaticBreakEvenCallsAtCompaction": 26.965164588665886,
+      "meanStaticBreakEvenCallsAtCompaction": 27.824053263739124,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.0006000000000199179
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0004999999999898819
     },
     {
       "strategyId": "fixed-90-raw",
@@ -494,11 +494,11 @@
       "averageUtilizationAtCompaction": 0.9222454545454546,
       "judgedCompactionCount": 53,
       "unnecessaryCompactionCount": 29,
-      "meanStaticBreakEvenCallsAtCompaction": 27.89152153971324,
+      "meanStaticBreakEvenCallsAtCompaction": 28.810211941453296,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.0004999999999881766
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0004000000000132786
     },
     {
       "strategyId": "fixed-70-guarded",
@@ -520,11 +520,11 @@
       "averageUtilizationAtCompaction": 0.8071819696969699,
       "judgedCompactionCount": 37,
       "unnecessaryCompactionCount": 7,
-      "meanStaticBreakEvenCallsAtCompaction": 26.35711384864798,
+      "meanStaticBreakEvenCallsAtCompaction": 27.226467769156056,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.0029180000000098806
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0016029999999955153
     },
     {
       "strategyId": "fixed-80-guarded",
@@ -546,11 +546,11 @@
       "averageUtilizationAtCompaction": 0.8693215000000001,
       "judgedCompactionCount": 30,
       "unnecessaryCompactionCount": 4,
-      "meanStaticBreakEvenCallsAtCompaction": 26.95995599230301,
+      "meanStaticBreakEvenCallsAtCompaction": 27.818844667376247,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0006000000000199179
+      "decisionLatencyP95Ms": 0.0006999999999948159,
+      "decisionLatencyP99Ms": 0.0013000000000147338
     },
     {
       "strategyId": "fixed-90-guarded",
@@ -572,37 +572,37 @@
       "averageUtilizationAtCompaction": 0.9222454545454546,
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 27.89152153971324,
+      "meanStaticBreakEvenCallsAtCompaction": 28.810211941453296,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.00050000000004502,
-      "decisionLatencyP99Ms": 0.001499999999966235
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP99Ms": 0.0013000000000147338
     },
     {
       "strategyId": "foldpoint",
       "strategyLabel": "FoldPoint",
       "scenarioCount": 11,
-      "totalSimulatedCost": 136.00171369999998,
-      "totalPromptTokens": 55861465,
-      "totalCachedTokens": 39493710,
+      "totalSimulatedCost": 136.3693292,
+      "totalPromptTokens": 56412201,
+      "totalCachedTokens": 39987147,
       "totalOutputTokens": 352200,
-      "compactionAttemptCount": 125,
-      "successfulCompactionCount": 123,
+      "compactionAttemptCount": 121,
+      "successfulCompactionCount": 119,
       "failedCompactionCount": 2,
-      "economicAttemptCount": 82,
-      "forcedAttemptCount": 43,
-      "forceDecisionCount": 43,
+      "economicAttemptCount": 80,
+      "forcedAttemptCount": 41,
+      "forceDecisionCount": 41,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 13105,
-      "averageUtilizationAtCompaction": 0.41945471999999995,
-      "judgedCompactionCount": 82,
-      "unnecessaryCompactionCount": 6,
-      "meanStaticBreakEvenCallsAtCompaction": 25.082230004800515,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 20.054425883571124,
-      "decisionLatencyP50Ms": 0.01520000000004984,
-      "decisionLatencyP95Ms": 0.03498000000002432,
-      "decisionLatencyP99Ms": 0.11590799999992545
+      "minRemainingHeadroom": 6618,
+      "averageUtilizationAtCompaction": 0.434139090909091,
+      "judgedCompactionCount": 80,
+      "unnecessaryCompactionCount": 7,
+      "meanStaticBreakEvenCallsAtCompaction": 28.641618860542934,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 23.103386121160575,
+      "decisionLatencyP50Ms": 0.009200000000021191,
+      "decisionLatencyP95Ms": 0.02813999999998767,
+      "decisionLatencyP99Ms": 0.09931400000001127
     }
   ],
   "perScenario": [
@@ -630,9 +630,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.002849999999995134,
-      "decisionLatencyP95Ms": 0.019845000000017862,
-      "decisionLatencyP99Ms": 0.026369000000019575
+      "decisionLatencyP50Ms": 0.0013999999999896318,
+      "decisionLatencyP95Ms": 0.009189999999998116,
+      "decisionLatencyP99Ms": 0.012158000000001149
     },
     {
       "scenarioId": "B",
@@ -658,9 +658,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0026099999999729556,
-      "decisionLatencyP99Ms": 0.004426000000004816
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.00045000000001209345,
+      "decisionLatencyP99Ms": 0.0024780000000299536
     },
     {
       "scenarioId": "C",
@@ -686,9 +686,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.00040500000001202324,
-      "decisionLatencyP99Ms": 0.00444599999999353
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.00029999999998437944,
+      "decisionLatencyP99Ms": 0.0020200000000431704
     },
     {
       "scenarioId": "D",
@@ -714,9 +714,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.00040500000001202324,
-      "decisionLatencyP99Ms": 0.003200000000006122
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0003999999999592774,
+      "decisionLatencyP99Ms": 0.0012190000000105994
     },
     {
       "scenarioId": "E",
@@ -742,9 +742,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.0006240000000315158
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.00030000000001280115,
+      "decisionLatencyP99Ms": 0.0006550000000021339
     },
     {
       "scenarioId": "F",
@@ -770,9 +770,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.002495999999990776
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP99Ms": 0.0005860000000194545
     },
     {
       "scenarioId": "G",
@@ -798,9 +798,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0004619999999977158
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0003310000000129778
     },
     {
       "scenarioId": "H",
@@ -826,9 +826,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003000000000383807,
-      "decisionLatencyP95Ms": 0.0006100000000202493,
-      "decisionLatencyP99Ms": 0.00134899999999277
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0002610000000260015
     },
     {
       "scenarioId": "I",
@@ -854,9 +854,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0003999999999592774,
-      "decisionLatencyP99Ms": 0.0006050000000084293
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00030000000000484305
     },
     {
       "scenarioId": "J",
@@ -882,9 +882,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0019470000000205885
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0006100000000310525
     },
     {
       "scenarioId": "K",
@@ -910,9 +910,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0003999999999876991,
-      "decisionLatencyP99Ms": 0.0011000000000080945
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00029999999999915874
     },
     {
       "scenarioId": "A",
@@ -938,9 +938,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0020000000000095497,
-      "decisionLatencyP95Ms": 0.031730000000035806,
-      "decisionLatencyP99Ms": 0.044106000000032834
+      "decisionLatencyP50Ms": 0.0005500000000040473,
+      "decisionLatencyP95Ms": 0.011299999999977208,
+      "decisionLatencyP99Ms": 0.015779999999966772
     },
     {
       "scenarioId": "B",
@@ -966,9 +966,9 @@
       "unnecessaryCompactionCount": 5,
       "meanStaticBreakEvenCallsAtCompaction": 20.322638039565746,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003000000000383807,
-      "decisionLatencyP95Ms": 0.0011900000000082348,
-      "decisionLatencyP99Ms": 0.005431000000003785
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0005149999999872525,
+      "decisionLatencyP99Ms": 0.0015679999999952039
     },
     {
       "scenarioId": "C",
@@ -994,9 +994,9 @@
       "unnecessaryCompactionCount": 7,
       "meanStaticBreakEvenCallsAtCompaction": 36.42543910631694,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.0010630000000173803
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0004999999999910187,
+      "decisionLatencyP99Ms": 0.000883999999984437
     },
     {
       "scenarioId": "D",
@@ -1023,8 +1023,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 1.9999934945793219,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003050000000371253,
-      "decisionLatencyP99Ms": 0.0004000000000132786
+      "decisionLatencyP95Ms": 0.0003050000000342831,
+      "decisionLatencyP99Ms": 0.0005210000000397479
     },
     {
       "scenarioId": "E",
@@ -1051,8 +1051,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 1.4933276422643138,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.0009170000000108319
+      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP99Ms": 0.00128200000000732
     },
     {
       "scenarioId": "F",
@@ -1079,8 +1079,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 22.399933631977166,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.00554300000001664
+      "decisionLatencyP95Ms": 0.0009300000000308711,
+      "decisionLatencyP99Ms": 0.006552999999982527
     },
     {
       "scenarioId": "G",
@@ -1106,9 +1106,9 @@
       "unnecessaryCompactionCount": 6,
       "meanStaticBreakEvenCallsAtCompaction": 103.87531044791041,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0004550000000347166
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0004549999999994722,
+      "decisionLatencyP99Ms": 0.0008620000000109944
     },
     {
       "scenarioId": "H",
@@ -1132,11 +1132,11 @@
       "averageUtilizationAtCompaction": 0.8313499999999999,
       "judgedCompactionCount": 2,
       "unnecessaryCompactionCount": 1,
-      "meanStaticBreakEvenCallsAtCompaction": 12.474889710396473,
+      "meanStaticBreakEvenCallsAtCompaction": 16.769333085762668,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0003000000000383807
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0005049999999897633,
+      "decisionLatencyP99Ms": 0.0007219999999892933
     },
     {
       "scenarioId": "I",
@@ -1162,9 +1162,9 @@
       "unnecessaryCompactionCount": 9,
       "meanStaticBreakEvenCallsAtCompaction": 23.231315257377737,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0003410000000280885
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0006820000000226393
     },
     {
       "scenarioId": "J",
@@ -1190,9 +1190,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.499989210913991,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.00033100000003059924
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0005619999999902352
     },
     {
       "scenarioId": "K",
@@ -1218,9 +1218,9 @@
       "unnecessaryCompactionCount": 5,
       "meanStaticBreakEvenCallsAtCompaction": 20.538418549116027,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003549999999933104,
-      "decisionLatencyP99Ms": 0.0009339999999849655
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0006000000000199179,
+      "decisionLatencyP99Ms": 0.011894999999997309
     },
     {
       "scenarioId": "A",
@@ -1246,9 +1246,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0005300000000175941,
-      "decisionLatencyP99Ms": 0.0005860000000194531
+      "decisionLatencyP50Ms": 0.0001999999999782176,
+      "decisionLatencyP95Ms": 0.001180000000002223,
+      "decisionLatencyP99Ms": 0.0015159999999974612
     },
     {
       "scenarioId": "B",
@@ -1272,11 +1272,11 @@
       "averageUtilizationAtCompaction": 0.7062083333333332,
       "judgedCompactionCount": 3,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 21.58782302528664,
+      "meanStaticBreakEvenCallsAtCompaction": 21.69247547963498,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003000000000383807,
-      "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.0004999999999881766
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00022100000000136727
     },
     {
       "scenarioId": "C",
@@ -1302,9 +1302,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 46.539790433815895,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0004000000000132786,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.0033460000000303416
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.001377999999976953
     },
     {
       "scenarioId": "D",
@@ -1330,9 +1330,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.9999935818194217,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003999999999564352,
-      "decisionLatencyP95Ms": 0.0006999999999948159,
-      "decisionLatencyP99Ms": 0.0008210000000212852
+      "decisionLatencyP50Ms": 0.00030000000000995897,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0007209999999895438
     },
     {
       "scenarioId": "E",
@@ -1358,9 +1358,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.4933311315605948,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003999999999564352,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.0008550000000479952
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0004999999999881766
     },
     {
       "scenarioId": "F",
@@ -1386,9 +1386,9 @@
       "unnecessaryCompactionCount": 41,
       "meanStaticBreakEvenCallsAtCompaction": 22.400282439925824,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0004000000000132786,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.0011619999999925316
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0005619999999902352
     },
     {
       "scenarioId": "G",
@@ -1414,9 +1414,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 115.18664721307516,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.00033100000003059924
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002549999999928329,
+      "decisionLatencyP99Ms": 0.000685999999976731
     },
     {
       "scenarioId": "H",
@@ -1440,11 +1440,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 1,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004050000000148654,
-      "decisionLatencyP99Ms": 0.0012320000000346446
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.00010000000003174137,
+      "decisionLatencyP99Ms": 0.00016100000001642906
     },
     {
       "scenarioId": "I",
@@ -1470,9 +1470,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 26.235519917339953,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.000581999999990898
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00024100000001965293
     },
     {
       "scenarioId": "J",
@@ -1498,9 +1498,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.5000029230327936,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP50Ms": 0.00010000000003174137,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.0003930000000326579
+      "decisionLatencyP99Ms": 0.0002000000000066393
     },
     {
       "scenarioId": "K",
@@ -1526,9 +1526,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 22.659124962690456,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0005619999999902352
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002549999999928329,
+      "decisionLatencyP99Ms": 0.0003309999999913773
     },
     {
       "scenarioId": "A",
@@ -1554,9 +1554,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0007200000000239011,
-      "decisionLatencyP99Ms": 0.0009440000000313373
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0005899999999826374,
+      "decisionLatencyP99Ms": 0.0007579999999722984
     },
     {
       "scenarioId": "B",
@@ -1582,9 +1582,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 23.286399726240546,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00020500000000538393,
-      "decisionLatencyP99Ms": 0.0003420000000397737
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0002000000000066393
     },
     {
       "scenarioId": "C",
@@ -1610,9 +1610,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 46.95703450813291,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.0004890000000267435
+      "decisionLatencyP50Ms": 0.0001999999999497959,
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.001041999999977746
     },
     {
       "scenarioId": "D",
@@ -1640,7 +1640,7 @@
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00036299999998959533
+      "decisionLatencyP99Ms": 0.0002630000000146974
     },
     {
       "scenarioId": "E",
@@ -1668,7 +1668,7 @@
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.0002309999999988579
+      "decisionLatencyP99Ms": 0.00029999999998153726
     },
     {
       "scenarioId": "F",
@@ -1694,9 +1694,9 @@
       "unnecessaryCompactionCount": 34,
       "meanStaticBreakEvenCallsAtCompaction": 22.400124676478214,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0001999999999497959,
-      "decisionLatencyP95Ms": 0.00035500000002457426,
-      "decisionLatencyP99Ms": 0.0009100000000125898
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.0004310000000054972
     },
     {
       "scenarioId": "G",
@@ -1722,9 +1722,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 117.33969845246007,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0001999999999497959,
+      "decisionLatencyP50Ms": 0.00010000000003174137,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.0004619999999761153
+      "decisionLatencyP99Ms": 0.00029300000000091655
     },
     {
       "scenarioId": "H",
@@ -1748,11 +1748,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 1,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
       "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.00029999999998153726
+      "decisionLatencyP99Ms": 0.0003000000000162117
     },
     {
       "scenarioId": "I",
@@ -1779,8 +1779,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 27.25937298678131,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00029999999998153726
+      "decisionLatencyP95Ms": 0.00020500000000538393,
+      "decisionLatencyP99Ms": 0.0003819999999842587
     },
     {
       "scenarioId": "J",
@@ -1806,9 +1806,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.5000152943111176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.012428000000007362
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.0004619999999977158
     },
     {
       "scenarioId": "K",
@@ -1834,9 +1834,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 23.511304624185808,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP50Ms": 0.00009999999997489795,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00048600000002693516
+      "decisionLatencyP99Ms": 0.0007030000000253296
     },
     {
       "scenarioId": "A",
@@ -1862,9 +1862,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000000331966,
-      "decisionLatencyP95Ms": 0.0003300000000109548,
-      "decisionLatencyP99Ms": 0.0003860000000128138
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0005249999999989538,
+      "decisionLatencyP99Ms": 0.0006649999999956434
     },
     {
       "scenarioId": "B",
@@ -1888,11 +1888,11 @@
       "averageUtilizationAtCompaction": 0.9162425000000001,
       "judgedCompactionCount": 2,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 22.545385145609785,
+      "meanStaticBreakEvenCallsAtCompaction": 23.14340241227802,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0001999999999497959,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.00042099999996310025
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00036299999998959533
     },
     {
       "scenarioId": "C",
@@ -1918,9 +1918,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 48.770377265898276,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.0002999999999934744
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0004000000000132786
     },
     {
       "scenarioId": "D",
@@ -1946,9 +1946,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.000004851331139,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003149999999806133,
-      "decisionLatencyP99Ms": 0.00274500000000441
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0004000000000132786
     },
     {
       "scenarioId": "E",
@@ -1974,9 +1974,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.4933288393452875,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0002549999999928329,
-      "decisionLatencyP99Ms": 0.00033100000003059924
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0002000000000066393
     },
     {
       "scenarioId": "F",
@@ -2002,9 +2002,9 @@
       "unnecessaryCompactionCount": 28,
       "meanStaticBreakEvenCallsAtCompaction": 22.400043020424192,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.0023459999999789864
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002549999999928329,
+      "decisionLatencyP99Ms": 0.0016719999999702422
     },
     {
       "scenarioId": "G",
@@ -2030,9 +2030,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 123.71450877246639,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00029999999998153726,
-      "decisionLatencyP99Ms": 0.0003000000000383807
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.000262000000008698
     },
     {
       "scenarioId": "H",
@@ -2056,11 +2056,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 1,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.000404999999958022,
-      "decisionLatencyP99Ms": 0.0004999999999881766
+      "decisionLatencyP95Ms": 0.00019999999995263807,
+      "decisionLatencyP99Ms": 0.0002000000000066393
     },
     {
       "scenarioId": "I",
@@ -2086,9 +2086,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 28.428987771669814,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000003174137,
-      "decisionLatencyP95Ms": 0.0002100000000069707,
-      "decisionLatencyP99Ms": 0.00048200000001600007
+      "decisionLatencyP50Ms": 0.00009999999997489795,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.000627999999992423
     },
     {
       "scenarioId": "J",
@@ -2115,8 +2115,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 2.4999923867649287,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.00009999999997489795,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.000262000000008698
+      "decisionLatencyP95Ms": 0.00019999999998105978,
+      "decisionLatencyP99Ms": 0.0015709999999796857
     },
     {
       "scenarioId": "K",
@@ -2142,9 +2142,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 24.158230181378787,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP50Ms": 0.00009999999997489795,
       "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00023100000001647936
+      "decisionLatencyP99Ms": 0.0004000000000132786
     },
     {
       "scenarioId": "A",
@@ -2170,9 +2170,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0005499999999756255,
-      "decisionLatencyP95Ms": 0.04384999999999476,
-      "decisionLatencyP99Ms": 0.06204999999999414
+      "decisionLatencyP50Ms": 0.0004000000000132786,
+      "decisionLatencyP95Ms": 0.034149999999968345,
+      "decisionLatencyP99Ms": 0.04842999999996492
     },
     {
       "scenarioId": "B",
@@ -2196,11 +2196,11 @@
       "averageUtilizationAtCompaction": 0.7062083333333332,
       "judgedCompactionCount": 3,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 21.58782302528664,
+      "meanStaticBreakEvenCallsAtCompaction": 21.69247547963498,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0026450000000266954,
-      "decisionLatencyP99Ms": 0.06730300000000813
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0008100000000268886,
+      "decisionLatencyP99Ms": 0.0014939999999927435
     },
     {
       "scenarioId": "C",
@@ -2226,9 +2226,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 46.539790433815895,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.0005470000000121855
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.00026300000000276027
     },
     {
       "scenarioId": "D",
@@ -2254,9 +2254,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.9999935818194217,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.002426000000040172
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0021610000000134477
     },
     {
       "scenarioId": "E",
@@ -2282,9 +2282,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.4933311315605948,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0006550000000061115,
-      "decisionLatencyP99Ms": 0.0007310000000046559
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.0004310000000054972
     },
     {
       "scenarioId": "F",
@@ -2310,9 +2310,9 @@
       "unnecessaryCompactionCount": 4,
       "meanStaticBreakEvenCallsAtCompaction": 22.40015888103928,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0004000000000132786,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.006701999999996279
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.000984999999991485,
+      "decisionLatencyP99Ms": 0.008250000000004445
     },
     {
       "scenarioId": "G",
@@ -2338,9 +2338,9 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 115.18664721307516,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0006000000000199179,
-      "decisionLatencyP99Ms": 0.0025600000000037108
+      "decisionLatencyP50Ms": 0.0001999999999782176,
+      "decisionLatencyP95Ms": 0.00035500000002457426,
+      "decisionLatencyP99Ms": 0.0016160000000076107
     },
     {
       "scenarioId": "H",
@@ -2364,11 +2364,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004000000000132786,
-      "decisionLatencyP99Ms": 0.0004000000000132786
+      "decisionLatencyP50Ms": 0.00014999999999076863,
+      "decisionLatencyP95Ms": 0.0003499999999803521,
+      "decisionLatencyP99Ms": 0.0014829999999813024
     },
     {
       "scenarioId": "I",
@@ -2394,8 +2394,8 @@
       "unnecessaryCompactionCount": 1,
       "meanStaticBreakEvenCallsAtCompaction": 26.235519917339953,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP50Ms": 0.00014999999999076863,
+      "decisionLatencyP95Ms": 0.0002100000000069707,
       "decisionLatencyP99Ms": 0.0004410000000029864
     },
     {
@@ -2422,9 +2422,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.5000029230327936,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.00035500000002457426,
-      "decisionLatencyP99Ms": 0.0007789999999886297
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0007099999999667283
     },
     {
       "scenarioId": "K",
@@ -2450,9 +2450,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 22.723514217266313,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004999999999881766,
-      "decisionLatencyP99Ms": 0.0007929999999890931
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0004000000000132786,
+      "decisionLatencyP99Ms": 0.0006620000000043551
     },
     {
       "scenarioId": "A",
@@ -2478,9 +2478,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.000985000000014224,
-      "decisionLatencyP99Ms": 0.0012370000000146318
+      "decisionLatencyP50Ms": 0.00029999999998153726,
+      "decisionLatencyP95Ms": 0.0031050000000391246,
+      "decisionLatencyP99Ms": 0.004141000000033727
     },
     {
       "scenarioId": "B",
@@ -2507,8 +2507,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 23.286399726240546,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00029999999998153726
+      "decisionLatencyP95Ms": 0.0005999999999659166,
+      "decisionLatencyP99Ms": 0.0008049999999923299
     },
     {
       "scenarioId": "C",
@@ -2535,8 +2535,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 46.95703450813291,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00022100000001330436
+      "decisionLatencyP95Ms": 0.0004999999999910187,
+      "decisionLatencyP99Ms": 0.0008519999999714325
     },
     {
       "scenarioId": "D",
@@ -2562,9 +2562,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.0000041891147005,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0001999999999497959,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.0002000000000066393
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.00040500000001202324,
+      "decisionLatencyP99Ms": 0.0007260000000121598
     },
     {
       "scenarioId": "E",
@@ -2591,8 +2591,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 1.4933342667104175,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0002000000000066393,
-      "decisionLatencyP99Ms": 0.00023100000001647936
+      "decisionLatencyP95Ms": 0.0005999999999943384,
+      "decisionLatencyP99Ms": 0.0014270000000101428
     },
     {
       "scenarioId": "F",
@@ -2618,9 +2618,9 @@
       "unnecessaryCompactionCount": 2,
       "meanStaticBreakEvenCallsAtCompaction": 22.400086903687882,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0005999999999630745,
-      "decisionLatencyP99Ms": 0.0006930000000141952
+      "decisionLatencyP50Ms": 0.0005000000000165983,
+      "decisionLatencyP95Ms": 0.0009000000000014552,
+      "decisionLatencyP99Ms": 0.001623999999968647
     },
     {
       "scenarioId": "G",
@@ -2647,8 +2647,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 117.33969845246007,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0005550000000096145
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.0006790000000137318
     },
     {
       "scenarioId": "H",
@@ -2672,11 +2672,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0001999999999497959,
-      "decisionLatencyP95Ms": 0.00020500000000538393,
-      "decisionLatencyP99Ms": 0.0006659999999936868
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0006150000000189939,
+      "decisionLatencyP99Ms": 0.0019370000000185417
     },
     {
       "scenarioId": "I",
@@ -2703,8 +2703,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 27.25937298678131,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0003000000000383807
+      "decisionLatencyP95Ms": 0.00029999999998437944,
+      "decisionLatencyP99Ms": 0.0004230000000075041
     },
     {
       "scenarioId": "J",
@@ -2731,8 +2731,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 2.5000152943111176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0005309999999980166
+      "decisionLatencyP95Ms": 0.00029999999998153726,
+      "decisionLatencyP99Ms": 0.00036200000002281786
     },
     {
       "scenarioId": "K",
@@ -2759,8 +2759,8 @@
       "meanStaticBreakEvenCallsAtCompaction": 23.459256433347367,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
       "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0004550000000307361,
-      "decisionLatencyP99Ms": 0.0009000000000014552
+      "decisionLatencyP95Ms": 0.00035500000002457426,
+      "decisionLatencyP99Ms": 0.001161999999970931
     },
     {
       "scenarioId": "A",
@@ -2786,9 +2786,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002499999999940883,
-      "decisionLatencyP95Ms": 0.000819999999981746,
-      "decisionLatencyP99Ms": 0.0010439999999573499
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0003300000000109548,
+      "decisionLatencyP99Ms": 0.0003860000000128138
     },
     {
       "scenarioId": "B",
@@ -2812,11 +2812,11 @@
       "averageUtilizationAtCompaction": 0.9162425000000001,
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 22.545385145609785,
+      "meanStaticBreakEvenCallsAtCompaction": 23.14340241227802,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003050000000371253,
-      "decisionLatencyP99Ms": 0.0007209999999895438
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0003420000000278366
     },
     {
       "scenarioId": "C",
@@ -2842,9 +2842,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 48.770377265898276,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002499999999940883,
-      "decisionLatencyP95Ms": 0.0003000000000383807,
-      "decisionLatencyP99Ms": 0.0005210000000397479
+      "decisionLatencyP50Ms": 0.0001999999999497959,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0003209999999882023
     },
     {
       "scenarioId": "D",
@@ -2870,9 +2870,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.000004851331139,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0003050000000371253,
-      "decisionLatencyP99Ms": 0.0005420000000344758
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002000000000066393,
+      "decisionLatencyP99Ms": 0.0004000000000132786
     },
     {
       "scenarioId": "E",
@@ -2898,9 +2898,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 1.4933288393452875,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002499999999940883,
-      "decisionLatencyP95Ms": 0.00035500000002457426,
-      "decisionLatencyP99Ms": 0.0006620000000043551
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0004549999999994722,
+      "decisionLatencyP99Ms": 0.0018000000000029104
     },
     {
       "scenarioId": "F",
@@ -2926,9 +2926,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 22.400043020424192,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0003000000000383807,
-      "decisionLatencyP95Ms": 0.00050000000004502,
-      "decisionLatencyP99Ms": 0.0006620000000219766
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0005000000000194404,
+      "decisionLatencyP99Ms": 0.0007239999999848133
     },
     {
       "scenarioId": "G",
@@ -2954,9 +2954,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 123.71450877246639,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.0002000000000066393,
-      "decisionLatencyP95Ms": 0.0018300000000010623,
-      "decisionLatencyP99Ms": 0.0034199999999822285
+      "decisionLatencyP50Ms": 0.0001999999999782176,
+      "decisionLatencyP95Ms": 0.0005099999999856658,
+      "decisionLatencyP99Ms": 0.0030920000000389863
     },
     {
       "scenarioId": "H",
@@ -2980,11 +2980,11 @@
       "averageUtilizationAtCompaction": 1.16264,
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.9043571622437825,
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0004350000000130174,
-      "decisionLatencyP99Ms": 0.0011000000000080945
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.00025500000000704094,
+      "decisionLatencyP99Ms": 0.0013000000000147338
     },
     {
       "scenarioId": "I",
@@ -3010,9 +3010,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 28.428987771669814,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0007099999999951472,
-      "decisionLatencyP99Ms": 0.0027640000000349104
+      "decisionLatencyP50Ms": 0.0001999999999497959,
+      "decisionLatencyP95Ms": 0.0003050000000371253,
+      "decisionLatencyP99Ms": 0.0022629999999884227
     },
     {
       "scenarioId": "J",
@@ -3038,9 +3038,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.4999923867649287,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0005099999999856658,
-      "decisionLatencyP99Ms": 0.0008310000000187758
+      "decisionLatencyP50Ms": 0.00010000000003174137,
+      "decisionLatencyP95Ms": 0.0002549999999928329,
+      "decisionLatencyP99Ms": 0.0003309999999913773
     },
     {
       "scenarioId": "K",
@@ -3066,9 +3066,9 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 24.158230181378787,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.00029999999998153726,
-      "decisionLatencyP95Ms": 0.0005549999999743702,
-      "decisionLatencyP99Ms": 0.001155000000011911
+      "decisionLatencyP50Ms": 0.0002000000000066393,
+      "decisionLatencyP95Ms": 0.0003000000000383807,
+      "decisionLatencyP99Ms": 0.000992999999974132
     },
     {
       "scenarioId": "A",
@@ -3094,72 +3094,72 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": null,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": null,
-      "decisionLatencyP50Ms": 0.11395000000001687,
-      "decisionLatencyP95Ms": 1.9435350000000042,
-      "decisionLatencyP99Ms": 2.655827000000023
+      "decisionLatencyP50Ms": 0.07735000000002401,
+      "decisionLatencyP95Ms": 0.878639999999981,
+      "decisionLatencyP99Ms": 1.1725279999999807
     },
     {
       "scenarioId": "B",
       "scenarioName": "long-tool-task",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 6.37251225,
-      "totalPromptTokens": 8305197,
-      "totalCachedTokens": 7799240,
+      "totalSimulatedCost": 6.446622750000002,
+      "totalPromptTokens": 8610952,
+      "totalCachedTokens": 8096765,
       "totalOutputTokens": 48000,
       "totalOfferedGrowthTokens": 389773,
       "growthSequenceFingerprint": "69575e39",
-      "compactionAttemptCount": 3,
-      "successfulCompactionCount": 3,
+      "compactionAttemptCount": 2,
+      "successfulCompactionCount": 2,
       "failedCompactionCount": 0,
-      "economicAttemptCount": 1,
+      "economicAttemptCount": 0,
       "forcedAttemptCount": 2,
       "forceDecisionCount": 2,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 22582,
-      "averageUtilizationAtCompaction": 0.62813,
-      "judgedCompactionCount": 1,
+      "minRemainingHeadroom": 20659,
+      "averageUtilizationAtCompaction": 0.9162425000000001,
+      "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 15.904160054150799,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 17.697434770485597,
-      "decisionLatencyP50Ms": 0.020749999999964075,
-      "decisionLatencyP95Ms": 0.06022500000004795,
-      "decisionLatencyP99Ms": 0.4381270000000216
+      "meanStaticBreakEvenCallsAtCompaction": 23.14340241227802,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 26.604944252491904,
+      "decisionLatencyP50Ms": 0.00925000000000864,
+      "decisionLatencyP95Ms": 0.04672999999995681,
+      "decisionLatencyP99Ms": 0.20399799999997728
     },
     {
       "scenarioId": "C",
       "scenarioName": "cache-alive",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 6.242230399999998,
-      "totalPromptTokens": 8949990,
-      "totalCachedTokens": 8261294,
+      "totalSimulatedCost": 6.2505557,
+      "totalPromptTokens": 9399784,
+      "totalCachedTokens": 8695667,
       "totalOutputTokens": 40000,
       "totalOfferedGrowthTokens": 482823,
       "growthSequenceFingerprint": "aafbf230",
-      "compactionAttemptCount": 4,
-      "successfulCompactionCount": 4,
+      "compactionAttemptCount": 3,
+      "successfulCompactionCount": 3,
       "failedCompactionCount": 0,
-      "economicAttemptCount": 1,
+      "economicAttemptCount": 0,
       "forcedAttemptCount": 3,
       "forceDecisionCount": 3,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 23156,
-      "averageUtilizationAtCompaction": 0.71614875,
-      "judgedCompactionCount": 1,
-      "unnecessaryCompactionCount": 1,
-      "meanStaticBreakEvenCallsAtCompaction": 38.9008880506402,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 44.33785010324503,
-      "decisionLatencyP50Ms": 0.016050000000007003,
-      "decisionLatencyP95Ms": 0.034574999999983896,
-      "decisionLatencyP99Ms": 0.08075800000003805
+      "minRemainingHeadroom": 20205,
+      "averageUtilizationAtCompaction": 0.9199299999999999,
+      "judgedCompactionCount": 0,
+      "unnecessaryCompactionCount": 0,
+      "meanStaticBreakEvenCallsAtCompaction": 48.770377265898276,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 50.68871433101781,
+      "decisionLatencyP50Ms": 0.008399999999994634,
+      "decisionLatencyP95Ms": 0.014304999999993129,
+      "decisionLatencyP99Ms": 0.022315999999984105
     },
     {
       "scenarioId": "D",
       "scenarioName": "cache-expired",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 9.516846750000003,
-      "totalPromptTokens": 1452421,
+      "totalSimulatedCost": 9.5736135,
+      "totalPromptTokens": 1456198,
       "totalCachedTokens": 0,
       "totalOutputTokens": 40000,
       "totalOfferedGrowthTokens": 477064,
@@ -3172,22 +3172,22 @@
       "forceDecisionCount": 0,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 165633,
-      "averageUtilizationAtCompaction": 0.14830019230769229,
+      "minRemainingHeadroom": 171316,
+      "averageUtilizationAtCompaction": 0.15012153846153847,
       "judgedCompactionCount": 26,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.0000234804377715,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 2.0205186410401024,
-      "decisionLatencyP50Ms": 0.016799999999989268,
-      "decisionLatencyP95Ms": 0.023040000000025884,
-      "decisionLatencyP99Ms": 0.041406999999968504
+      "meanStaticBreakEvenCallsAtCompaction": 2.000012676751861,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 2.020513600733357,
+      "decisionLatencyP50Ms": 0.008049999999997226,
+      "decisionLatencyP95Ms": 0.015969999999958864,
+      "decisionLatencyP99Ms": 0.030214000000038665
     },
     {
       "scenarioId": "E",
       "scenarioName": "good-compactor",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 5.880824999999999,
-      "totalPromptTokens": 831420,
+      "totalSimulatedCost": 5.9006355,
+      "totalPromptTokens": 826914,
       "totalCachedTokens": 0,
       "totalOutputTokens": 35000,
       "totalOfferedGrowthTokens": 413068,
@@ -3200,22 +3200,22 @@
       "forceDecisionCount": 0,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 176571,
-      "averageUtilizationAtCompaction": 0.11583804347826086,
+      "minRemainingHeadroom": 181131,
+      "averageUtilizationAtCompaction": 0.11773826086956518,
       "judgedCompactionCount": 23,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 1.49334762960938,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 1.594302032974565,
-      "decisionLatencyP50Ms": 0.017299999999977445,
-      "decisionLatencyP95Ms": 0.044275000000061474,
-      "decisionLatencyP99Ms": 0.050582999999944624
+      "meanStaticBreakEvenCallsAtCompaction": 1.493340570842852,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 1.594299315406205,
+      "decisionLatencyP50Ms": 0.011149999999986449,
+      "decisionLatencyP95Ms": 0.02575000000001065,
+      "decisionLatencyP99Ms": 0.06999399999999015
     },
     {
       "scenarioId": "F",
       "scenarioName": "bad-compactor",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 59.204808,
-      "totalPromptTokens": 9957140,
+      "totalSimulatedCost": 59.197701,
+      "totalPromptTokens": 9943664,
       "totalCachedTokens": 0,
       "totalOutputTokens": 35000,
       "totalOfferedGrowthTokens": 422496,
@@ -3228,15 +3228,15 @@
       "forceDecisionCount": 25,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 20225,
-      "averageUtilizationAtCompaction": 0.8468459999999999,
+      "minRemainingHeadroom": 20034,
+      "averageUtilizationAtCompaction": 0.8485703333333335,
       "judgedCompactionCount": 5,
       "unnecessaryCompactionCount": 5,
-      "meanStaticBreakEvenCallsAtCompaction": 22.40032422897754,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 15.701028391449908,
-      "decisionLatencyP50Ms": 0.01094999999997981,
-      "decisionLatencyP95Ms": 0.018510000000031807,
-      "decisionLatencyP99Ms": 0.030665000000025207
+      "meanStaticBreakEvenCallsAtCompaction": 22.400439640596623,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 15.700991440321157,
+      "decisionLatencyP50Ms": 0.015399999999999636,
+      "decisionLatencyP95Ms": 0.026369999999988625,
+      "decisionLatencyP99Ms": 0.04124200000000203
     },
     {
       "scenarioId": "G",
@@ -3261,66 +3261,66 @@
       "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 123.71450877246639,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 70.57465224852383,
-      "decisionLatencyP50Ms": 0.008400000000051477,
-      "decisionLatencyP95Ms": 0.013164999999941073,
-      "decisionLatencyP99Ms": 0.015203000000041132
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 67.10757540401681,
+      "decisionLatencyP50Ms": 0.014849999999967167,
+      "decisionLatencyP95Ms": 0.020370000000019668,
+      "decisionLatencyP99Ms": 0.07799200000001184
     },
     {
       "scenarioId": "H",
       "scenarioName": "sudden-growth",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 2.4124712999999995,
-      "totalPromptTokens": 2190180,
-      "totalCachedTokens": 2042226,
+      "totalSimulatedCost": 2.500623000000001,
+      "totalPromptTokens": 2411500,
+      "totalCachedTokens": 2252480,
       "totalOutputTokens": 16000,
       "totalOfferedGrowthTokens": 261065,
       "growthSequenceFingerprint": "2ce2e3b6",
-      "compactionAttemptCount": 2,
-      "successfulCompactionCount": 2,
+      "compactionAttemptCount": 1,
+      "successfulCompactionCount": 1,
       "failedCompactionCount": 0,
-      "economicAttemptCount": 1,
+      "economicAttemptCount": 0,
       "forcedAttemptCount": 1,
       "forceDecisionCount": 1,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 94258,
-      "averageUtilizationAtCompaction": 0.5904425,
-      "judgedCompactionCount": 1,
+      "minRemainingHeadroom": 91705,
+      "averageUtilizationAtCompaction": 1.16264,
+      "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 2.2556666897793547,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 2.3530434534666336,
-      "decisionLatencyP50Ms": 0.008300000000019736,
-      "decisionLatencyP95Ms": 0.013415000000043163,
-      "decisionLatencyP99Ms": 0.01400499999996441
+      "meanStaticBreakEvenCallsAtCompaction": 11.493243912976176,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 15.81320300104431,
+      "decisionLatencyP50Ms": 0.008100000000013097,
+      "decisionLatencyP95Ms": 0.01382500000003399,
+      "decisionLatencyP99Ms": 0.0401140000000123
     },
     {
       "scenarioId": "I",
       "scenarioName": "compaction-churn",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 8.617895850000002,
-      "totalPromptTokens": 7183472,
-      "totalCachedTokens": 6312647,
+      "totalSimulatedCost": 8.603326799999996,
+      "totalPromptTokens": 6486336,
+      "totalCachedTokens": 5592406,
       "totalOutputTokens": 30000,
       "totalOfferedGrowthTokens": 541389,
       "growthSequenceFingerprint": "2753b4a8",
       "compactionAttemptCount": 5,
       "successfulCompactionCount": 5,
       "failedCompactionCount": 0,
-      "economicAttemptCount": 1,
-      "forcedAttemptCount": 4,
-      "forceDecisionCount": 4,
+      "economicAttemptCount": 3,
+      "forcedAttemptCount": 2,
+      "forceDecisionCount": 2,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 20161,
-      "averageUtilizationAtCompaction": 0.751104,
-      "judgedCompactionCount": 1,
-      "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 23.061698369612476,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 23.781678669968166,
-      "decisionLatencyP50Ms": 0.014200000000016644,
-      "decisionLatencyP95Ms": 0.04621999999998813,
-      "decisionLatencyP99Ms": 0.08011800000001355
+      "minRemainingHeadroom": 21912,
+      "averageUtilizationAtCompaction": 0.775268,
+      "judgedCompactionCount": 3,
+      "unnecessaryCompactionCount": 2,
+      "meanStaticBreakEvenCallsAtCompaction": 26.742601990765046,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 23.858213400300436,
+      "decisionLatencyP50Ms": 0.010050000000006776,
+      "decisionLatencyP95Ms": 0.030265000000005468,
+      "decisionLatencyP99Ms": 0.3252539999999863
     },
     {
       "scenarioId": "J",
@@ -3346,45 +3346,45 @@
       "unnecessaryCompactionCount": 0,
       "meanStaticBreakEvenCallsAtCompaction": 2.500031181475299,
       "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 2.528976117442514,
-      "decisionLatencyP50Ms": 0.013599999999996726,
-      "decisionLatencyP95Ms": 0.025674999999984037,
-      "decisionLatencyP99Ms": 0.03594099999993093
+      "decisionLatencyP50Ms": 0.0072499999999990905,
+      "decisionLatencyP95Ms": 0.019755000000003502,
+      "decisionLatencyP99Ms": 0.044867999999989444
     },
     {
       "scenarioId": "K",
       "scenarioName": "flaky-compactor",
       "strategyId": "foldpoint",
-      "totalSimulatedCost": 9.23169045,
-      "totalPromptTokens": 7934262,
-      "totalCachedTokens": 7234119,
+      "totalSimulatedCost": 9.37381725,
+      "totalPromptTokens": 8219470,
+      "totalCachedTokens": 7505645,
       "totalOutputTokens": 35000,
       "totalOfferedGrowthTokens": 497720,
       "growthSequenceFingerprint": "1e5a91b0",
-      "compactionAttemptCount": 6,
-      "successfulCompactionCount": 4,
+      "compactionAttemptCount": 5,
+      "successfulCompactionCount": 3,
       "failedCompactionCount": 2,
-      "economicAttemptCount": 1,
+      "economicAttemptCount": 0,
       "forcedAttemptCount": 5,
       "forceDecisionCount": 5,
       "overflowCount": 0,
       "overflowRecoveryCount": 0,
-      "minRemainingHeadroom": 13105,
-      "averageUtilizationAtCompaction": 0.7892616666666666,
-      "judgedCompactionCount": 1,
+      "minRemainingHeadroom": 6618,
+      "averageUtilizationAtCompaction": 0.949181,
+      "judgedCompactionCount": 0,
       "unnecessaryCompactionCount": 0,
-      "meanStaticBreakEvenCallsAtCompaction": 18.591651590855957,
-      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 19.95477440711491,
-      "decisionLatencyP50Ms": 0.01630000000000109,
-      "decisionLatencyP95Ms": 0.022374999999965436,
-      "decisionLatencyP99Ms": 0.031363999999962325
+      "meanStaticBreakEvenCallsAtCompaction": 24.158230181378787,
+      "meanFoldPointEstimatedBreakEvenCallsAtCompaction": 25.116430348831276,
+      "decisionLatencyP50Ms": 0.007399999999961437,
+      "decisionLatencyP95Ms": 0.013680000000024957,
+      "decisionLatencyP99Ms": 0.026825000000020572
     }
   ],
   "microBenchmark": {
     "iterations": 100000,
-    "totalMs": 216.11969999999997,
-    "nanosecondsPerDecision": 2161.1969999999997,
-    "p50Ms": 0.0014999999999645297,
-    "p95Ms": 0.004199999999968895,
-    "p99Ms": 0.0072000000000116415
+    "totalMs": 169.5319,
+    "nanosecondsPerDecision": 1695.319,
+    "p50Ms": 0.0009000000000014552,
+    "p95Ms": 0.0039000000000442014,
+    "p99Ms": 0.006100000000003547
   }
 }

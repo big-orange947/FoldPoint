@@ -169,18 +169,19 @@ attempts. `judgedCompactionCount` reports how many compactions the metric actual
 | `decisionLatencyP50/P95/P99Ms` | wall-clock time around the strategy's decision call |
 
 The static inputs are recorded per compaction (`staticBreakEvenInputs`) so any value can be
-recomputed with the exported solver. They are the core's rule evaluated on the simulation's
-exact cache state: `C_now` is this call as it really is (including a write when the prefix is
-not alive), `C_later` is the forecast for the calls after it, `K` is the attempt cost, `F` is
-the post-compaction prefix write, and `L` follows from the scenario's policy and the same
-`laterAliveProbability` the engine uses. Model output tokens are excluded from all five because
-they are identical on both sides and cancel.
+recomputed with the exported solver. They are the core's rule evaluated on the inputs the host
+reports, plus the hit rate this host has observed: `C_now` is this call as it really is
+(including a write when the prefix is not alive), `C_later` is the forecast for the calls after
+it, `K` is the attempt cost, `F` is the post-compaction prefix write, and `L` follows from the
+scenario's policy and the same `laterCandidateTokens` / `laterAliveProbability` the engine uses.
+Model output tokens are excluded from all five because they are identical on both sides and
+cancel.
 
-`C_now` and `C_later` are separate on purpose. A call that finds the cache lapsed writes its
-whole prompt at the cache-write price; the later calls it enables do not have to, and the
-forecast does not inherit this call's verdict. In a scenario where every gap exceeds the TTL,
-the host reports no served prefix, so both are priced as writes and the model still sees the
-true regime.
+`C_now` and `C_later` are separate on purpose, and so are the prefixes they use. A call that
+finds the cache lapsed writes its whole prompt at the cache-write price; the later calls it
+enables do not have to, and the forecast neither inherits this call's verdict nor reuses its
+served-token count. In a scenario where every gap exceeds the TTL, the observed hit rate falls
+to zero, so both are priced as writes and the model still sees the true regime.
 
 ## Determinism and fairness auditing
 
@@ -224,16 +225,16 @@ Two runs produce identical costs, token counts, attempt counts and decision outc
 | Fixed 70% guarded | 191.32 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 20,149 | 0.807 |
 | Fixed 80% guarded | 199.07 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 18,996 | 0.869 |
 | Fixed 90% guarded | 208.35 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 6,618 | 0.922 |
-| **FoldPoint** | **136.00** | 125 | 123 | 2 | 82 | 43 | 82 | **6** | **0** | 13,105 | 0.419 |
+| **FoldPoint** | **136.37** | 121 | 119 | 2 | 80 | 41 | 80 | **7** | **0** | 6,618 | 0.434 |
 
 Read that honestly:
 
 - FoldPoint is the cheapest strategy in aggregate, and it never overflows. The cost advantage
   comes from the scenarios where the cache does not save the session (`D`, `E`, `J`), where
   every call replays the whole context and keeping the context small is directly cheaper: in
-  `D` FoldPoint spends 9.52 against 23.67 for the cheapest fixed threshold, in `E` 5.88 against
+  `D` FoldPoint spends 9.57 against 23.67 for the cheapest fixed threshold, in `E` 5.90 against
   18.16, in `J` 7.30 against 17.09.
-- **FoldPoint also compacts more often than the 70/80/90% baselines** (125 attempts against
+- **FoldPoint also compacts more often than the 70/80/90% baselines** (121 attempts against
   55–81). In the cold-cache scenarios it keeps the context near 12–15% of the window and
   compacts roughly every cooldown period, because each of those compactions repays itself.
   Fewer compactions would cost more tokens; more compactions mean more exposure to potential
@@ -248,8 +249,10 @@ Read that honestly:
 - Scenario `F` (a compactor that reclaims 5%) is the honest counter-example for the cold-start
   prior: FoldPoint still compacts while its learned retention ratio is walking from the 0.40
   default towards the real 0.95, and it is not the cheapest strategy there (59.20 against 53.24
-  for the 50% baseline). It is also not the cheapest in `G` (21.05 against 19.10 for the 80%
-  baseline) or in `K` (9.23 against 8.92 for the guarded 70% baseline).
+  for the 50% baseline). It is also not the cheapest in `B` (6.45 against 6.21), `G` (21.05
+  against 19.10) or `K` (9.37 against 8.92 for the guarded 70% baseline). In `B`, `C`, `G`, `H`
+  and `K` every compaction it runs is a window-safety `FORCE`: the model judges that the cache
+  makes keeping cheap enough that no economic compaction is repaid.
 - Scenario `K` is where the failure handling shows: half of all attempts fail, and the cooldown
   keeps the retries from turning into a storm.
 
@@ -260,14 +263,13 @@ coverage applied to a counterfactual prompt) and quoted `meanBreakEvenCallsAtCom
 it were a ground-truth payback. Both are withdrawn:
 
 - the metric is now measured against the shadow branch described above, and it is stricter:
-  FoldPoint moves from 5 to 6 unnecessary compactions, from a 4% to a 7% rate over the judged
+  FoldPoint moved from 5 to 6 unnecessary compactions, from a 4% to a 7% rate over the judged
   set;
 - the static metric is renamed `meanStaticBreakEvenCallsAtCompaction` because it is a local,
   static estimate, not the session's dynamic payback. The dynamic answer is the shadow branch's
   `realizedSaving`.
 
-The billing semantics were unified afterwards, and the costs moved again (FoldPoint 136.44 →
-136.00 in aggregate):
+The billing semantics were unified afterwards (FoldPoint 136.44 → 136.00 in aggregate):
 
 - a call that rebuilds a lapsed prefix is billed at the cache-write price. Earlier revisions
   billed the *current* call at the plain input price while the simulator billed it at the write
@@ -279,10 +281,27 @@ The billing semantics were unified afterwards, and the costs moved again (FoldPo
 - a prompt is only billed at the write price when caching is in play, so a profile without a
   cache discount (scenario `J`) is priced as plain input on both sides.
 
+Two bugs in that revision were fixed after review (FoldPoint 136.00 → 136.37, 125 → 121
+attempts, 6 → 7 unneeded of 80 judged):
+
+- the later-call candidate reused this call's served-token count, so a host that reported
+  `cachedTokens: 0` for a lapsed prefix — the behaviour
+  [docs/integration.md](../docs/integration.md) asks for — had every future call priced as a
+  rewrite. The reusable prefix is now its own quantity, and both reporting styles reach the
+  same decision;
+- `computeBreakEvenCalls` returned `null` as soon as `C_later - L <= 0`, which reported "no
+  recurring saving" as "never worth it" even when the compaction was already cheaper than the
+  current call alone. Immediate repayment is now checked first.
+
+The corrected economics make FoldPoint compact less often in the warm scenarios (`B`, `C`,
+`H`, `K` now run no economic compaction at all) and more often in the churn scenario `I`. The
+numbers in the table above are the current ones; the earlier 136.00 / 6 of 82 rows are
+withdrawn with the bugs.
+
 ## Conclusion discipline
 
 These results may be described as **a reproducible cost comparison over synthetic scenarios**.
-6 of 82 judged compactions did not repay themselves *within these scenarios and their
+7 of 80 judged compactions did not repay themselves *within these scenarios and their
 settlement intervals*; the costs, counts and overflows reproduce exactly from the committed
 seeds.
 

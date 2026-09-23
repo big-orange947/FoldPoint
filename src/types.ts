@@ -196,6 +196,12 @@ export interface FoldPointDecisionMetrics {
    * forecast.
    */
   estimatedCacheLaterAliveProbability: number;
+  /**
+   * Tokens a *later* call could reuse from the prefix this call leaves behind. Deliberately
+   * not `estimatedEffectiveCachedTokens`: a host that reports no served prefix because the
+   * cache lapsed still leaves a prefix behind.
+   */
+  estimatedCacheLaterCandidateTokens: number;
   /** candidateCachedTokens * aliveProbability. */
   estimatedEffectiveCachedTokens: number;
 

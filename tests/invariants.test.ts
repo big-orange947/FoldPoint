@@ -106,7 +106,9 @@ describe("17.5 numeric edges", () => {
 
     expectAllMetricsFinite(decision);
     expect(decision.metrics.estimatedSavingPerFutureCall).toBe(0);
-    expect(decision.metrics.breakEvenCalls).toBeNull();
+    // With every price at zero, compacting is trivially not more expensive than the current
+    // call, so the solver reports "already repaid" rather than "no saving".
+    expect(decision.metrics.breakEvenCalls).toBe(0);
     expect(decision.action).toBe("KEEP");
   });
 

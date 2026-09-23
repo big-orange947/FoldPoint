@@ -345,7 +345,7 @@ of those did not repay themselves:
 | Fixed 70% guarded | 191.32 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 0.807 |
 | Fixed 80% guarded | 199.07 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 0.869 |
 | Fixed 90% guarded | 208.35 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 0.922 |
-| **FoldPoint** | **136.00** | 125 | 123 | 2 | 82 | 43 | 82 | **6** | **0** | 0.419 |
+| **FoldPoint** | **136.37** | 121 | 119 | 2 | 80 | 41 | 80 | **7** | **0** | 0.434 |
 
 Costs, token counts and attempt counts are deterministic and reproduce exactly; latency is
 machine- and run-dependent, so the README does not quote it — the recorded values are in the
@@ -364,27 +364,30 @@ Honest reading of that table:
 
 - FoldPoint is the cheapest strategy in aggregate and never overflows. The advantage comes from
   the scenarios where the cache does not save the session: keeping the context small is
-  directly cheaper there (scenario `D` 9.52 against 23.67 for the cheapest baseline, `E` 5.88
+  directly cheaper there (scenario `D` 9.57 against 23.67 for the cheapest baseline, `E` 5.90
   against 18.16, `J` 7.30 against 17.09).
-- **FoldPoint also compacts more often than the 70/80/90% baselines** (125 attempts against
+- **FoldPoint also compacts more often than the 70/80/90% baselines** (121 attempts against
   55–81). Each of those compactions repays itself, but more compactions mean more exposures to
   potential information loss. Raise `minCallsBetweenCompactions` or `minReclaimRatio` to trade
   cost back for fewer compactions.
-- It is not the cheapest strategy everywhere: `F` (a compactor that reclaims 5%) costs 59.20
-  against 53.24 for the 50% baseline, `G` (an expensive compaction call) 21.05 against 19.10
-  for the 80% baseline, and `K` (half of all attempts fail) 9.23 against 8.92 for the guarded
-  70% baseline. `F` is also where 5 of the 6 unneeded compactions happen: the cold-start prior
-  keeps compacting while the learned retention ratio walks towards the real 0.95.
+- It is not the cheapest strategy everywhere: `B` (a stable replayed prefix) costs 6.45 against
+  6.21, `F` (a compactor that reclaims 5%) 59.20 against 53.24, `G` (an expensive compaction
+  call) 21.05 against 19.10, and `K` (half of all attempts fail) 9.37 against 8.92. In `B`,
+  `C`, `G`, `H` and `K` every compaction FoldPoint runs is a window-safety `FORCE`: it decides
+  the cache makes keeping cheap enough that no economic compaction is repaid.
+- 5 of the 7 unneeded compactions happen in `F`: the cold-start prior keeps compacting while
+  the learned retention ratio walks towards the real 0.95. The other 2 are in `I`, where the
+  context regrows fast enough that a compaction that looked repaid was not.
 - The guarded baselines isolate the guards from the economics: guarded 70% cuts unnecessary
   compactions from 44 to 7 at the same cost, so most of the raw baselines' churn was the
   missing cooldown, not the threshold.
-- FoldPoint's 6 unnecessary compactions out of 82 judged (7%) compare with 29–89 out of 53–109
+- FoldPoint's 7 unnecessary compactions out of 80 judged (9%) compare with 29–89 out of 53–109
   (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
 - Scenario `K` (half of all attempts fail) is where the failure handling shows: failures are
   billed, teach nothing, and restart the cooldown instead of turning into a retry storm.
 
 What may be claimed from this table: **a reproducible cost comparison over synthetic
-scenarios**. 6 of 82 judged compactions did not repay themselves *within these scenarios and
+scenarios**. 7 of 80 judged compactions did not repay themselves *within these scenarios and
 their settlement intervals*; the counts, costs and overflows reproduce exactly from the
 committed seeds. **Task quality and real provider traces still need separate validation**, and
 fewer compactions reduce the number of exposures to potential information loss without proving
@@ -394,7 +397,7 @@ Earlier revisions of this README quoted numbers that are now withdrawn:
 
 - "5 unnecessary compactions" and "a 4% unnecessary rate" came from an approximate
   counterfactual (the actual cache coverage applied to a counterfactual prompt). They are
-  replaced by the measured counterfactual above, which is stricter (6 of 82 judged, 7%).
+  replaced by the measured counterfactual, which is stricter.
 - A call whose cache prefix had lapsed used to be billed at the plain input price. It is now
   billed at the cache-write price, like the first replay after a compaction, because that is
   what the request actually costs. With no `cacheWritePerMillion` the two are identical.
@@ -402,6 +405,10 @@ Earlier revisions of this README quoted numbers that are now withdrawn:
   every future call as if it too would find the cache gone. It now prices the current call
   (including the write it really has to do) separately from the later calls, which are a
   forecast. See [docs/algorithm.md](docs/algorithm.md).
+- The later-call forecast used to reuse this call's hit count as the reusable prefix, so a host
+  that followed [docs/integration.md](docs/integration.md) and reported `cachedTokens: 0` for a
+  lapsed prefix saw every future call priced as a rewrite. The reusable prefix is now a
+  separate quantity (the reported prefix, the learned coverage, or the prompt just sent).
 
 ## Current limitations
 

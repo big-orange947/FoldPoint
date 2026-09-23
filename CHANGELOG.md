@@ -6,6 +6,54 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Cache-forecast review fixes
+
+Two bugs in the previous revision, found in review. Both are fixed with exact regression
+tests; the report was regenerated.
+
+**Fixed**
+
+- The later-call forecast reused this call's served-token count as the reusable prefix. A host
+  that follows `docs/integration.md` and reports `cachedTokens: 0` for a lapsed prefix therefore
+  had *every* later call priced as a full cache write, even though
+  `laterAliveProbability` said the prefix survives. `estimateCacheModel` now reports
+  `laterCandidateTokens` as its own quantity, resolved as the largest prefix the evidence
+  supports: what this call was served, else the learned coverage, else the whole prompt the
+  provider was just sent. Reporting `0` and reporting the lapsed prefix size now reach the same
+  decision, and the estimate is monotone in `cachedTokens` (the existing invariant test caught
+  the first version of this fix, which was not).
+- `computeBreakEvenCalls` returned `null` as soon as `C_later - L <= 0`, and the economic gate
+  treats `null` as "never compact". That reported "no recurring saving" as "not worth doing"
+  even when the compaction was already cheaper than the current call alone
+  (`C_now = 8, C_later = 1, K = 1, F = 1, L = 2` → keep 8 against compact 2). The immediate
+  repayment check (`K + F <= C_now` → `0`) now runs first; `null` is reserved for a compaction
+  that is neither immediately repaid nor has a per-call saving, and the horizon net saving
+  decides the rest.
+
+**Changed**
+
+- `estimatedCacheLaterCandidateTokens` is a new metric, so the prefix the forecast uses is
+  auditable from a decision log.
+- The later post-compaction replay uses the same reuse fraction as the kept context
+  (`laterCandidateTokens / T`) instead of the raw coverage EMA, so one quantity drives both.
+- The benchmark's static break-even inputs now use the hit rate the *host* has observed,
+  mirroring the learner's coverage EMA, instead of passing zero coverage samples.
+- The report changed with the corrected economics: FoldPoint 136.00 → 136.37, 125 → 121
+  attempts, 80 judged, 7 unneeded (5 in `F`, 2 in `I`), 0 overflows. In `B`, `C`, `G`, `H` and
+  `K` no economic compaction is repaid any more, so every compaction there is a window-safety
+  `FORCE`; `I` now runs three economic compactions where it ran one. The 136.00 / 6-of-82 row
+  is withdrawn with the bugs.
+
+**Tests**
+
+- `17.3e`: the doc-conformant host (`cachedTokens: 0`, lapsed TTL) reaches exactly the same
+  keep cost, later-call cost, break-even and decision as the host that reports the lapsed
+  prefix.
+- `17.3f`: with no cache history at all the reusable prefix is the prompt just sent.
+- `17.4c`: `C_now = 8, C_later = 1, K = 1, F = 1, L = 2` returns `0` (immediately repaid), with
+  the keep/compact totals for 1 and 3 calls spelled out, while a compaction that is not
+  immediately repaid and has no per-call saving still returns `null`.
+
 ### Cache-billing semantics revision
 
 One rule now prices every model call, in the engine and in the benchmark alike, and the

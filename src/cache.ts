@@ -33,14 +33,24 @@ export interface CacheModelInput {
 export interface CacheModel {
   /** candidateCachedTokens / contextTokens, in [0, 1]. Coverage, not survival. */
   coverageRatio: number;
-  /** Tokens that could be served from cache if the prefix is alive. */
+  /** Tokens *this* call could be served from cache if the prefix is alive. */
   candidateCachedTokens: number;
   /** Probability that the candidate prefix is still usable, in [0, 1]. */
   aliveProbability: number;
   /** candidateCachedTokens * aliveProbability. */
   effectiveCachedTokens: number;
   /**
-   * Probability that a *later* call still finds its prefix alive.
+   * Tokens a *later* call could reuse from the prefix this call leaves behind.
+   *
+   * This is a different quantity from `candidateCachedTokens`, which is what *this* call can
+   * be served right now. A host that reports `cachedTokens: 0` because the prefix has lapsed
+   * says nothing about the prefix the current call is about to write, so the later candidate
+   * is resolved from the observed prefix, else from the learned coverage, else from the
+   * model's own convention that the prompt just sent is the prefix.
+   */
+  laterCandidateTokens: number;
+  /**
+   * Probability that a *later* call still finds that prefix alive.
    *
    * This call's aliveness is a fact about this call: if the TTL has lapsed, this call must
    * rewrite the prefix. That is not evidence that every later call lapses too, so the
@@ -110,6 +120,41 @@ export function isCachingInPlay(
     return false;
   }
   return hasCandidate || hasExpiryPolicy(input);
+}
+
+/**
+ * Tokens a *later* call could reuse: the prefix the current call leaves behind.
+ *
+ * This is deliberately **not** `candidateCachedTokens`: a host that reports
+ * `cachedTokens: 0` because the prefix has lapsed says nothing about the prefix the current
+ * call is about to write, and reusing that 0 would bill every later call as a full rewrite.
+ *
+ * The estimate is the largest prefix the evidence supports, so that reporting more served
+ * tokens can never make the future look *worse*:
+ *
+ * 1. what this call was served, when the host reports a prefix — the cache can serve at least
+ *    that much again;
+ * 2. the learned coverage applied to the context, when coverage was observed;
+ * 3. the whole context, because that is what the provider was just sent. Assuming nothing is
+ *    ever cached would make every future call look like a rewrite, which is a stronger claim
+ *    than the model can support and the aggressive direction for compaction.
+ */
+export function resolveLaterCandidateTokens(
+  input: Pick<CacheModelInput, "contextTokens" | "cacheCoverageRatioEma" | "cacheCoverageSamples">,
+  candidateCachedTokens: number,
+  cachingInPlay: boolean,
+): number {
+  if (!cachingInPlay) {
+    return 0;
+  }
+
+  const contextTokens = clamp(input.contextTokens, 0, Number.MAX_SAFE_INTEGER);
+  const learnedPrefixTokens =
+    input.cacheCoverageSamples > 0
+      ? contextTokens * clamp(input.cacheCoverageRatioEma, 0, 1)
+      : contextTokens;
+
+  return clamp(Math.max(candidateCachedTokens, learnedPrefixTokens), 0, contextTokens);
 }
 
 /**
@@ -215,6 +260,7 @@ export function estimateCacheModel(input: CacheModelInput): CacheModel {
     candidateCachedTokens,
     aliveProbability: clampedAlive,
     effectiveCachedTokens: candidateCachedTokens * clampedAlive,
+    laterCandidateTokens: resolveLaterCandidateTokens(input, candidateCachedTokens, cachingInPlay),
     laterAliveProbability: resolveLaterAliveProbability(input, candidateCachedTokens > 0),
     cachingInPlay,
     source,

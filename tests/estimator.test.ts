@@ -331,6 +331,37 @@ describe("break-even algebra", () => {
     ).toBeNull();
   });
 
+  it("17.4c is immediately repaid even when the later calls never save", () => {
+    // C_later - L < 0, so there is no recurring saving at all — but compacting is cheaper
+    // than the current call on its own, and "no recurring saving" must not hide that.
+    const input = {
+      currentCallReplayCost: 8,
+      laterCallReplayCost: 1,
+      compactCallCost: 1,
+      firstPostCompactReplayCost: 1,
+      laterPostCompactReplayCost: 2,
+    };
+
+    expect(computeBreakEvenCalls(input)).toBe(0);
+    // Keep(1) = 8 against Compact(1) = 2; Keep(3) = 8 + 2 = 10 against Compact(3) = 2 + 4 = 6.
+    expect(input.currentCallReplayCost).toBeGreaterThan(
+      input.compactCallCost + input.firstPostCompactReplayCost,
+    );
+    const keep = (calls: number) =>
+      input.currentCallReplayCost + (calls - 1) * input.laterCallReplayCost;
+    const compact = (calls: number) =>
+      input.compactCallCost +
+      input.firstPostCompactReplayCost +
+      (calls - 1) * input.laterPostCompactReplayCost;
+    expect(keep(1)).toBe(8);
+    expect(compact(1)).toBe(2);
+    expect(keep(3)).toBe(10);
+    expect(compact(3)).toBe(6);
+
+    // The horizon net saving still decides whether the long run is worth it.
+    expect(computeBreakEvenCalls({ ...input, currentCallReplayCost: 1 })).toBeNull();
+  });
+
   it("returns 0 when compacting is already not more expensive before the first call", () => {
     expect(
       computeBreakEvenCalls({

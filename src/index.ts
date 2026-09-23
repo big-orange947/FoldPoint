@@ -13,6 +13,7 @@ export {
   resolveCacheExpiresAt,
   resolveIdleMs,
   resolveLaterAliveProbability,
+  resolveLaterCandidateTokens,
 } from "./cache";
 export {
   DEFAULTS,
