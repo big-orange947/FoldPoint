@@ -27,6 +27,61 @@ The adapter imports FoldPoint through a relative path (`../../src/index`), so ru
 copy the file into `~/.pi/agent/extensions/` instead, change that one import to the installed
 package (or to an absolute path) — nothing else.
 
+### 1.1 Smoke test without a model call
+
+Before spending a token, check that Pi's loader resolves the adapter and that the event flow
+produces a valid trace. Run this from the Pi checkout (so `jiti` resolves) with any Node:
+
+```js
+// .foldpoint-smoke.mjs — delete it afterwards
+import { createJiti } from "jiti";
+const jiti = createJiti(import.meta.url);
+const mod = await jiti.import("D:/project/FoldPoint/adapters/pi/foldpoint-observe.ts");
+
+const handlers = new Map();
+mod.default({
+  on(event, handler) {
+    handlers.set(event, handler);
+    return () => {};
+  },
+});
+console.log("registered:", [...handlers.keys()].join(","));
+
+const model = {
+  id: "claude-sonnet-4-5",
+  provider: "anthropic",
+  contextWindow: 32_000,
+  cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  promptCache: { short: 300 },
+};
+let tokens = 20_000;
+const ctx = {
+  model,
+  cwd: "D:/tmp/scratch",
+  getContextUsage: () => ({ tokens, contextWindow: 32_000, percent: tokens / 320 }),
+};
+const emit = (event, payload) => handlers.get(event)(payload, ctx);
+
+emit("session_start", { type: "session_start", reason: "startup" });
+emit("context", { type: "context" });
+emit("message_end", {
+  type: "message_end",
+  message: { role: "assistant", usage: { input: 20_000, output: 300, cacheRead: 0, cacheWrite: 20_000 } },
+});
+emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+```
+
+```bash
+FOLDPOINT_TRACE=/tmp/foldpoint-smoke.jsonl node .foldpoint-smoke.mjs
+```
+
+Expected: `registered: session_start,context,message_end,session_before_compact,session_compact,
+session_compact_failed,session_shutdown`, then a trace with one `decision` and one `request`
+sharing a `callId`. `npm run trace:analyze -- /tmp/foldpoint-smoke.jsonl` must report
+`unpaired decisions: 0`.
+
+The numbers in that trace are the stub's, not a finding — the test only proves the wiring.
+
 ## 2. Cheap ways to test
 
 Three costs to separate: **plumbing** (do events pair up at all), **per-call data** (is the cost

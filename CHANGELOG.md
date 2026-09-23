@@ -14,6 +14,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`ContextEvent`, `MessageEndEvent` + `Message.usage`, `Usage`, `getContextUsage`,
   `CompactionPreparation.tokensBefore`, `CompactionEntry`, `Model.cost`, `Model.promptCache`,
   and the `before_provider_request` payload the adapter never subscribes to)
+- a **smoke test that costs nothing**: load the adapter through Pi's own loader (jiti) with a
+  stub `ExtensionAPI`, drive one session, and check that the trace pairs — run before spending a
+  token, and again after changing the adapter or upgrading Pi
 - how to run it without publishing: `pi --extension <repo>/adapters/pi/foldpoint-observe.ts`,
   and the one import line to change if the file is copied into `~/.pi/agent/extensions/`
 - **cheap testing**: declaring a smaller `contextWindow` through
