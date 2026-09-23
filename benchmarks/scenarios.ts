@@ -42,6 +42,11 @@ export interface Scenario {
   hostHorizon?: number;
   /** A single step that appends an unusually large tool output. */
   suddenGrowth?: { step: number; tokens: number };
+  /**
+   * A different idle gap from `fromStep` onwards, so a scenario can let a cache TTL lapse
+   * exactly where it matters. Used by the cache-expiry counterfactual test.
+   */
+  idleMsAfterStep?: { fromStep: number; idleMs: number };
 }
 
 const USD = {
@@ -312,13 +317,45 @@ export function createRng(seed: number): () => number {
 /**
  * Per-step growth for a scenario, including seeded jitter and any sudden jump.
  *
- * Driven only by the growth RNG, so every strategy sees exactly the same growth sequence no
- * matter how often it compacts.
+ * `growthRandom` must be one RNG instance advanced once per step, so every strategy sees the
+ * same growth sequence no matter how often it compacts. Use {@link buildGrowthSequence} to
+ * materialize a whole session up front.
  */
 export function growthAtStep(scenario: Scenario, step: number, growthRandom: () => number): number {
   const jitter = scenario.growthJitter > 0 ? (growthRandom() * 2 - 1) * scenario.growthJitter : 0;
   const sudden = scenario.suddenGrowth?.step === step ? scenario.suddenGrowth.tokens : 0;
   return Math.max(0, Math.round(scenario.growthPerStep + jitter + sudden));
+}
+
+/**
+ * The whole growth schedule of a scenario, from one RNG instance advanced step by step.
+ * Independent of any strategy: it is the *offer* the session makes to whoever runs it.
+ */
+export function buildGrowthSequence(scenario: Scenario): number[] {
+  const growthRandom = createRng(scenario.seed);
+  return Array.from({ length: scenario.steps }, (_, step) =>
+    growthAtStep(scenario, step, growthRandom),
+  );
+}
+
+/** FNV-1a over the growth values: a short, deterministic audit fingerprint. */
+export function fingerprintSequence(values: readonly number[]): string {
+  const text = values.join(",");
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** Idle gap before a given step: the scenario default, or the override from `idleMsAfterStep`. */
+export function idleAtStep(scenario: Scenario, step: number): number {
+  const override = scenario.idleMsAfterStep;
+  if (override && step >= override.fromStep) {
+    return override.idleMs;
+  }
+  return scenario.idleMs;
 }
 
 /** Independent RNG for compaction failures, so attempts cannot perturb the growth stream. */

@@ -6,8 +6,44 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Core correctness revision. The pre-release v0.1 API and state format changed; state
-version 1 snapshots are rejected rather than reinterpreted.
+### Benchmark credibility revision
+
+No core behaviour changed; the scope is the benchmark, its tests and the documentation.
+
+- **"Unnecessary compaction" is measured against an independent shadow branch** instead of
+  approximating the counterfactual with the actual cache coverage. Each successful, non-forced
+  compaction opens a branch with its own context, its own `lastPromptTokens` / `lastCallAt` /
+  cache flags and its own cost total; it receives exactly the same growth and prices its own
+  calls. The interval settles at the next successful compaction or at session end:
+  `realizedSaving = shadowCost - actualIntervalCallCost - attemptCost`.
+- **Shadow overflow rule**: if the counterfactual branch would have run past the window during
+  the interval, the compaction is never counted as unnecessary, and the shadow's emergency
+  recovery is recorded as a counterfactual cost. Documented in `benchmarks/README.md` and
+  exposed per record as `shadowOverflowed`.
+- **The benchmark calls the core `computeBreakEvenCalls`** instead of maintaining a second
+  formula. The recorded inputs (`staticBreakEvenInputs`) are exposed so every value can be
+  recomputed; model output tokens are excluded because they cancel on both sides.
+- **Metrics renamed**: `meanBreakEvenCallsAtCompaction` →
+  `meanStaticBreakEvenCallsAtCompaction` (a local static estimate, not a dynamic payback) and
+  `meanEstimatedBreakEvenCallsAtCompaction` →
+  `meanFoldPointEstimatedBreakEvenCallsAtCompaction`. Added `judgedCompactionCount`,
+  `totalOfferedGrowthTokens` and `growthSequenceFingerprint`.
+- **Calls that rebuild a lapsed cache prefix are billed at the cache-write price**, matching
+  the engine's own model, instead of the plain input price.
+- The growth schedule is materialized once from a single RNG advanced step by step
+  (`buildGrowthSequence`); scenarios may vary the idle gap (`idleMsAfterStep`).
+- Ten targeted benchmark tests were added: warm-cache shadow accounting, cold-cache billing,
+  independent TTL expiry per branch, break-even equality with the core solver, the
+  `K=9, F=5, L=2, C=5 → 4` fixture, a non-repaying compaction, the shadow-overflow rule,
+  failed attempts opening no shadow, growth fairness across all nine strategies, and a check
+  that the README aggregate table matches the committed report JSON exactly.
+- The README's "5 unnecessary compactions / 4%" claim and the ground-truth framing of the
+  static break-even are explicitly withdrawn and replaced.
+
+## Core correctness revision
+
+The pre-release v0.1 API and state format changed; state version 1 snapshots are rejected
+rather than reinterpreted.
 
 ### Changed
 

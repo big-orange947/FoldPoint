@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  computeBreakEvenCalls,
   costOfUsage,
   createProfileLearningState,
   createSessionState,
@@ -23,7 +24,14 @@ import {
   type Strategy,
   type StrategyFactory,
 } from "./fixed-threshold";
-import { createFailureRng, createRng, growthAtStep, SCENARIOS, type Scenario } from "./scenarios";
+import {
+  buildGrowthSequence,
+  createFailureRng,
+  fingerprintSequence,
+  idleAtStep,
+  SCENARIOS,
+  type Scenario,
+} from "./scenarios";
 
 const BASE_TIMESTAMP = 1_700_000_000_000;
 const REPORT_PATH = join(
@@ -32,12 +40,73 @@ const REPORT_PATH = join(
   "benchmark-report.json",
 );
 
-interface ActiveCompaction {
+/** The state a branch needs to price its own next call. */
+interface BranchState {
+  contextTokens: number;
+  lastPromptTokens: number;
+  lastCallAt?: number;
+  cacheHeld: boolean;
+  rebuildingCache: boolean;
+}
+
+/**
+ * The counterfactual branch: "what would this session have cost if this compaction had not
+ * happened?" It carries its own context, its own cache history and its own cost total.
+ */
+interface ShadowBranch extends BranchState {
+  /** Model call costs plus any counterfactual emergency recovery cost. */
+  cumulativeCost: number;
+  /** True when this branch would have run into the window during the interval. */
+  overflowed: boolean;
+}
+
+/** A successful compaction whose payback is still being measured. */
+interface OpenCompaction {
+  step: number;
+  action: "COMPACT" | "FORCE";
+  forced: boolean;
   beforeTokens: number;
   afterTokens: number;
-  cost: number;
-  saving: number;
+  attemptCost: number;
+  cachedTokensAtCompaction: number;
+  staticBreakEvenCalls: number | null;
+  /** The exact inputs handed to `computeBreakEvenCalls`, for auditing. */
+  staticBreakEvenInputs: {
+    currentReplayCost: number;
+    compactCallCost: number;
+    firstPostCompactReplayCost: number;
+    laterPostCompactReplayCost: number;
+  } | null;
+  /** Null for forced compactions: they are not judged economically. */
+  shadow: ShadowBranch | null;
+  /** Model call costs the actual branch paid during this interval. */
+  actualCallCost: number;
+}
+
+/** One compaction attempt, with the outcome of its counterfactual settlement. */
+export interface CompactionRecord {
+  step: number;
+  action: "COMPACT" | "FORCE";
+  success: boolean;
   forced: boolean;
+  beforeTokens: number;
+  afterTokens: number;
+  attemptCost: number;
+  /** Counterfactual cost minus actual call cost minus the attempt cost; null when not judged. */
+  realizedSaving: number | null;
+  /** Null when the compaction is not judged (forced, failed, or still open at session end). */
+  unnecessary: boolean | null;
+  /** True when the counterfactual branch would have overflowed during the interval. */
+  shadowOverflowed: boolean;
+  /** Local, static break-even from `computeBreakEvenCalls`; not a dynamic payback measure. */
+  staticBreakEvenCalls: number | null;
+  /** The exact inputs handed to `computeBreakEvenCalls`, for auditing the metric. */
+  staticBreakEvenInputs: {
+    currentReplayCost: number;
+    compactCallCost: number;
+    firstPostCompactReplayCost: number;
+    laterPostCompactReplayCost: number;
+  } | null;
 }
 
 export interface SessionMetrics {
@@ -48,6 +117,10 @@ export interface SessionMetrics {
   totalPromptTokens: number;
   totalCachedTokens: number;
   totalOutputTokens: number;
+  /** Sum of every growth value the scenario offered. Strategy-independent by construction. */
+  totalOfferedGrowthTokens: number;
+  /** FNV-1a fingerprint of the offered growth sequence. Strategy-independent. */
+  growthSequenceFingerprint: string;
   compactionAttemptCount: number;
   successfulCompactionCount: number;
   failedCompactionCount: number;
@@ -58,9 +131,13 @@ export interface SessionMetrics {
   overflowRecoveryCount: number;
   minRemainingHeadroom: number;
   averageUtilizationAtCompaction: number | null;
+  /** Successful, non-forced compactions whose counterfactual payback was measured. */
+  judgedCompactionCount: number;
   unnecessaryCompactionCount: number;
-  meanBreakEvenCallsAtCompaction: number | null;
-  meanEstimatedBreakEvenCallsAtCompaction: number | null;
+  /** Local static break-even at compaction, from the core `computeBreakEvenCalls`. */
+  meanStaticBreakEvenCallsAtCompaction: number | null;
+  /** FoldPoint's own estimate at the same moment, for comparison. */
+  meanFoldPointEstimatedBreakEvenCallsAtCompaction: number | null;
   decisionLatencyP50Ms: number;
   decisionLatencyP95Ms: number;
   decisionLatencyP99Ms: number;
@@ -69,6 +146,7 @@ export interface SessionMetrics {
 export interface SessionRun {
   metrics: SessionMetrics;
   latencies: number[];
+  compactions: CompactionRecord[];
 }
 
 /**
@@ -153,40 +231,94 @@ function safePercentile(values: readonly number[], p: number): number {
   return values.length === 0 ? 0 : percentile(values, p);
 }
 
+/** Cache state of one branch, from that branch's own history. */
+function branchCache(
+  branch: BranchState,
+  timestamp: number,
+  ttlMs: number,
+): { cachedTokens: number; rebuildsCache: boolean } {
+  const cacheAlive =
+    branch.cacheHeld && branch.lastCallAt !== undefined && timestamp - branch.lastCallAt < ttlMs;
+  return {
+    cachedTokens: cacheAlive ? Math.min(branch.lastPromptTokens, branch.contextTokens) : 0,
+    rebuildsCache: branch.rebuildingCache || !cacheAlive,
+  };
+}
+
+/** Cost of one model call, billed exactly like the engine models it. */
+function branchCallCost(
+  prices: UnitPrices,
+  chargedPrompt: number,
+  cachedTokens: number,
+  rebuildsCache: boolean,
+  outputTokens: number,
+): number {
+  return rebuildsCache
+    ? costOfUsage(prices, {
+        promptTokens: chargedPrompt,
+        cacheWriteTokens: chargedPrompt,
+        outputTokens,
+      })
+    : costOfUsage(prices, {
+        promptTokens: chargedPrompt,
+        cachedInputTokens: cachedTokens,
+        outputTokens,
+      });
+}
+
+function afterCall(branch: BranchState, chargedPrompt: number, timestamp: number): void {
+  branch.lastPromptTokens = chargedPrompt;
+  branch.lastCallAt = timestamp;
+  branch.cacheHeld = true;
+  branch.rebuildingCache = false;
+}
+
 /**
  * Runs one simulated session.
  *
  * The model is identical for every strategy:
- * - new tokens are appended at the start of each step, driven only by the growth RNG;
+ * - new tokens are appended at the start of each step, from the scenario's growth sequence;
  * - the provider caches the whole prompt of a successful call, until the TTL lapses or a
  *   successful compaction rebuilds the prefix;
- * - rebuilding a prefix is billed at the cache-write price, exactly like the engine models
- *   the first post-compaction replay;
- * - a compaction attempt fails with probability `1 - successRate` (failure RNG): it is
- *   billed, it does not change the context and it does not build a cache;
- * - an overflow is a call whose prompt exceeds the window: it is counted, and the host is
- *   then forced to compact at the worst possible moment and pays for that recovery.
+ * - rebuilding a prefix is billed at the cache-write price;
+ * - a compaction attempt fails with probability `1 - successRate`: it is billed, it does not
+ *   change the context, it does not build a cache and it creates no counterfactual branch;
+ * - an overflow is a call whose prompt exceeds the window: it is counted, and the host then
+ *   has to compact at the worst possible moment and pays for that recovery.
+ *
+ * Every successful, non-forced compaction also opens a **shadow branch**: an independent
+ * counterfactual that keeps the pre-compaction context and the pre-compaction cache history,
+ * receives exactly the same growth, and prices its own calls. When the next successful
+ * compaction or the end of the session settles the interval, the realized saving is
+ * `shadowCost - actualCallCost - attemptCost`. If the shadow branch would have overflowed,
+ * the compaction is never counted as unnecessary (the rule is documented in
+ * `benchmarks/README.md`).
  */
 export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
-  const growthRandom = createRng(scenario.seed);
+  const growthSequence = buildGrowthSequence(scenario);
   const failureRandom = createFailureRng(scenario.seed);
   const prices: UnitPrices = resolveUnitPrices(scenario.pricing);
   const ttlMs = scenario.cachePolicy.ttlMs ?? Number.POSITIVE_INFINITY;
+  const windowTokens = scenario.contextWindowTokens;
 
-  let contextTokens = scenario.startTokens;
-  let lastPromptTokens = 0;
-  let lastCallAt: number | undefined;
-  let cacheHeld = false;
-  let rebuildingCache = true;
+  const actual: BranchState = {
+    contextTokens: scenario.startTokens,
+    lastPromptTokens: 0,
+    cacheHeld: false,
+    rebuildingCache: true,
+  };
+  let open: OpenCompaction | null = null;
   let timestamp = BASE_TIMESTAMP;
 
   const latencies: number[] = [];
-  const breakEvens: number[] = [];
+  const staticBreakEvens: number[] = [];
   const estimatedBreakEvens: number[] = [];
+  const compactions: CompactionRecord[] = [];
   let totalSimulatedCost = 0;
   let totalPromptTokens = 0;
   let totalCachedTokens = 0;
   let totalOutputTokens = 0;
+  let totalOfferedGrowthTokens = 0;
   let compactionAttemptCount = 0;
   let successfulCompactionCount = 0;
   let failedCompactionCount = 0;
@@ -195,32 +327,79 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
   let forceDecisionCount = 0;
   let overflowCount = 0;
   let overflowRecoveryCount = 0;
+  let judgedCompactionCount = 0;
   let unnecessaryCompactionCount = 0;
   let minRemainingHeadroom = Number.POSITIVE_INFINITY;
   let utilizationAtCompactionSum = 0;
-  let active: ActiveCompaction | null = null;
 
-  const finalizeActive = (): void => {
-    if (active && !active.forced && active.saving < active.cost) {
-      unnecessaryCompactionCount += 1;
+  /** Charges one overflow recovery to a branch, at the cache-write price. */
+  const chargeRecovery = (branch: BranchState, cost: { value: number }): void => {
+    const recoveryOutputTokens = Math.round(branch.contextTokens * scenario.compactor.outputRatio);
+    cost.value += costOfUsage(prices, {
+      promptTokens: branch.contextTokens,
+      cacheWriteTokens: branch.contextTokens,
+      outputTokens: recoveryOutputTokens,
+    });
+    branch.contextTokens = Math.round(branch.contextTokens * scenario.compactor.retentionRatio);
+    branch.lastPromptTokens = 0;
+    branch.cacheHeld = false;
+    branch.rebuildingCache = true;
+  };
+
+  const settle = (): void => {
+    if (!open) {
+      return;
     }
-    active = null;
+    const shadow = open.shadow;
+    let realizedSaving: number | null = null;
+    let unnecessary: boolean | null = null;
+
+    if (shadow) {
+      realizedSaving = shadow.cumulativeCost - open.actualCallCost - open.attemptCost;
+      unnecessary = !open.forced && !shadow.overflowed && realizedSaving < 0;
+      judgedCompactionCount += 1;
+      if (unnecessary) {
+        unnecessaryCompactionCount += 1;
+      }
+    }
+
+    compactions.push({
+      step: open.step,
+      action: open.action,
+      success: true,
+      forced: open.forced,
+      beforeTokens: open.beforeTokens,
+      afterTokens: open.afterTokens,
+      attemptCost: open.attemptCost,
+      realizedSaving,
+      unnecessary,
+      shadowOverflowed: shadow?.overflowed ?? false,
+      staticBreakEvenCalls: open.staticBreakEvenCalls,
+      staticBreakEvenInputs: open.staticBreakEvenInputs,
+    });
+    open = null;
   };
 
   for (let step = 0; step < scenario.steps; step += 1) {
-    timestamp += scenario.idleMs;
-    contextTokens += growthAtStep(scenario, step, growthRandom);
+    const stepIdleMs = idleAtStep(scenario, step);
+    timestamp += stepIdleMs;
 
-    const cacheAlive = cacheHeld && lastCallAt !== undefined && timestamp - lastCallAt < ttlMs;
-    const cachedTokens = cacheAlive ? Math.min(lastPromptTokens, contextTokens) : 0;
-    const utilization = contextTokens / scenario.contextWindowTokens;
+    const growth = growthSequence[step] ?? 0;
+    totalOfferedGrowthTokens += growth;
+    actual.contextTokens += growth;
+    if (open?.shadow) {
+      open.shadow.contextTokens += growth;
+    }
+
+    const actualCache = branchCache(actual, timestamp, ttlMs);
+    const utilization = actual.contextTokens / windowTokens;
 
     const request: DecisionRequest = {
       step,
       timestamp,
-      idleMs: scenario.idleMs,
-      contextTokens,
-      cachedTokens,
+      idleMs: stepIdleMs,
+      contextTokens: actual.contextTokens,
+      cachedTokens: actualCache.cachedTokens,
       utilization,
     };
 
@@ -232,13 +411,11 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       forceDecisionCount += 1;
     }
 
-    let callCachedTokens = cachedTokens;
-    let callRebuildsCache = rebuildingCache;
+    let callRebuildsCache = actualCache.rebuildsCache;
+    let callCachedTokens = actualCache.cachedTokens;
 
     if (decision.action !== "KEEP") {
-      finalizeActive();
-
-      const beforeTokens = contextTokens;
+      const beforeTokens = actual.contextTokens;
       const compactionOutputTokens = Math.round(beforeTokens * scenario.compactor.outputRatio);
       const afterTokens = Math.round(beforeTokens * scenario.compactor.retentionRatio);
       const success = failureRandom() < scenario.compactor.successRate;
@@ -256,11 +433,38 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         forcedAttemptCount += 1;
       }
 
-      const coverage = beforeTokens > 0 ? cachedTokens / beforeTokens : 0;
-      const perTokenReplay =
-        coverage * prices.cacheReadPerToken + (1 - coverage) * prices.inputPerToken;
-      const savingPerCall = (beforeTokens - afterTokens) * perTokenReplay;
-      const breakEvenCalls = success && savingPerCall > 0 ? attemptCost / savingPerCall : null;
+      // Static break-even at this moment, from the core solver. Output tokens are excluded:
+      // they are identical on both sides and cancel.
+      const currentReplayCost = costOfUsage(prices, {
+        promptTokens: beforeTokens,
+        cachedInputTokens: actualCache.cachedTokens,
+        outputTokens: 0,
+      });
+      const firstPostCompactReplayCost = costOfUsage(prices, {
+        promptTokens: afterTokens,
+        cacheWriteTokens: afterTokens,
+        outputTokens: 0,
+      });
+      const postCompactCacheStaysAlive = idleAtStep(scenario, step + 1) < ttlMs;
+      const laterPostCompactReplayCost = postCompactCacheStaysAlive
+        ? costOfUsage(prices, {
+            promptTokens: afterTokens,
+            cachedInputTokens: afterTokens,
+            outputTokens: 0,
+          })
+        : firstPostCompactReplayCost;
+      const staticBreakEvenCalls = computeBreakEvenCalls({
+        currentReplayCost,
+        compactCallCost: attemptCost,
+        firstPostCompactReplayCost,
+        laterPostCompactReplayCost,
+      });
+      const staticBreakEvenInputs = {
+        currentReplayCost,
+        compactCallCost: attemptCost,
+        firstPostCompactReplayCost,
+        laterPostCompactReplayCost,
+      };
 
       strategy.onCompaction?.({
         step,
@@ -270,111 +474,100 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         outputTokens: compactionOutputTokens,
         action: decision.action,
         cost: attemptCost,
-        breakEvenCalls,
+        breakEvenCalls: staticBreakEvenCalls,
         success,
       });
 
-      if (success) {
+      if (!success) {
+        failedCompactionCount += 1;
+        compactions.push({
+          step,
+          action: decision.action,
+          success: false,
+          forced: decision.action === "FORCE",
+          beforeTokens,
+          afterTokens,
+          attemptCost,
+          realizedSaving: null,
+          unnecessary: null,
+          shadowOverflowed: false,
+          staticBreakEvenCalls: null,
+          staticBreakEvenInputs: null,
+        });
+        // The context, the cache and any open interval are untouched.
+      } else {
+        // A successful compaction supersedes whatever interval was still open.
+        settle();
+
         successfulCompactionCount += 1;
-        if (breakEvenCalls !== null) {
-          breakEvens.push(breakEvenCalls);
+        if (staticBreakEvenCalls !== null) {
+          staticBreakEvens.push(staticBreakEvenCalls);
         }
         if (typeof decision.estimatedBreakEvenCalls === "number") {
           estimatedBreakEvens.push(decision.estimatedBreakEvenCalls);
         }
-        active = {
-          beforeTokens,
-          afterTokens,
-          cost: attemptCost,
-          saving: 0,
-          forced: decision.action === "FORCE",
+
+        const forced = decision.action === "FORCE";
+        const preCompactionState: BranchState = {
+          contextTokens: beforeTokens,
+          lastPromptTokens: actual.lastPromptTokens,
+          ...(actual.lastCallAt !== undefined ? { lastCallAt: actual.lastCallAt } : {}),
+          cacheHeld: actual.cacheHeld,
+          rebuildingCache: false,
         };
-        contextTokens = afterTokens;
-        lastPromptTokens = 0;
-        cacheHeld = false;
+
+        actual.contextTokens = afterTokens;
+        actual.lastPromptTokens = 0;
+        actual.cacheHeld = false;
+        actual.rebuildingCache = true;
         callCachedTokens = 0;
         callRebuildsCache = true;
-      } else {
-        failedCompactionCount += 1;
-        // The context is unchanged and no cache prefix was built; the next call still sees
-        // whatever the previous call left in the cache.
+
+        open = {
+          step,
+          action: decision.action,
+          forced,
+          beforeTokens,
+          afterTokens,
+          attemptCost,
+          cachedTokensAtCompaction: actualCache.cachedTokens,
+          staticBreakEvenCalls,
+          staticBreakEvenInputs,
+          shadow: forced ? null : { ...preCompactionState, cumulativeCost: 0, overflowed: false },
+          actualCallCost: 0,
+        };
       }
     }
 
-    const rawContextTokens = contextTokens;
-
-    if (rawContextTokens > scenario.contextWindowTokens) {
+    // --- the actual branch's model call ---
+    const rawContextTokens = actual.contextTokens;
+    if (rawContextTokens > windowTokens) {
       overflowCount += 1;
-      finalizeActive();
-
-      const beforeTokens = rawContextTokens;
-      const recoveryOutputTokens = Math.round(beforeTokens * scenario.compactor.outputRatio);
-      const recoveredTokens = Math.round(beforeTokens * scenario.compactor.retentionRatio);
-      const recoveryCost = costOfUsage(prices, {
-        promptTokens: beforeTokens,
-        cacheWriteTokens: beforeTokens,
-        outputTokens: recoveryOutputTokens,
-      });
-
-      totalSimulatedCost += recoveryCost;
+      const recovery = { value: 0 };
+      chargeRecovery(actual, recovery);
+      totalSimulatedCost += recovery.value;
       overflowRecoveryCount += 1;
-      strategy.onCompaction?.({
-        step,
-        timestamp,
-        beforeTokens,
-        afterTokens: recoveredTokens,
-        outputTokens: recoveryOutputTokens,
-        action: "FORCE",
-        cost: recoveryCost,
-        breakEvenCalls: null,
-        success: true,
-      });
-
-      contextTokens = recoveredTokens;
-      lastPromptTokens = 0;
-      cacheHeld = false;
       callCachedTokens = 0;
       callRebuildsCache = true;
     }
 
-    minRemainingHeadroom = Math.min(
-      minRemainingHeadroom,
-      scenario.contextWindowTokens - rawContextTokens,
+    minRemainingHeadroom = Math.min(minRemainingHeadroom, windowTokens - rawContextTokens);
+
+    const chargedPrompt = actual.contextTokens;
+    const actualCallCost = branchCallCost(
+      prices,
+      chargedPrompt,
+      callCachedTokens,
+      callRebuildsCache,
+      scenario.outputTokens,
     );
 
-    const chargedPrompt = contextTokens;
-    const usage = callRebuildsCache
-      ? {
-          promptTokens: chargedPrompt,
-          cacheWriteTokens: chargedPrompt,
-          outputTokens: scenario.outputTokens,
-        }
-      : {
-          promptTokens: chargedPrompt,
-          cachedInputTokens: callCachedTokens,
-          outputTokens: scenario.outputTokens,
-        };
-    const callCost = costOfUsage(prices, usage);
-
-    totalSimulatedCost += callCost;
+    totalSimulatedCost += actualCallCost;
     totalPromptTokens += chargedPrompt;
     totalCachedTokens += callRebuildsCache ? 0 : callCachedTokens;
     totalOutputTokens += scenario.outputTokens;
-
-    if (active) {
-      const counterfactualPrompt = chargedPrompt + (active.beforeTokens - active.afterTokens);
-      const coverage =
-        chargedPrompt > 0 ? (callRebuildsCache ? 0 : callCachedTokens / chargedPrompt) : 0;
-      const counterfactualCached = Math.min(
-        counterfactualPrompt,
-        Math.round(counterfactualPrompt * coverage),
-      );
-      const counterfactualCost = costOfUsage(prices, {
-        promptTokens: counterfactualPrompt,
-        cachedInputTokens: counterfactualCached,
-        outputTokens: scenario.outputTokens,
-      });
-      active.saving += counterfactualCost - callCost;
+    if (open) {
+      open.actualCallCost += actualCallCost;
     }
 
     strategy.onRequest?.({
@@ -383,16 +576,35 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       promptTokens: chargedPrompt,
       cachedInputTokens: callRebuildsCache ? 0 : callCachedTokens,
       outputTokens: scenario.outputTokens,
-      cost: callCost,
+      cost: actualCallCost,
     });
 
-    lastPromptTokens = chargedPrompt;
-    lastCallAt = timestamp;
-    cacheHeld = true;
-    rebuildingCache = false;
+    afterCall(actual, chargedPrompt, timestamp);
+
+    // --- the shadow branch's model call, on its own context and its own cache ---
+    if (open?.shadow) {
+      const shadow = open.shadow;
+      if (shadow.contextTokens > windowTokens) {
+        shadow.overflowed = true;
+        const recovery = { value: 0 };
+        chargeRecovery(shadow, recovery);
+        shadow.cumulativeCost += recovery.value;
+      }
+
+      const shadowCache = branchCache(shadow, timestamp, ttlMs);
+      const shadowPrompt = shadow.contextTokens;
+      shadow.cumulativeCost += branchCallCost(
+        prices,
+        shadowPrompt,
+        shadowCache.cachedTokens,
+        shadowCache.rebuildsCache,
+        scenario.outputTokens,
+      );
+      afterCall(shadow, shadowPrompt, timestamp);
+    }
   }
 
-  finalizeActive();
+  settle();
   strategy.onSessionEnd?.(timestamp);
 
   return {
@@ -404,6 +616,8 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       totalPromptTokens,
       totalCachedTokens,
       totalOutputTokens,
+      totalOfferedGrowthTokens,
+      growthSequenceFingerprint: fingerprintSequence(growthSequence),
       compactionAttemptCount,
       successfulCompactionCount,
       failedCompactionCount,
@@ -415,14 +629,16 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       minRemainingHeadroom: Number.isFinite(minRemainingHeadroom) ? minRemainingHeadroom : 0,
       averageUtilizationAtCompaction:
         compactionAttemptCount > 0 ? utilizationAtCompactionSum / compactionAttemptCount : null,
+      judgedCompactionCount,
       unnecessaryCompactionCount,
-      meanBreakEvenCallsAtCompaction: mean(breakEvens),
-      meanEstimatedBreakEvenCallsAtCompaction: mean(estimatedBreakEvens),
+      meanStaticBreakEvenCallsAtCompaction: mean(staticBreakEvens),
+      meanFoldPointEstimatedBreakEvenCallsAtCompaction: mean(estimatedBreakEvens),
       decisionLatencyP50Ms: safePercentile(latencies, 0.5),
       decisionLatencyP95Ms: safePercentile(latencies, 0.95),
       decisionLatencyP99Ms: safePercentile(latencies, 0.99),
     },
     latencies,
+    compactions,
   };
 }
 
@@ -444,9 +660,10 @@ export interface AggregateMetrics {
   overflowRecoveryCount: number;
   minRemainingHeadroom: number;
   averageUtilizationAtCompaction: number | null;
+  judgedCompactionCount: number;
   unnecessaryCompactionCount: number;
-  meanBreakEvenCallsAtCompaction: number | null;
-  meanEstimatedBreakEvenCallsAtCompaction: number | null;
+  meanStaticBreakEvenCallsAtCompaction: number | null;
+  meanFoldPointEstimatedBreakEvenCallsAtCompaction: number | null;
   decisionLatencyP50Ms: number;
   decisionLatencyP95Ms: number;
   decisionLatencyP99Ms: number;
@@ -491,10 +708,13 @@ function aggregateStrategy(
     overflowRecoveryCount: sum((metrics) => metrics.overflowRecoveryCount),
     minRemainingHeadroom: Math.min(...rows.map((metrics) => metrics.minRemainingHeadroom)),
     averageUtilizationAtCompaction: weightedUtilization,
+    judgedCompactionCount: sum((metrics) => metrics.judgedCompactionCount),
     unnecessaryCompactionCount: sum((metrics) => metrics.unnecessaryCompactionCount),
-    meanBreakEvenCallsAtCompaction: meanOf((metrics) => metrics.meanBreakEvenCallsAtCompaction),
-    meanEstimatedBreakEvenCallsAtCompaction: meanOf(
-      (metrics) => metrics.meanEstimatedBreakEvenCallsAtCompaction,
+    meanStaticBreakEvenCallsAtCompaction: meanOf(
+      (metrics) => metrics.meanStaticBreakEvenCallsAtCompaction,
+    ),
+    meanFoldPointEstimatedBreakEvenCallsAtCompaction: meanOf(
+      (metrics) => metrics.meanFoldPointEstimatedBreakEvenCallsAtCompaction,
     ),
     decisionLatencyP50Ms: safePercentile(latencies, 0.5),
     decisionLatencyP95Ms: safePercentile(latencies, 0.95),
@@ -605,10 +825,10 @@ function aggregateTable(rows: AggregateMetrics[]): string {
     padLeft("failed", 7),
     padLeft("econ", 5),
     padLeft("forced", 7),
+    padLeft("judged", 7),
     padLeft("unneed", 7),
     padLeft("over", 5),
-    padLeft("minHead", 9),
-    padLeft("avgUtil", 8),
+    padLeft("staticBE", 9),
     padLeft("p50 ms", 9),
     padLeft("p99 ms", 9),
   ].join(" ");
@@ -624,10 +844,10 @@ function aggregateTable(rows: AggregateMetrics[]): string {
         padLeft(String(row.failedCompactionCount), 7),
         padLeft(String(row.economicAttemptCount), 5),
         padLeft(String(row.forcedAttemptCount), 7),
+        padLeft(String(row.judgedCompactionCount), 7),
         padLeft(String(row.unnecessaryCompactionCount), 7),
         padLeft(String(row.overflowCount), 5),
-        padLeft(String(row.minRemainingHeadroom), 9),
-        padLeft(fixed(row.averageUtilizationAtCompaction, 3), 8),
+        padLeft(fixed(row.meanStaticBreakEvenCallsAtCompaction, 2), 9),
         padLeft(fixed(row.decisionLatencyP50Ms, 5), 9),
         padLeft(fixed(row.decisionLatencyP99Ms, 5), 9),
       ].join(" "),
@@ -644,6 +864,7 @@ function perScenarioTable(rows: SessionMetrics[]): string {
     padLeft("att", 5),
     padLeft("ok", 4),
     padLeft("fail", 5),
+    padLeft("judged", 7),
     padLeft("unneed", 7),
     padLeft("over", 5),
     padLeft("avgUtil", 8),
@@ -659,6 +880,7 @@ function perScenarioTable(rows: SessionMetrics[]): string {
         padLeft(String(row.compactionAttemptCount), 5),
         padLeft(String(row.successfulCompactionCount), 4),
         padLeft(String(row.failedCompactionCount), 5),
+        padLeft(String(row.judgedCompactionCount), 7),
         padLeft(String(row.unnecessaryCompactionCount), 7),
         padLeft(String(row.overflowCount), 5),
         padLeft(fixed(row.averageUtilizationAtCompaction, 3), 8),
@@ -698,7 +920,21 @@ function main(): void {
     generatedAt: new Date().toISOString(),
     environment: { node: process.version, platform: process.platform },
     hardWindowRatioUsedForForcedDefinition: DEFAULTS.hardWindowRatio,
+    counterfactual:
+      "Each successful, non-forced compaction opens an independent shadow branch that keeps the pre-compaction context and cache history, receives the same growth and prices its own calls. A compaction is unnecessary when the shadow cost minus the actual call cost minus the attempt cost is negative, unless the shadow branch would have overflowed.",
     seeds: Object.fromEntries(SCENARIOS.map((scenario) => [scenario.id, scenario.seed])),
+    growth: Object.fromEntries(
+      SCENARIOS.map((scenario) => {
+        const sequence = buildGrowthSequence(scenario);
+        return [
+          scenario.id,
+          {
+            fingerprint: fingerprintSequence(sequence),
+            totalOfferedGrowthTokens: sequence.reduce((total, value) => total + value, 0),
+          },
+        ];
+      }),
+    ),
     strategies: [...strategyLabels.entries()].map(([id, label]) => ({ id, label })),
     scenarios: SCENARIOS.map((scenario) => ({
       id: scenario.id,

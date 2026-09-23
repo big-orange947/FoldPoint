@@ -331,49 +331,61 @@ FoldPoint itself. The raw report is written to
 [`benchmarks/reports/benchmark-report.json`](benchmarks/reports/benchmark-report.json) and the
 methodology is documented in [benchmarks/README.md](benchmarks/README.md).
 
-Aggregate over all 11 scenarios (lower cost is better; "unneeded" counts successful
-compactions that did not repay themselves before the session ended):
+Aggregate over all 11 scenarios. "judged" counts the successful, non-forced compactions whose
+payback was measured against an independent counterfactual branch; "unneeded" counts how many
+of those did not repay themselves:
 
-| strategy | cost | attempts | ok | failed | econ | forced | unneeded | overflows | avg util @ comp |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Never | 200.57 | 0 | 0 | 0 | 0 | 0 | 0 | 45 | n/a |
-| Fixed 50% raw | 163.83 | 117 | 109 | 8 | 117 | 0 | 86 | 0 | 0.558 |
-| Fixed 70% raw | 178.07 | 81 | 76 | 5 | 81 | 0 | 57 | 0 | 0.722 |
-| Fixed 80% raw | 184.12 | 66 | 64 | 2 | 66 | 0 | 48 | 0 | 0.823 |
-| Fixed 90% raw | 192.54 | 55 | 53 | 2 | 55 | 0 | 39 | 0 | 0.922 |
-| Fixed 70% guarded | 178.32 | 66 | 64 | 2 | 39 | 27 | 19 | 0 | 0.807 |
-| Fixed 80% guarded | 184.52 | 60 | 58 | 2 | 31 | 29 | 16 | 0 | 0.869 |
-| Fixed 90% guarded | 192.54 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0.922 |
-| **FoldPoint** | **131.31** | 125 | 123 | 2 | 82 | 43 | **5** | **0** | 0.423 |
+| strategy | cost | attempts | ok | failed | econ | forced | judged | unneeded | overflows | avg util @ comp |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Never | 218.26 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 45 | n/a |
+| Fixed 50% raw | 171.13 | 117 | 109 | 8 | 117 | 0 | 109 | 89 | 0 | 0.558 |
+| Fixed 70% raw | 189.51 | 81 | 76 | 5 | 81 | 0 | 76 | 44 | 0 | 0.722 |
+| Fixed 80% raw | 197.88 | 66 | 64 | 2 | 66 | 0 | 64 | 35 | 0 | 0.823 |
+| Fixed 90% raw | 208.52 | 55 | 53 | 2 | 55 | 0 | 53 | 29 | 0 | 0.922 |
+| Fixed 70% guarded | 191.50 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 0.807 |
+| Fixed 80% guarded | 199.23 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 0.869 |
+| Fixed 90% guarded | 208.52 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 0.922 |
+| **FoldPoint** | **136.44** | 125 | 123 | 2 | 82 | 43 | 82 | **6** | **0** | 0.423 |
 
 Costs, token counts and attempt counts are deterministic and reproduce exactly; latency is
 machine- and run-dependent, so the README does not quote it — the recorded values are in the
 report. Typical magnitudes on the machine that produced this table: FoldPoint `decide`
 p50 ≈ 0.005 ms and p99 ≈ 0.06 ms inside a session (including GC), against p50 ≈ 0.0002 ms for
 a fixed threshold; the pure decision micro-benchmark runs 100,000 `decideFoldPoint` calls at
-≈ 0.6–0.7 µs each.
+≈ 0.8 µs each.
+
+"Unneeded" is measured, not approximated: each successful non-forced compaction opens an
+independent counterfactual branch that keeps the pre-compaction context **and its own cache
+history**, receives exactly the same growth, and prices its own calls. If that branch would
+have run past the window, the compaction is never counted as unneeded. See
+[benchmarks/README.md](benchmarks/README.md).
 
 Honest reading of that table:
 
 - FoldPoint is the cheapest strategy in aggregate and never overflows. The advantage comes from
-  the cold-cache scenarios, where every call replays the whole context at the input price and
-  keeping the context small is directly cheaper (scenario `D`: 8.66 against 19.93 for the
-  cheapest fixed threshold).
+  the cold-cache scenarios, where every call replays the whole context and keeping the context
+  small is directly cheaper (scenario `D`: 8.66 against 19.93 for the cheapest fixed
+  threshold).
 - **FoldPoint also compacts more often than the 70/80/90% baselines** (125 attempts against
   55–81). Each of those compactions repays itself, but more compactions mean more exposures to
   potential information loss. Raise `minCallsBetweenCompactions` or `minReclaimRatio` to trade
   cost back for fewer compactions.
 - The guarded baselines isolate the guards from the economics: guarded 70% cuts unnecessary
-  compactions from 57 to 19 at the same cost, so most of the raw baselines' churn was the
+  compactions from 44 to 7 at the same cost, so most of the raw baselines' churn was the
   missing cooldown, not the threshold.
-- FoldPoint's 5 unnecessary compactions out of 125 attempts (4%) compare with 39–86 out of
-  55–117 (70–73%) for the raw baselines.
+- FoldPoint's 6 unnecessary compactions out of 82 judged (7%) compare with 29–89 out of 53–109
+  (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
 - Scenario `K` (half of all attempts fail) is where the failure handling shows: failures are
   billed, teach nothing, and restart the cooldown instead of turning into a retry storm.
 
 The numbers may only be used to claim simulated cost, compaction counts, failures, overflows
 and unrepaid compactions. **Fewer compactions reduce the number of exposures to potential
 information loss, but that does not prove better task quality.**
+
+Earlier revisions of this README quoted "5 unnecessary compactions" and "a 4% unnecessary
+rate" from an approximate counterfactual (the actual cache coverage applied to a
+counterfactual prompt). Those numbers are withdrawn: they are replaced by the measured
+counterfactual above, which is stricter (6 of 82 judged, 7%).
 
 ## Current limitations
 
