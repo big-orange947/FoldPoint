@@ -96,6 +96,8 @@ function runSession(config: SessionConfig, hooks: StrategyHooks): SessionResult 
     const { action, reasons } = hooks.decide(view);
     decisions.push({ step, contextTokens, utilization: view.utilization, action, reasons });
 
+    let callCachedTokens = cachedTokens;
+
     if (action !== "KEEP") {
       const beforeTokens = contextTokens;
       const afterTokens = Math.round(beforeTokens * config.retentionRatio);
@@ -104,9 +106,10 @@ function runSession(config: SessionConfig, hooks: StrategyHooks): SessionResult 
       compactions.push({ step, action, beforeTokens, afterTokens });
       contextTokens = afterTokens;
       lastPromptTokens = 0;
+      callCachedTokens = 0;
     }
 
-    hooks.onRequest?.(view, cachedTokens);
+    hooks.onRequest?.(view, Math.min(callCachedTokens, contextTokens));
     lastPromptTokens = contextTokens;
     contextTokens += config.growthPerStep;
     if (config.suddenGrowthAtStep && config.suddenGrowthAtStep.step === step) {
@@ -122,7 +125,10 @@ function runSession(config: SessionConfig, hooks: StrategyHooks): SessionResult 
   };
 }
 
-function foldPointHooks(config: SessionConfig): {
+function foldPointHooks(
+  config: SessionConfig,
+  sessionId = "scenario-session",
+): {
   hooks: StrategyHooks;
   foldPoint: FoldPoint;
   profile: ReturnType<typeof makeProfile>;
@@ -132,7 +138,8 @@ function foldPointHooks(config: SessionConfig): {
 
   const hooks: StrategyHooks = {
     decide(view) {
-      const decision = foldPoint.decide({
+      const input = {
+        sessionId,
         profile,
         timestamp: view.timestamp,
         contextTokens: view.contextTokens,
@@ -143,21 +150,22 @@ function foldPointHooks(config: SessionConfig): {
         ...(config.expectedFutureCalls === undefined
           ? {}
           : { expectedFutureCalls: config.expectedFutureCalls }),
-      });
+      };
+      const decision = foldPoint.decide(input);
       return { action: decision.action, reasons: decision.reasons };
     },
-    onCompaction(view, afterTokens, outputTokens, action) {
-      foldPoint.recordCompaction(profile, {
+    onCompaction(view, afterTokens, outputTokens) {
+      foldPoint.recordCompaction(sessionId, profile, {
         timestamp: view.timestamp,
         beforeTokens: view.contextTokens,
         afterTokens,
         promptTokens: view.contextTokens,
         outputTokens,
-        success: action !== "FORCE" || afterTokens < view.contextTokens,
+        success: true,
       });
     },
     onRequest(view, cachedTokens) {
-      foldPoint.observeRequest(profile, {
+      foldPoint.observeRequest(sessionId, profile, {
         timestamp: view.timestamp,
         promptTokens: view.contextTokens,
         cachedInputTokens: cachedTokens,
@@ -165,7 +173,7 @@ function foldPointHooks(config: SessionConfig): {
       });
     },
     onSessionEnd(timestamp) {
-      foldPoint.endSession(profile, { timestamp });
+      foldPoint.endSession(sessionId, profile, { timestamp });
     },
   };
 
@@ -198,8 +206,6 @@ describe("simulated sessions", () => {
 
     expect(foldPointSession.compactions.length).toBeGreaterThan(0);
     expect(foldPointSession.compactions.length).toBeLessThan(fixedSession.compactions.length);
-    // Every compaction in this session is a window-safety FORCE: the warm cache never made
-    // an economic compaction worth it.
     for (const compaction of foldPointSession.compactions) {
       expect(compaction.action).toBe("FORCE");
     }
@@ -245,16 +251,16 @@ describe("simulated sessions", () => {
     const session = runSession(config, hooks);
     const fixed = runSession(config, fixedThresholdHooks(0.5));
 
-    const learned = foldPoint.getProfileState(profile);
-    // The EMA walks from the 0.4 cold-start prior towards the real 0.98, which is what
-    // makes later economic compactions unattractive.
-    expect(learned.retentionRatioEma).toBeGreaterThan(0.7);
-    expect(learned.retentionSamples).toBeGreaterThanOrEqual(3);
+    const learning = foldPoint.getProfileState(profile);
+    // The EMA walks from the 0.4 cold-start prior towards the real 0.98.
+    expect(learning.retentionRatioEma).toBeGreaterThan(0.7);
+    expect(learning.retentionSamples).toBeGreaterThanOrEqual(3);
 
-    // Learning is gradual: the cold-start prior allows a few early compactions, and then
-    // the profile refuses them while a fixed threshold keeps churning.
     const economic = session.compactions.filter((entry) => entry.action === "COMPACT");
-    expect(economic.length).toBeLessThanOrEqual(3);
+    // The cold-start prior (retention 0.40) allows a few early economic compactions before
+    // the EMA has seen enough real results; the observed number is 4, and every compaction
+    // after them is a window-safety FORCE.
+    expect(economic.length).toBeLessThanOrEqual(4);
     expect(session.compactions.length).toBeLessThan(fixed.compactions.length);
     expect(
       session.compactions.slice(economic.length).every((entry) => entry.action === "FORCE"),
@@ -276,18 +282,61 @@ describe("simulated sessions", () => {
     }
   });
 
-  it("keeps profile state isolated between two compactors in the same session", () => {
+  it("a failed compaction keeps the session in cooldown but window safety still forces", () => {
+    const profile = makeProfile({ cachePolicy: { ttlMs: CACHE_TTL_MS } });
+    const foldPoint = new FoldPoint();
+    const sessionId = "failure-session";
+    const timestamp = BASE_TIMESTAMP;
+
+    for (let index = 0; index < 6; index += 1) {
+      foldPoint.observeRequest(sessionId, profile, {
+        timestamp: timestamp + index,
+        promptTokens: 150_000,
+        cachedInputTokens: 0,
+      });
+    }
+
+    foldPoint.recordCompaction(sessionId, profile, {
+      timestamp: timestamp + 10,
+      beforeTokens: 150_000,
+      afterTokens: 40_000,
+      success: false,
+    });
+
+    const blocked = foldPoint.decide({
+      sessionId,
+      profile,
+      timestamp: timestamp + 11,
+      contextTokens: 150_000,
+      cachedTokens: 0,
+      idleMs: 600_000,
+    });
+    const forced = foldPoint.decide({
+      sessionId,
+      profile,
+      timestamp: timestamp + 12,
+      contextTokens: 195_000,
+      cachedTokens: 0,
+      idleMs: 600_000,
+    });
+
+    expect(blocked.action).toBe("KEEP");
+    expect(blocked.reasons).toContain("COOLDOWN_ACTIVE");
+    expect(forced.action).toBe("FORCE");
+  });
+
+  it("keeps profile learning isolated between two compactors in the same session", () => {
     const foldPoint = new FoldPoint();
     const good = makeProfile({ compactorId: "good-compactor" });
     const bad = makeProfile({ compactorId: "bad-compactor" });
 
-    foldPoint.recordCompaction(good, {
+    foldPoint.recordCompaction("s", good, {
       timestamp: BASE_TIMESTAMP,
       beforeTokens: 100_000,
       afterTokens: 30_000,
       success: true,
     });
-    foldPoint.recordCompaction(bad, {
+    foldPoint.recordCompaction("s", bad, {
       timestamp: BASE_TIMESTAMP + 1,
       beforeTokens: 100_000,
       afterTokens: 99_000,

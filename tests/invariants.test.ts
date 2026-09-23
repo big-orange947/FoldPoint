@@ -3,21 +3,34 @@ import {
   decideFoldPoint,
   FoldPoint,
   type FoldPointDecision,
-  type FoldPointProfileState,
+  type FoldPointProfileLearningState,
+  type FoldPointSessionState,
+  profileKey,
   resolveDefaults,
 } from "../src/index";
 import {
-  BASE_TIMESTAMP,
   decideWith,
   expectAllMetricsFinite,
   HISTORY,
   makeInput,
+  makeLearning,
   makeProfile,
-  makeState,
+  makeSession,
+  profileWithCacheTtl,
+  SESSION_A,
+  SESSION_HISTORY,
 } from "./helpers";
 
 function sweep(values: number[], build: (value: number) => FoldPointDecision): FoldPointDecision[] {
   return values.map((value) => build(value));
+}
+
+function decisionAt(decisions: FoldPointDecision[], index: number): FoldPointDecision {
+  const decision = decisions[index];
+  if (!decision) {
+    throw new Error(`missing decision at ${index}`);
+  }
+  return decision;
 }
 
 describe("17.5 numeric edges", () => {
@@ -32,7 +45,11 @@ describe("17.5 numeric edges", () => {
   });
 
   it("26. handles a context with no cached tokens", () => {
-    const decision = decideWith({ contextTokens: 100_000, cachedTokens: 0 }, HISTORY);
+    const decision = decideWith(
+      { contextTokens: 100_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
+    );
 
     expectAllMetricsFinite(decision);
     expect(decision.metrics.estimatedKeepCost).toBeCloseTo(
@@ -43,11 +60,16 @@ describe("17.5 numeric edges", () => {
   });
 
   it("27. handles a fully cached context", () => {
-    const decision = decideWith({ contextTokens: 100_000, cachedTokens: 100_000 }, HISTORY);
+    const decision = decideWith(
+      { contextTokens: 100_000, cachedTokens: 100_000, profile: profileWithCacheTtl(60_000) },
+      HISTORY,
+      SESSION_HISTORY,
+    );
 
     expectAllMetricsFinite(decision);
-    expect(decision.metrics.estimatedCacheSurvival).toBeGreaterThan(0);
-    expect(["KEEP", "COMPACT", "FORCE"]).toContain(decision.action);
+    expect(decision.metrics.estimatedCacheCoverageRatio).toBe(1);
+    expect(decision.metrics.estimatedCacheAliveProbability).toBe(1);
+    expect(decision.metrics.estimatedEffectiveCachedTokens).toBe(100_000);
   });
 
   it("28. forces when the context fills the window", () => {
@@ -66,7 +88,8 @@ describe("17.5 numeric edges", () => {
     });
     const decision = decideFoldPoint(
       makeInput({ profile, contextTokens: 100_000, cachedTokens: 50_000 }),
-      makeState(HISTORY),
+      makeLearning(HISTORY),
+      makeSession(SESSION_HISTORY),
     );
 
     expectAllMetricsFinite(decision);
@@ -77,7 +100,8 @@ describe("17.5 numeric edges", () => {
     const profile = makeProfile({ pricing: { inputPerMillion: 0, outputPerMillion: 0 } });
     const decision = decideFoldPoint(
       makeInput({ profile, contextTokens: 100_000, cachedTokens: 50_000 }),
-      makeState(HISTORY),
+      makeLearning(HISTORY),
+      makeSession(SESSION_HISTORY),
     );
 
     expectAllMetricsFinite(decision);
@@ -88,8 +112,14 @@ describe("17.5 numeric edges", () => {
 
   it("31. reports no break-even when the per-call saving is not positive", () => {
     const decision = decideWith(
-      { contextTokens: 100_000, cachedTokens: 100_000 },
-      { ...HISTORY, retentionRatioEma: 1, retentionSamples: 2, cacheHitRatioEma: 1 },
+      {
+        contextTokens: 100_000,
+        cachedTokens: 100_000,
+        idleMs: 0,
+        profile: profileWithCacheTtl(600_000),
+      },
+      { ...HISTORY, retentionRatioEma: 1, retentionSamples: 2, cacheCoverageRatioEma: 1 },
+      SESSION_HISTORY,
       { defaults: { minReclaimTokens: 0, minReclaimRatio: 0 } },
     );
 
@@ -105,6 +135,7 @@ describe("17.5 numeric edges", () => {
       { idleMs: -1 },
       { expectedFutureCalls: 0.5 },
       { contextTokens: Number.NaN },
+      { sessionId: "" },
       { profile: makeProfile({ contextWindowTokens: 0 }) },
       { profile: makeProfile({ pricing: { inputPerMillion: -1, outputPerMillion: 15 } }) },
       { profile: makeProfile({ model: "" }) },
@@ -115,7 +146,7 @@ describe("17.5 numeric edges", () => {
 
     for (const overrides of invalidInputs) {
       expect(
-        () => decideFoldPoint(makeInput(overrides), makeState(HISTORY)),
+        () => decideFoldPoint(makeInput(overrides), makeLearning(HISTORY), makeSession()),
         JSON.stringify(overrides),
       ).toThrow(RangeError);
     }
@@ -130,12 +161,14 @@ describe("17.5 numeric edges", () => {
       { defaults: { minReclaimTokens: -1 } },
       { defaults: { expectedFutureCalls: 0 } },
       { defaults: { softWindowPenaltyMultiplier: 0.5 } },
+      { defaults: { compactCostScale: 100 } },
+      { defaults: { compactPromptRatio: 5 } },
       { defaults: { notARealDefault: 1 } as never },
     ];
 
     for (const options of invalidOptions) {
       expect(
-        () => decideWith({ contextTokens: 100_000 }, HISTORY, options),
+        () => decideWith({ contextTokens: 100_000 }, HISTORY, SESSION_HISTORY, options),
         JSON.stringify(options),
       ).toThrow(RangeError);
     }
@@ -152,15 +185,17 @@ describe("17.5 numeric edges", () => {
       idleMs: 600_000,
       profile: makeProfile({ cachePolicy: { ttlMs: 300_000 } }),
     });
-    const state = makeState(HISTORY);
+    const learning = makeLearning(HISTORY);
+    const session = makeSession(SESSION_HISTORY);
 
-    const first = decideFoldPoint(input, state);
-    const second = decideFoldPoint(input, state);
-    const third = decideFoldPoint({ ...input }, { ...state });
+    const first = decideFoldPoint(input, learning, session);
+    const second = decideFoldPoint(input, learning, session);
+    const third = decideFoldPoint({ ...input }, { ...learning }, { ...session });
 
     expect(second).toEqual(first);
     expect(third).toEqual(first);
-    expect(state).toEqual(makeState(HISTORY));
+    expect(learning).toEqual(makeLearning(HISTORY));
+    expect(session).toEqual(makeSession(SESSION_HISTORY));
   });
 });
 
@@ -168,15 +203,12 @@ describe("17.6 monotonicity", () => {
   it("35. a larger context never lowers window pressure", () => {
     const decisions = sweep(
       [10_000, 50_000, 100_000, 150_000, 180_000, 190_000, 199_999, 200_000],
-      (contextTokens) => decideWith({ contextTokens, cachedTokens: 0 }, HISTORY),
+      (contextTokens) => decideWith({ contextTokens, cachedTokens: 0 }, HISTORY, SESSION_HISTORY),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
+      const previous = decisionAt(decisions, index - 1);
+      const current = decisionAt(decisions, index);
       expect(current.metrics.utilization).toBeGreaterThanOrEqual(previous.metrics.utilization);
       expect(current.metrics.remainingTokens).toBeLessThanOrEqual(previous.metrics.remainingTokens);
       if (previous.action === "FORCE") {
@@ -187,17 +219,16 @@ describe("17.6 monotonicity", () => {
 
   it("36. more cached tokens never make keeping the context more expensive", () => {
     const decisions = sweep([0, 20_000, 60_000, 100_000, 140_000, 150_000], (cachedTokens) =>
-      decideWith({ contextTokens: 150_000, cachedTokens }, HISTORY),
+      decideWith(
+        { contextTokens: 150_000, cachedTokens, profile: profileWithCacheTtl(60_000) },
+        HISTORY,
+        SESSION_HISTORY,
+      ),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
-      expect(current.metrics.estimatedKeepCost).toBeLessThanOrEqual(
-        previous.metrics.estimatedKeepCost,
+      expect(decisionAt(decisions, index).metrics.estimatedKeepCost).toBeLessThanOrEqual(
+        decisionAt(decisions, index - 1).metrics.estimatedKeepCost,
       );
     }
   });
@@ -207,15 +238,13 @@ describe("17.6 monotonicity", () => {
       decideWith(
         { contextTokens: 150_000, cachedTokens: 40_000 },
         { ...HISTORY, retentionSamples: 2, retentionRatioEma },
+        SESSION_HISTORY,
       ),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
+      const previous = decisionAt(decisions, index - 1);
+      const current = decisionAt(decisions, index);
       expect(current.metrics.estimatedReclaimTokens).toBeLessThanOrEqual(
         previous.metrics.estimatedReclaimTokens,
       );
@@ -226,19 +255,17 @@ describe("17.6 monotonicity", () => {
   });
 
   it("38. a higher compaction cost never lowers the break-even call count", () => {
-    const decisions = sweep([0.01, 0.05, 0.2, 0.5, 1, 5], (compactionCostEma) =>
+    const decisions = sweep([0.1, 0.5, 1, 2, 5, 10], (compactCostScaleEma) =>
       decideWith(
         { contextTokens: 150_000, cachedTokens: 40_000 },
-        { ...HISTORY, compactionCostSamples: 3, compactionCostEma },
+        { ...HISTORY, compactCostScaleSamples: 3, compactCostScaleEma },
+        SESSION_HISTORY,
       ),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
+      const previous = decisionAt(decisions, index - 1);
+      const current = decisionAt(decisions, index);
       expect(previous.metrics.breakEvenCalls).not.toBeNull();
       expect(current.metrics.breakEvenCalls).not.toBeNull();
       expect(current.metrics.breakEvenCalls ?? 0).toBeGreaterThanOrEqual(
@@ -252,15 +279,13 @@ describe("17.6 monotonicity", () => {
       decideWith(
         { contextTokens: 150_000, cachedTokens: 40_000 },
         { ...HISTORY, horizonSamples: 2, reuseHorizonEma: horizon },
+        SESSION_HISTORY,
       ),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
+      const previous = decisionAt(decisions, index - 1);
+      const current = decisionAt(decisions, index);
       expect(current.metrics.adjustedNetSaving).toBeGreaterThanOrEqual(
         previous.metrics.adjustedNetSaving,
       );
@@ -271,40 +296,42 @@ describe("17.6 monotonicity", () => {
   });
 
   it("40. idle time past the TTL never raises cache survival", () => {
-    const profile = makeProfile({ cachePolicy: { ttlMs: 60_000 } });
+    const profile = profileWithCacheTtl(60_000);
     const decisions = sweep([0, 1_000, 30_000, 59_999, 60_000, 120_000, 600_000], (idleMs) =>
-      decideWith({ contextTokens: 150_000, cachedTokens: 140_000, idleMs, profile }, HISTORY),
+      decideWith(
+        { contextTokens: 150_000, cachedTokens: 140_000, idleMs, profile },
+        HISTORY,
+        SESSION_HISTORY,
+      ),
     );
 
     for (let index = 1; index < decisions.length; index += 1) {
-      const previous = decisions[index - 1];
-      const current = decisions[index];
-      if (!previous || !current) {
-        throw new Error("missing decision");
-      }
-      expect(current.metrics.estimatedCacheSurvival).toBeLessThanOrEqual(
-        previous.metrics.estimatedCacheSurvival,
+      expect(
+        decisionAt(decisions, index).metrics.estimatedCacheAliveProbability,
+      ).toBeLessThanOrEqual(
+        decisionAt(decisions, index - 1).metrics.estimatedCacheAliveProbability,
       );
     }
   });
 
   it("41. a higher minimum reclaim never increases the number of COMPACT decisions", () => {
     const thresholds = [0, 1_000, 4_096, 16_384, 50_000, 100_000, 112_000, 112_500, 200_000];
-    const actions = thresholds.map(
-      (minReclaimTokens) =>
-        decideWith(
-          {
-            contextTokens: 150_000,
-            cachedTokens: 140_000,
-            idleMs: 600_000,
-            profile: makeProfile({ cachePolicy: { ttlMs: 300_000 } }),
-          },
-          HISTORY,
-          { defaults: { minReclaimTokens } },
-        ).action,
+    const compactCounts = thresholds.map((minReclaimTokens) =>
+      decideWith(
+        {
+          contextTokens: 150_000,
+          cachedTokens: 140_000,
+          idleMs: 600_000,
+          profile: profileWithCacheTtl(300_000),
+        },
+        HISTORY,
+        SESSION_HISTORY,
+        { defaults: { minReclaimTokens } },
+      ).action === "COMPACT"
+        ? 1
+        : 0,
     );
 
-    const compactCounts = actions.map((action) => (action === "COMPACT" ? 1 : 0));
     for (let index = 1; index < compactCounts.length; index += 1) {
       expect(compactCounts[index] ?? 0).toBeLessThanOrEqual(compactCounts[index - 1] ?? 0);
     }
@@ -312,91 +339,92 @@ describe("17.6 monotonicity", () => {
     expect(compactCounts[compactCounts.length - 1]).toBe(0);
   });
 
+  it("42. confidence is monotone in every sample count", () => {
+    const sampleKeys: Array<keyof FoldPointProfileLearningState> = [
+      "retentionSamples",
+      "compactPromptSamples",
+      "cacheCoverageSamples",
+      "horizonSamples",
+    ];
+
+    for (const key of sampleKeys) {
+      const low = decideWith(
+        { contextTokens: 100_000 },
+        { [key]: 0 } as Partial<FoldPointProfileLearningState>,
+        {},
+      );
+      const high = decideWith(
+        { contextTokens: 100_000 },
+        { [key]: 10 } as Partial<FoldPointProfileLearningState>,
+        {},
+      );
+      expect(high.confidence).toBeGreaterThanOrEqual(low.confidence);
+    }
+  });
+
   it("keeps every metric finite across a wide parameter sweep", () => {
-    const stateVariants: Partial<FoldPointProfileState>[] = [
+    const learningVariants: Array<Partial<FoldPointProfileLearningState>> = [
       {},
       { retentionSamples: 1, retentionRatioEma: 0.05 },
       { retentionSamples: 9, retentionRatioEma: 1 },
-      { cacheSamples: 4, cacheHitRatioEma: 1 },
+      { cacheCoverageSamples: 4, cacheCoverageRatioEma: 1 },
       { horizonSamples: 4, reuseHorizonEma: 50 },
-      { compactionCostSamples: 4, compactionCostEma: 0 },
+      { compactCostScaleSamples: 4, compactCostScaleEma: 10 },
       HISTORY,
+    ];
+    const sessionVariants: Array<Partial<FoldPointSessionState>> = [
+      {},
+      SESSION_HISTORY,
+      { compactionAttemptCount: 3, callsSinceLastAttempt: 0 },
     ];
     const contextTokens = [0, 1, 1_000, 99_999, 150_000, 199_999, 200_000, 250_000];
     const cachedTokens = [0, 1, 50_000, 199_999, 250_000];
 
-    for (const state of stateVariants) {
-      for (const context of contextTokens) {
-        for (const cached of cachedTokens) {
-          const decision = decideWith(
-            { contextTokens: context, cachedTokens: Math.min(cached, context) },
-            state,
-          );
-          expectAllMetricsFinite(decision);
+    for (const learning of learningVariants) {
+      for (const session of sessionVariants) {
+        for (const context of contextTokens) {
+          for (const cached of cachedTokens) {
+            const decision = decideWith(
+              { contextTokens: context, cachedTokens: Math.min(cached, context) },
+              learning,
+              session,
+            );
+            expectAllMetricsFinite(decision);
+          }
         }
       }
     }
   });
 });
 
-describe("horizon caps and growth learning", () => {
-  it("caps the effective horizon below the soft window", () => {
-    const belowSoft = decideWith({ contextTokens: 100_000, cachedTokens: 0 }, HISTORY);
-    const aboveSoft = decideWith({ contextTokens: 150_000, cachedTokens: 0 }, HISTORY);
-
-    expect(belowSoft.metrics.utilization).toBeLessThan(0.65);
-    expect(belowSoft.metrics.expectedFutureCalls).toBe(10);
-    expect(belowSoft.metrics.effectiveHorizonCalls).toBe(3);
-    expect(aboveSoft.metrics.effectiveHorizonCalls).toBe(10);
-  });
-
-  it("caps the effective horizon by the time the context needs to regrow", () => {
-    const decision = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
-      {
-        ...HISTORY,
-        retentionSamples: 3,
-        retentionRatioEma: 0.4,
-        growthSamples: 4,
-        growthPerCallEma: 30_000,
-      },
-    );
-
-    // 60% of 150k is reclaimed, and 30k is added per call: the context is back in 3 calls.
-    expect(decision.metrics.callsUntilRefill).toBeCloseTo(3, 6);
-    expect(decision.metrics.effectiveHorizonCalls).toBeCloseTo(3, 6);
-  });
-
-  it("does not cap the horizon when the context is not growing", () => {
-    const decision = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
-      { ...HISTORY, growthSamples: 5, growthPerCallEma: 0 },
-    );
-
-    expect(decision.metrics.callsUntilRefill).toBeNull();
-    expect(decision.metrics.effectiveHorizonCalls).toBe(10);
-  });
-
-  it("learns the growth rate from request observations and ignores shrinking prompts", () => {
-    const foldPoint = new FoldPoint();
-    const profile = makeProfile();
-
-    foldPoint.observeRequest(profile, { timestamp: BASE_TIMESTAMP, promptTokens: 100_000 });
-    expect(foldPoint.getProfileState(profile).growthSamples).toBe(0);
-
-    foldPoint.observeRequest(profile, { timestamp: BASE_TIMESTAMP + 1, promptTokens: 110_000 });
-    expect(foldPoint.getProfileState(profile).growthSamples).toBe(1);
-    expect(foldPoint.getProfileState(profile).growthPerCallEma).toBeCloseTo(2_500, 6);
-
-    // A compaction shrank the prompt: that says nothing about the growth rate.
-    foldPoint.observeRequest(profile, { timestamp: BASE_TIMESTAMP + 2, promptTokens: 40_000 });
-    expect(foldPoint.getProfileState(profile).growthSamples).toBe(1);
-    expect(foldPoint.getProfileState(profile).lastPromptTokens).toBe(40_000);
-  });
-
+describe("defaults", () => {
   it("memoizes and freezes the resolved defaults", () => {
     expect(resolveDefaults()).toBe(resolveDefaults());
     expect(Object.isFrozen(resolveDefaults())).toBe(true);
     expect(resolveDefaults({ emaAlpha: 0.5 })).not.toBe(resolveDefaults());
+  });
+
+  it("keeps the engine and the pure function on the same defaults", () => {
+    const profile = makeProfile();
+    const foldPoint = new FoldPoint({ defaults: { minReclaimTokens: 0, softWindowRatio: 0.5 } });
+    const input = makeInput({ sessionId: SESSION_A, profile, contextTokens: 50_000 });
+
+    expect(foldPoint.decide(input)).toEqual(
+      decideFoldPoint(
+        input,
+        foldPoint.getProfileState(profile),
+        foldPoint.getSessionState(SESSION_A, profile),
+        { defaults: foldPoint.getDefaults() },
+      ),
+    );
+  });
+
+  it("accepts a version 2 snapshot with the current keys", () => {
+    const profile = makeProfile();
+    const foldPoint = new FoldPoint();
+    const exported = foldPoint.exportState();
+    expect(exported.version).toBe(2);
+    expect(exported.profiles[profileKey(profile)]).toBeUndefined();
+    expect(Object.keys(exported.sessions)).toHaveLength(0);
   });
 });

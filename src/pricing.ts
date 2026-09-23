@@ -58,6 +58,17 @@ export function assertValidPricing(pricing: PricingSnapshot, label = "pricing"):
  *   discount is assumed and cache survival cannot create fake savings.
  * - No `cacheWritePerMillion` -> rebuilding a cache prefix costs the normal input price.
  */
+/**
+ * True when a price snapshot carries no real currency: either no snapshot at all, or the
+ * normalized token-cost mode from {@link tokenOnlyPricing}.
+ *
+ * Cost-*scale* learning is disabled in that mode, because there is no currency to compare
+ * the modeled cost against, and a token count must never be reinterpreted as money.
+ */
+export function isTokenOnlyPricing(pricing?: PricingSnapshot): boolean {
+  return pricing === undefined || pricing.currency === "TOKEN";
+}
+
 export function resolveUnitPrices(pricing?: PricingSnapshot): UnitPrices {
   if (!pricing) {
     return {

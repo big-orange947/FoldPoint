@@ -2,9 +2,14 @@
  * FoldPoint public type surface.
  *
  * FoldPoint is a decision kernel. It answers one question: should this agent session
- * compact its context right now? It answers from metadata only — token counts,
- * timestamps, cache statistics, prices and past compaction results. It never receives,
- * stores or inspects message content.
+ * compact its context right now? It answers from metadata only — token counts, timestamps,
+ * cache statistics, prices and past compaction results. It never receives, stores or
+ * inspects message content.
+ *
+ * State is split in two:
+ * - **profile learning state** is shared across sessions (how well this model + compactor
+ *   combination behaves);
+ * - **session runtime state** belongs to one session and is discarded by `endSession`.
  */
 
 /** The only three answers FoldPoint can give. */
@@ -23,15 +28,15 @@ export type FoldPointReason =
   | "COMPACTION_DISABLED"
   /** The host is not at a step boundary where compaction may run. */
   | "UNSAFE_BOUNDARY"
-  /** Not enough model calls have passed since the last compaction. */
+  /** Not enough model calls have passed since the last compaction attempt. */
   | "COOLDOWN_ACTIVE"
   /** Estimated reclaim is below the minimum reclaim token floor. */
   | "INSUFFICIENT_RECLAIM_TOKENS"
   /** Estimated reclaim is below the minimum reclaim ratio. */
   | "INSUFFICIENT_RECLAIM_RATIO"
-  /** Cached prefix is (probably) still alive, so keeping the context is cheap. */
+  /** The cached prefix is probably still usable, so keeping the context is cheap. */
   | "CACHE_STILL_VALUABLE"
-  /** Cached prefix is (probably) gone, so replaying the current context is expensive. */
+  /** The cached prefix is probably gone, so replaying the current context is expensive. */
   | "CACHE_LIKELY_EXPIRED"
   /** Adjusted net saving did not clear the configured minimum. */
   | "NO_POSITIVE_SAVING"
@@ -82,7 +87,7 @@ export interface CachePolicy {
 }
 
 /**
- * A model + compactor combination. State is isolated per profile.
+ * A model + compactor combination. Learning state is isolated per profile.
  * Suggested key: provider + model + contextWindowTokens + compactorId.
  */
 export interface FoldPointProfile {
@@ -109,12 +114,18 @@ export interface RequestObservation {
   /** Actual cost of this call, when the provider reports it. */
   actualCost?: number;
 
-  /** Exact provider cache expiry, when the host can read it. */
+  /**
+   * Exact provider cache expiry for the prefix this request just (re)built, when the host
+   * can read it. Reporting `undefined` clears any previously stored expiry.
+   */
   cacheExpiresAt?: number;
 }
 
 /** Everything FoldPoint needs for one decision. Metadata only. */
 export interface FoldPointInput {
+  /** Stable, host-owned, non-sensitive session identifier (a UUID, not message text). */
+  sessionId: string;
+
   profile: FoldPointProfile;
 
   timestamp: number;
@@ -122,10 +133,10 @@ export interface FoldPointInput {
   /** Token count the next model call is expected to carry. */
   contextTokens: number;
 
-  /** Tokens already known to sit in the cached prefix. */
+  /** Tokens the host knows are served from the provider cache for this prompt. */
   cachedTokens?: number;
 
-  /** Milliseconds since the last real request. Derived from state when omitted. */
+  /** Milliseconds since the last real request of *this session*. Derived from state when omitted. */
   idleMs?: number;
 
   /** True when the host may pause the agent here and run the compactor. */
@@ -137,11 +148,11 @@ export interface FoldPointInput {
   /** Host opt-out from economic compaction. Window safety can still return FORCE. */
   compactionAllowed?: boolean;
 
-  /** Exact provider cache expiry for the current context, when known. */
+  /** Exact provider cache expiry for the current prefix, when known. */
   cacheExpiresAt?: number;
 }
 
-/** The outcome of a real compaction call. */
+/** The outcome of a real compaction attempt. */
 export interface CompactionObservation {
   timestamp: number;
 
@@ -151,6 +162,7 @@ export interface CompactionObservation {
   /** Usage of the compaction call itself. */
   promptTokens?: number;
   cachedInputTokens?: number;
+  cacheWriteTokens?: number;
   outputTokens?: number;
 
   /** Actual cost of the compaction call, when the provider reports it. */
@@ -159,14 +171,9 @@ export interface CompactionObservation {
   success: boolean;
 }
 
-/** Reported when a session ends, so FoldPoint can learn the real reuse horizon. */
+/** Reported when a session ends. */
 export interface SessionEndObservation {
   timestamp: number;
-  /**
-   * Model calls performed between the most recent compaction and the end of the session.
-   * Defaults to the profile's own `callsSinceLastCompaction` counter.
-   */
-  callsSinceLastCompaction?: number;
 }
 
 /** Intermediate results behind a decision. Always returned, in every branch. */
@@ -179,10 +186,16 @@ export interface FoldPointDecisionMetrics {
   estimatedReclaimTokens: number;
   estimatedReclaimRatio: number;
 
-  /** Effective cache survival used in the cost model, in [0, 1]. */
-  estimatedCacheSurvival: number;
+  /** Fraction of the current context the cache could cover, in [0, 1]. */
+  estimatedCacheCoverageRatio: number;
+  /** Probability that the candidate cached prefix is still usable, in [0, 1]. */
+  estimatedCacheAliveProbability: number;
+  /** candidateCachedTokens * aliveProbability. */
+  estimatedEffectiveCachedTokens: number;
 
   estimatedKeepCost: number;
+  /** Cost of the compaction call itself, in the snapshot's currency. */
+  estimatedCompactCallCost: number;
   estimatedCompactCost: number;
   estimatedNetSaving: number;
   /**
@@ -198,19 +211,14 @@ export interface FoldPointDecisionMetrics {
   expectedFutureCalls: number;
   /**
    * The horizon actually used by the economic gate: `expectedFutureCalls`, capped by
-   * `softWindowBreakEvenCalls` while utilization is below the soft window, and capped by
-   * the estimated time the context needs to regrow to its pre-compaction size.
+   * `softWindowBreakEvenCalls` while utilization is below the soft window.
    */
   effectiveHorizonCalls: number;
-  /**
-   * Calls needed for the context to regrow by the estimated reclaim, at the learned growth
-   * rate. null when the growth rate is unknown or zero.
-   */
-  callsUntilRefill: number | null;
 
-  callsSinceLastCompaction: number;
+  /** Calls since the last compaction attempt in this session. */
+  callsSinceLastAttempt: number;
   /** Successful compaction results backing the retention estimate. */
-  compactionSamples: number;
+  retentionSamples: number;
 }
 
 export interface FoldPointDecision {
@@ -232,68 +240,109 @@ export interface FoldPointDecision {
   nextCheckAtTokens?: number;
 }
 
-/** Per-profile online state. JSON-serializable, no content, no secrets. */
-export interface FoldPointProfileState {
-  version: 1;
+/**
+ * Cross-session learning state for one profile. JSON-serializable, content-free.
+ * Everything here is scale-free: ratios and counts, never absolute amounts.
+ */
+export interface FoldPointProfileLearningState {
+  version: 2;
 
-  requestCount: number;
-  compactionCount: number;
   successfulCompactionCount: number;
-
-  lastRequestAt?: number;
-  lastCompactionAt?: number;
-  /** Exact cache expiry of the most recent observed request, when reported. */
-  lastCacheExpiresAt?: number;
-  callsSinceLastCompaction: number;
 
   /** afterTokens / beforeTokens. */
   retentionRatioEma: number;
-  /** compaction output tokens / beforeTokens. */
-  compactOutputRatioEma: number;
-  /** Cost of one compaction call; currency when real prices exist, else normalized tokens. */
-  compactionCostEma?: number;
-  /** cachedInputTokens / promptTokens. */
-  cacheHitRatioEma: number;
-  /** Conservative estimate of how many more calls a session makes. */
-  reuseHorizonEma: number;
-  /** Average tokens the context grows by between two consecutive model calls. */
-  growthPerCallEma: number;
-  /** Prompt size of the last observed request; used only to learn the growth rate. */
-  lastPromptTokens?: number;
-
   retentionSamples: number;
-  compactionCostSamples: number;
-  cacheSamples: number;
+
+  /** prompt tokens the compaction call read / beforeTokens. Cold start 1. */
+  compactPromptRatioEma: number;
+  compactPromptSamples: number;
+
+  /** compaction output tokens / beforeTokens. Cold start 0.12. */
+  compactOutputRatioEma: number;
+  compactOutputSamples: number;
+
+  /** cachedInputTokens / promptTokens of the compaction call. Cold start 0. */
+  compactCachedInputRatioEma: number;
+  compactCachedInputSamples: number;
+
+  /** cacheWriteTokens / promptTokens of the compaction call. Cold start 0. */
+  compactCacheWriteRatioEma: number;
+  compactCacheWriteSamples: number;
+
+  /**
+   * actualCost / modeledCost, dimensionless. Cold start 1.
+   * Never stores a currency amount.
+   */
+  compactCostScaleEma: number;
+  compactCostScaleSamples: number;
+
+  /** cachedInputTokens / promptTokens. Cache *coverage*, not cache survival. */
+  cacheCoverageRatioEma: number;
+  cacheCoverageSamples: number;
+
+  /** Calls between a successful compaction and the end of that session. */
+  reuseHorizonEma: number;
   horizonSamples: number;
-  growthSamples: number;
 }
 
-/** Whole-engine state. Profile keys are produced by `profileKey`. */
+/** Per-session runtime state. Discarded by `endSession`. Content-free. */
+export interface FoldPointSessionState {
+  version: 2;
+
+  requestCount: number;
+
+  compactionAttemptCount: number;
+  successfulCompactionCount: number;
+  failedCompactionCount: number;
+
+  /** Reset by any compaction attempt, successful or not. */
+  callsSinceLastAttempt: number;
+
+  /** Used to learn the reuse horizon at session end. */
+  callsSinceLastSuccessfulCompaction: number;
+
+  lastRequestAt?: number;
+  lastAttemptAt?: number;
+  lastSuccessfulCompactionAt?: number;
+
+  /** Exact expiry of the prefix the most recent request of this session built. */
+  cacheExpiresAt?: number;
+}
+
+/** Whole-engine state. Keys are produced by `profileKey` and `sessionKey`. */
 export interface FoldPointState {
-  version: 1;
-  profiles: Record<string, FoldPointProfileState>;
+  version: 2;
+  profiles: Record<string, FoldPointProfileLearningState>;
+  sessions: Record<string, FoldPointSessionState>;
 }
 
 /** All cold-start and policy parameters. Every one of them is overridable. */
 export interface FoldPointDefaults {
   /** Cold-start retention ratio used before any real compaction result exists. */
   retentionRatio: number;
+  /** Cold-start prompt tokens the compaction call reads / context tokens. */
+  compactPromptRatio: number;
   /** Cold-start compaction output tokens / context tokens. */
   compactOutputRatio: number;
+  /** Cold-start cached input share of the compaction prompt. */
+  compactCachedInputRatio: number;
+  /** Cold-start cache-write share of the compaction prompt. */
+  compactCacheWriteRatio: number;
+  /** Cold-start multiplier from modeled to actual compaction cost. */
+  compactCostScale: number;
   /** Cold-start reuse horizon, in future model calls. */
   expectedFutureCalls: number;
-  /** Minimum model calls between two compactions. */
+  /** Minimum model calls between two compaction attempts. */
   minCallsBetweenCompactions: number;
   /** Minimum reclaim, in tokens, for an economic compaction to be considered. */
   minReclaimTokens: number;
   /** Minimum reclaim ratio, for an economic compaction to be considered. */
   minReclaimRatio: number;
-  /** Below this utilization, the uncertainty penalty is multiplied. */
+  /** Below this utilization, the quick-payback policy guard applies. */
   softWindowRatio: number;
   /**
-   * Below the soft window, compaction must repay itself inside this many calls.
-   * This is the "quick payback" requirement: when the window is not scarce, only a
-   * fast break-even justifies compacting a small context.
+   * Below the soft window, break-even must fit inside this many calls.
+   * A quality-oriented policy guard, not a mathematical optimum.
    */
   softWindowBreakEvenCalls: number;
   /** At or above this utilization, FoldPoint returns FORCE. */
@@ -312,8 +361,8 @@ export interface FoldPointDefaults {
   confidenceFloor: number;
   /** Sample count at which the evidence score reaches half of its remaining range. */
   confidenceHalfSaturationSamples: number;
-  /** Below this effective cache survival, the cache counts as "likely expired". */
-  cacheValuableThreshold: number;
+  /** Below this cache alive probability, the cache counts as "likely expired". */
+  cacheAliveThreshold: number;
   /** Below this confidence, KEEP is annotated with LOW_CONFIDENCE. */
   lowConfidenceThreshold: number;
 }

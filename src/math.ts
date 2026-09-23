@@ -1,4 +1,4 @@
-import type { FoldPointDefaults, FoldPointProfileState } from "./types";
+import type { FoldPointDefaults } from "./types";
 
 /** Clamps `value` into `[min, max]`. NaN collapses to `min`. */
 export function clamp(value: number, min: number, max: number): number {
@@ -31,14 +31,25 @@ export function emaUpdate(previous: number, observation: number, alpha: number):
 }
 
 /**
- * Structural weights of the evidence score. Retention dominates because it is the
- * dominant unknown in the cost model.
+ * Structural weights of the evidence score. Retention dominates because it is the dominant
+ * unknown in the cost model; compaction usage, cache coverage and the horizon each
+ * contribute a fifth. The weights sum to 1.
  */
 export const CONFIDENCE_WEIGHTS = Object.freeze({
-  retention: 0.5,
-  cache: 0.25,
-  horizon: 0.25,
+  retention: 0.4,
+  compactionUsage: 0.2,
+  cacheCoverage: 0.2,
+  horizon: 0.2,
 });
+
+/** Every sample source that feeds the evidence score. */
+export interface ConfidenceSampleCounts {
+  retentionSamples: number;
+  /** Compaction calls that reported usage data (prompt, output, cache or cost scale). */
+  compactionUsageSamples: number;
+  cacheCoverageSamples: number;
+  horizonSamples: number;
+}
 
 /** Saturating evidence curve: 0 samples -> 0, `halfSaturation` samples -> 0.5, large -> ~1. */
 export function sampleConfidence(samples: number, halfSaturation: number): number {
@@ -51,18 +62,23 @@ export function sampleConfidence(samples: number, halfSaturation: number): numbe
 
 /**
  * Evidence score in [0, 1]: how much of the estimate rests on observed samples.
- * It starts at `confidenceFloor` (never zero, so overwhelming economics can still act)
- * and approaches 1 as retention, cache and horizon samples accumulate.
+ *
+ * It starts at `confidenceFloor` (never zero, so overwhelming economics can still act on a
+ * fresh profile), is monotone non-decreasing in every sample count, approaches 1 as samples
+ * accumulate, and never affects the window-safety FORCE.
  */
 export function computeConfidence(
-  state: Pick<FoldPointProfileState, "retentionSamples" | "cacheSamples" | "horizonSamples">,
+  samples: ConfidenceSampleCounts,
   defaults: FoldPointDefaults,
 ): number {
   const halfSaturation = defaults.confidenceHalfSaturationSamples;
   const evidence =
-    CONFIDENCE_WEIGHTS.retention * sampleConfidence(state.retentionSamples, halfSaturation) +
-    CONFIDENCE_WEIGHTS.cache * sampleConfidence(state.cacheSamples, halfSaturation) +
-    CONFIDENCE_WEIGHTS.horizon * sampleConfidence(state.horizonSamples, halfSaturation);
+    CONFIDENCE_WEIGHTS.retention * sampleConfidence(samples.retentionSamples, halfSaturation) +
+    CONFIDENCE_WEIGHTS.compactionUsage *
+      sampleConfidence(samples.compactionUsageSamples, halfSaturation) +
+    CONFIDENCE_WEIGHTS.cacheCoverage *
+      sampleConfidence(samples.cacheCoverageSamples, halfSaturation) +
+    CONFIDENCE_WEIGHTS.horizon * sampleConfidence(samples.horizonSamples, halfSaturation);
 
   return clamp(defaults.confidenceFloor + (1 - defaults.confidenceFloor) * evidence, 0, 1);
 }

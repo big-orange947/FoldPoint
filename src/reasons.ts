@@ -29,12 +29,13 @@ export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Ob
   RESERVE_TOKENS_REACHED: "Remaining window dropped to the configured reserve.",
   COMPACTION_DISABLED: "The host disabled economic compaction for this step.",
   UNSAFE_BOUNDARY: "The host is not at a step boundary where compaction may run.",
-  COOLDOWN_ACTIVE: "Too few model calls have passed since the last compaction.",
+  COOLDOWN_ACTIVE: "Too few model calls have passed since the last compaction attempt.",
   INSUFFICIENT_RECLAIM_TOKENS: "Estimated reclaim is below the minimum reclaim token floor.",
   INSUFFICIENT_RECLAIM_RATIO: "Estimated reclaim is below the minimum reclaim ratio.",
-  CACHE_STILL_VALUABLE: "The cached prefix is probably alive, so keeping the context is cheap.",
+  CACHE_STILL_VALUABLE:
+    "The candidate cached prefix is probably still usable, so keeping the context is cheap.",
   CACHE_LIKELY_EXPIRED:
-    "The cached prefix is probably gone, so replaying the context is expensive.",
+    "The candidate cached prefix is probably gone, so replaying the context costs full input price.",
   NO_POSITIVE_SAVING: "Adjusted net saving did not clear the configured minimum.",
   NO_BREAK_EVEN: "There is no positive per-call saving, so compaction can never repay itself.",
   BREAK_EVEN_BEYOND_HORIZON: "Break-even needs more future calls than the horizon provides.",

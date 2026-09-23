@@ -11,7 +11,13 @@ import type { FoldPointDefaults } from "./types";
  */
 export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
   retentionRatio: 0.4,
+
+  // Compaction call usage ratios, relative to the context being compacted.
+  compactPromptRatio: 1,
   compactOutputRatio: 0.12,
+  compactCachedInputRatio: 0,
+  compactCacheWriteRatio: 0,
+  compactCostScale: 1,
 
   expectedFutureCalls: 3,
 
@@ -36,7 +42,7 @@ export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
   confidenceFloor: 0.35,
   confidenceHalfSaturationSamples: 2,
 
-  cacheValuableThreshold: 0.5,
+  cacheAliveThreshold: 0.5,
   lowConfidenceThreshold: 0.5,
 });
 
@@ -48,24 +54,31 @@ export const NUMERIC_BOUNDS = Object.freeze({
   /** A compaction that reclaims less than 5% of the context is treated as reclaiming 5%. */
   retentionRatioMin: 0.05,
   retentionRatioMax: 1,
+  /** A compaction call that reads more than twice the context is treated as reading twice. */
+  compactPromptRatioMax: 2,
   /** Upper bound for the learned compaction output ratio. */
   compactOutputRatioMax: 1,
-  /** Guards against overflow when a host reports extreme prices. */
-  maxTokensPerCall: Number.MAX_SAFE_INTEGER,
+  /** Learned actualCost / modeledCost is clamped to this range. */
+  compactCostScaleMin: 0.1,
+  compactCostScaleMax: 10,
 });
 
 const RATIO_KEYS = [
   "retentionRatio",
+  "compactOutputRatio",
+  "compactCachedInputRatio",
+  "compactCacheWriteRatio",
   "minReclaimRatio",
   "softWindowRatio",
   "hardWindowRatio",
   "confidenceFloor",
-  "cacheValuableThreshold",
+  "cacheAliveThreshold",
   "lowConfidenceThreshold",
 ] as const;
 
 const NON_NEGATIVE_KEYS = [
-  "compactOutputRatio",
+  "compactPromptRatio",
+  "compactCostScale",
   "minCallsBetweenCompactions",
   "minReclaimTokens",
   "reserveTokens",
@@ -102,6 +115,23 @@ export function validateDefaults(defaults: FoldPointDefaults): void {
   }
   for (const key of NON_NEGATIVE_KEYS) {
     assertNonNegative(key, defaults[key]);
+  }
+
+  assertFiniteNumber("compactPromptRatio", defaults.compactPromptRatio);
+  if (defaults.compactPromptRatio > NUMERIC_BOUNDS.compactPromptRatioMax) {
+    throw new RangeError(
+      `FoldPoint default "compactPromptRatio" must be <= ${NUMERIC_BOUNDS.compactPromptRatioMax}, received ${defaults.compactPromptRatio}`,
+    );
+  }
+
+  assertFiniteNumber("compactCostScale", defaults.compactCostScale);
+  if (
+    defaults.compactCostScale < NUMERIC_BOUNDS.compactCostScaleMin ||
+    defaults.compactCostScale > NUMERIC_BOUNDS.compactCostScaleMax
+  ) {
+    throw new RangeError(
+      `FoldPoint default "compactCostScale" must be within [${NUMERIC_BOUNDS.compactCostScaleMin}, ${NUMERIC_BOUNDS.compactCostScaleMax}], received ${defaults.compactCostScale}`,
+    );
   }
 
   assertFiniteNumber("emaAlpha", defaults.emaAlpha);

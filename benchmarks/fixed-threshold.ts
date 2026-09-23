@@ -1,4 +1,4 @@
-import type { FoldPointAction, FoldPointReason } from "../src/index";
+import { DEFAULTS, type FoldPointAction, type FoldPointReason } from "../src/index";
 import type { Scenario } from "./scenarios";
 
 /** Everything a strategy is allowed to see when it makes a decision. */
@@ -25,9 +25,9 @@ export interface CompactionEvent {
   afterTokens: number;
   outputTokens: number;
   action: FoldPointAction;
-  /** Ground-truth cost of the compaction call. */
+  /** Ground-truth cost of the compaction attempt. */
   cost: number;
-  /** Ground-truth break-even of this compaction, when it has a positive per-call saving. */
+  /** Ground-truth break-even of this attempt, when it has a positive per-call saving. */
   breakEvenCalls: number | null;
   success: boolean;
 }
@@ -58,11 +58,24 @@ export interface Strategy {
  */
 export type StrategyFactory = (scenario: Scenario) => Strategy;
 
+/** The guards a guarded baseline shares with FoldPoint. It does NOT get its cost model. */
+export interface GuardSettings {
+  hardWindowRatio: number;
+  reserveTokens: number;
+  minCallsBetweenCompactions: number;
+}
+
+export const SHARED_GUARDS: GuardSettings = Object.freeze({
+  hardWindowRatio: DEFAULTS.hardWindowRatio,
+  reserveTokens: DEFAULTS.reserveTokens,
+  minCallsBetweenCompactions: DEFAULTS.minCallsBetweenCompactions,
+});
+
 /** The naive baseline: never compact, whatever happens. */
 export function createNeverStrategy(): Strategy {
   return {
     id: "never",
-    label: "Never compact",
+    label: "Never",
     decide() {
       return { action: "KEEP" };
     },
@@ -70,28 +83,74 @@ export function createNeverStrategy(): Strategy {
 }
 
 /**
- * Fixed utilization thresholds, exactly as most agent frameworks implement them.
+ * A raw utilization threshold, exactly as most agent frameworks implement it.
  *
- * These baselines deliberately get no cooldown and no minimum reclaim gate: they are the
- * naive comparison point, so their churn must be visible in the results.
+ * A raw baseline deliberately gets no cooldown, no reserve and no safe-boundary rule: it is
+ * the naive comparison point, so its churn has to be visible in the results.
  */
-export function createFixedThresholdStrategy(threshold: number): Strategy {
+export function createRawFixedThresholdStrategy(threshold: number): Strategy {
   const percent = Math.round(threshold * 100);
   return {
-    id: `fixed-${percent}`,
-    label: `Fixed ${percent}%`,
+    id: `fixed-${percent}-raw`,
+    label: `Fixed ${percent}% raw`,
     decide(request: DecisionRequest) {
       return { action: request.utilization >= threshold ? "COMPACT" : "KEEP" };
     },
   };
 }
 
-export const FIXED_THRESHOLDS: readonly number[] = Object.freeze([0.5, 0.7, 0.8, 0.9]);
+/**
+ * The same threshold, but with the guards FoldPoint also has: the hard window ratio, the
+ * reserve tokens, the cooldown (restarted by any attempt, successful or not) and the safe
+ * boundary. It has no cost model, no minimum reclaim and no economics, so a difference
+ * against it is a difference the economic model made.
+ */
+export function createGuardedFixedThresholdStrategy(
+  threshold: number,
+  windowTokens: number,
+  guards: GuardSettings = SHARED_GUARDS,
+): Strategy {
+  const percent = Math.round(threshold * 100);
+  let attempts = 0;
+  let callsSinceLastAttempt = 0;
+
+  return {
+    id: `fixed-${percent}-guarded`,
+    label: `Fixed ${percent}% guarded`,
+    decide(request: DecisionRequest) {
+      const remaining = windowTokens - request.contextTokens;
+      const windowDanger =
+        request.utilization >= guards.hardWindowRatio || remaining <= guards.reserveTokens;
+      if (windowDanger) {
+        return { action: "FORCE", reasons: ["HARD_WINDOW_RATIO"] };
+      }
+      if (request.utilization < threshold) {
+        return { action: "KEEP" };
+      }
+      if (attempts > 0 && callsSinceLastAttempt < guards.minCallsBetweenCompactions) {
+        return { action: "KEEP", reasons: ["COOLDOWN_ACTIVE"] };
+      }
+      return { action: "COMPACT" };
+    },
+    onRequest() {
+      callsSinceLastAttempt += 1;
+    },
+    onCompaction() {
+      attempts += 1;
+      callsSinceLastAttempt = 0;
+    },
+  };
+}
 
 /** Every non-learning strategy in the comparison, in report order. */
 export function createBaselineFactories(): StrategyFactory[] {
-  return [
-    () => createNeverStrategy(),
-    ...FIXED_THRESHOLDS.map((threshold) => () => createFixedThresholdStrategy(threshold)),
-  ];
+  const raw = [0.5, 0.7, 0.8, 0.9].map(
+    (threshold) => () => createRawFixedThresholdStrategy(threshold),
+  );
+  const guarded = [0.7, 0.8, 0.9].map(
+    (threshold) => (scenario: Scenario) =>
+      createGuardedFixedThresholdStrategy(threshold, scenario.contextWindowTokens),
+  );
+
+  return [() => createNeverStrategy(), ...raw, ...guarded];
 }

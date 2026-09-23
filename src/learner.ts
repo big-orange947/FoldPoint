@@ -1,14 +1,21 @@
 import { NUMERIC_BOUNDS } from "./defaults";
 import { clamp, emaUpdate } from "./math";
-import { costOfUsage, resolveUnitPrices } from "./pricing";
+import { costOfUsage, isTokenOnlyPricing, resolveUnitPrices } from "./pricing";
 import type {
   CompactionObservation,
   FoldPointDefaults,
-  FoldPointProfileState,
+  FoldPointProfileLearningState,
+  FoldPointSessionState,
   PricingSnapshot,
   RequestObservation,
   SessionEndObservation,
 } from "./types";
+
+/** The pair of states a stateful update produces. Both are new objects; inputs are never mutated. */
+export interface StateUpdate {
+  learning: FoldPointProfileLearningState;
+  session: FoldPointSessionState;
+}
 
 function assertFiniteNumber(name: string, value: unknown, min: number): asserts value is number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -31,6 +38,7 @@ function assertOptionalTokenCount(name: string, value: unknown): void {
 function assertUsageConsistency(observation: {
   promptTokens?: number | undefined;
   cachedInputTokens?: number | undefined;
+  cacheWriteTokens?: number | undefined;
 }): void {
   if (
     observation.promptTokens !== undefined &&
@@ -39,6 +47,15 @@ function assertUsageConsistency(observation: {
   ) {
     throw new RangeError(
       `FoldPoint observation "cachedInputTokens" (${observation.cachedInputTokens}) must not exceed "promptTokens" (${observation.promptTokens})`,
+    );
+  }
+  if (
+    observation.promptTokens !== undefined &&
+    observation.cacheWriteTokens !== undefined &&
+    observation.cacheWriteTokens > observation.promptTokens
+  ) {
+    throw new RangeError(
+      `FoldPoint observation "cacheWriteTokens" (${observation.cacheWriteTokens}) must not exceed "promptTokens" (${observation.promptTokens})`,
     );
   }
 }
@@ -66,6 +83,7 @@ export function validateCompactionObservation(observation: CompactionObservation
   assertFiniteNumber("afterTokens", observation.afterTokens, 0);
   assertOptionalTokenCount("promptTokens", observation.promptTokens);
   assertOptionalTokenCount("cachedInputTokens", observation.cachedInputTokens);
+  assertOptionalTokenCount("cacheWriteTokens", observation.cacheWriteTokens);
   assertOptionalTokenCount("outputTokens", observation.outputTokens);
   if (observation.actualCost !== undefined) {
     assertFiniteNumber("actualCost", observation.actualCost, 0);
@@ -78,24 +96,42 @@ export function validateCompactionObservation(observation: CompactionObservation
   }
 }
 
-/** A fresh profile state seeded from the cold-start defaults. */
-export function createProfileState(defaults: FoldPointDefaults): FoldPointProfileState {
+/** A fresh profile learning state seeded from the cold-start defaults. */
+export function createProfileLearningState(
+  defaults: FoldPointDefaults,
+): FoldPointProfileLearningState {
   return {
-    version: 1,
-    requestCount: 0,
-    compactionCount: 0,
+    version: 2,
     successfulCompactionCount: 0,
-    callsSinceLastCompaction: 0,
     retentionRatioEma: defaults.retentionRatio,
-    compactOutputRatioEma: defaults.compactOutputRatio,
-    cacheHitRatioEma: 0,
-    reuseHorizonEma: defaults.expectedFutureCalls,
-    growthPerCallEma: 0,
     retentionSamples: 0,
-    compactionCostSamples: 0,
-    cacheSamples: 0,
+    compactPromptRatioEma: defaults.compactPromptRatio,
+    compactPromptSamples: 0,
+    compactOutputRatioEma: defaults.compactOutputRatio,
+    compactOutputSamples: 0,
+    compactCachedInputRatioEma: defaults.compactCachedInputRatio,
+    compactCachedInputSamples: 0,
+    compactCacheWriteRatioEma: defaults.compactCacheWriteRatio,
+    compactCacheWriteSamples: 0,
+    compactCostScaleEma: defaults.compactCostScale,
+    compactCostScaleSamples: 0,
+    cacheCoverageRatioEma: 0,
+    cacheCoverageSamples: 0,
+    reuseHorizonEma: defaults.expectedFutureCalls,
     horizonSamples: 0,
-    growthSamples: 0,
+  };
+}
+
+/** A fresh session runtime state. */
+export function createSessionState(): FoldPointSessionState {
+  return {
+    version: 2,
+    requestCount: 0,
+    compactionAttemptCount: 0,
+    successfulCompactionCount: 0,
+    failedCompactionCount: 0,
+    callsSinceLastAttempt: 0,
+    callsSinceLastSuccessfulCompaction: 0,
   };
 }
 
@@ -115,229 +151,303 @@ function readRatio(value: unknown, fallback: number, min = 0, max = 1): number {
 }
 
 /**
- * Rebuilds a well-formed profile state from arbitrary JSON.
+ * Rebuilds a well-formed profile learning state from arbitrary JSON.
  *
- * Unknown fields are ignored, missing fields fall back to the cold-start defaults and
+ * Unknown fields are ignored, missing fields fall back to the cold-start defaults, and
  * malformed numbers degrade to their default instead of throwing: persisted state must
  * never be able to break the decision path.
  */
-export function normalizeProfileState(
+export function normalizeProfileLearningState(
   raw: unknown,
   defaults: FoldPointDefaults,
-): FoldPointProfileState {
+): FoldPointProfileLearningState {
   if (raw === null || typeof raw !== "object") {
-    return createProfileState(defaults);
+    return createProfileLearningState(defaults);
   }
 
-  const source = raw as Partial<FoldPointProfileState>;
-  const state: FoldPointProfileState = {
-    version: 1,
-    requestCount: readCount(source.requestCount),
-    compactionCount: readCount(source.compactionCount),
+  const source = raw as Partial<FoldPointProfileLearningState>;
+  return {
+    version: 2,
     successfulCompactionCount: readCount(source.successfulCompactionCount),
-    callsSinceLastCompaction: readCount(source.callsSinceLastCompaction),
     retentionRatioEma: readRatio(
       source.retentionRatioEma,
       defaults.retentionRatio,
       NUMERIC_BOUNDS.retentionRatioMin,
       NUMERIC_BOUNDS.retentionRatioMax,
     ),
+    retentionSamples: readCount(source.retentionSamples),
+    compactPromptRatioEma: readRatio(
+      source.compactPromptRatioEma,
+      defaults.compactPromptRatio,
+      0,
+      NUMERIC_BOUNDS.compactPromptRatioMax,
+    ),
+    compactPromptSamples: readCount(source.compactPromptSamples),
     compactOutputRatioEma: readRatio(
       source.compactOutputRatioEma,
       defaults.compactOutputRatio,
       0,
       NUMERIC_BOUNDS.compactOutputRatioMax,
     ),
-    cacheHitRatioEma: readRatio(source.cacheHitRatioEma, 0, 0, 1),
+    compactOutputSamples: readCount(source.compactOutputSamples),
+    compactCachedInputRatioEma: readRatio(
+      source.compactCachedInputRatioEma,
+      defaults.compactCachedInputRatio,
+      0,
+      1,
+    ),
+    compactCachedInputSamples: readCount(source.compactCachedInputSamples),
+    compactCacheWriteRatioEma: readRatio(
+      source.compactCacheWriteRatioEma,
+      defaults.compactCacheWriteRatio,
+      0,
+      1,
+    ),
+    compactCacheWriteSamples: readCount(source.compactCacheWriteSamples),
+    compactCostScaleEma: readRatio(
+      source.compactCostScaleEma,
+      defaults.compactCostScale,
+      NUMERIC_BOUNDS.compactCostScaleMin,
+      NUMERIC_BOUNDS.compactCostScaleMax,
+    ),
+    compactCostScaleSamples: readCount(source.compactCostScaleSamples),
+    cacheCoverageRatioEma: readRatio(source.cacheCoverageRatioEma, 0, 0, 1),
+    cacheCoverageSamples: readCount(source.cacheCoverageSamples),
     reuseHorizonEma:
       typeof source.reuseHorizonEma === "number" && Number.isFinite(source.reuseHorizonEma)
         ? Math.max(1, source.reuseHorizonEma)
         : defaults.expectedFutureCalls,
-    growthPerCallEma:
-      typeof source.growthPerCallEma === "number" && Number.isFinite(source.growthPerCallEma)
-        ? Math.max(0, source.growthPerCallEma)
-        : 0,
-    retentionSamples: readCount(source.retentionSamples),
-    compactionCostSamples: readCount(source.compactionCostSamples),
-    cacheSamples: readCount(source.cacheSamples),
     horizonSamples: readCount(source.horizonSamples),
-    growthSamples: readCount(source.growthSamples),
+  };
+}
+
+/** Rebuilds a well-formed session runtime state from arbitrary JSON. */
+export function normalizeSessionState(raw: unknown): FoldPointSessionState {
+  if (raw === null || typeof raw !== "object") {
+    return createSessionState();
+  }
+
+  const source = raw as Partial<FoldPointSessionState>;
+  const session: FoldPointSessionState = {
+    version: 2,
+    requestCount: readCount(source.requestCount),
+    compactionAttemptCount: readCount(source.compactionAttemptCount),
+    successfulCompactionCount: readCount(source.successfulCompactionCount),
+    failedCompactionCount: readCount(source.failedCompactionCount),
+    callsSinceLastAttempt: readCount(source.callsSinceLastAttempt),
+    callsSinceLastSuccessfulCompaction: readCount(source.callsSinceLastSuccessfulCompaction),
   };
 
   const lastRequestAt = readOptionalTimestamp(source.lastRequestAt);
   if (lastRequestAt !== undefined) {
-    state.lastRequestAt = lastRequestAt;
+    session.lastRequestAt = lastRequestAt;
   }
-  const lastCompactionAt = readOptionalTimestamp(source.lastCompactionAt);
-  if (lastCompactionAt !== undefined) {
-    state.lastCompactionAt = lastCompactionAt;
+  const lastAttemptAt = readOptionalTimestamp(source.lastAttemptAt);
+  if (lastAttemptAt !== undefined) {
+    session.lastAttemptAt = lastAttemptAt;
   }
-  const lastCacheExpiresAt = readOptionalTimestamp(source.lastCacheExpiresAt);
-  if (lastCacheExpiresAt !== undefined) {
-    state.lastCacheExpiresAt = lastCacheExpiresAt;
+  const lastSuccessfulCompactionAt = readOptionalTimestamp(source.lastSuccessfulCompactionAt);
+  if (lastSuccessfulCompactionAt !== undefined) {
+    session.lastSuccessfulCompactionAt = lastSuccessfulCompactionAt;
   }
-  if (typeof source.compactionCostEma === "number" && Number.isFinite(source.compactionCostEma)) {
-    state.compactionCostEma = Math.max(0, source.compactionCostEma);
-  }
-  const lastPromptTokens = readCount(source.lastPromptTokens);
-  if (lastPromptTokens > 0) {
-    state.lastPromptTokens = lastPromptTokens;
+  const cacheExpiresAt = readOptionalTimestamp(source.cacheExpiresAt);
+  if (cacheExpiresAt !== undefined) {
+    session.cacheExpiresAt = cacheExpiresAt;
   }
 
-  return state;
+  return session;
 }
 
 /**
  * Records one real model request.
  *
- * Updates: request count, call counter since the last compaction, cache-hit EMA (only when
- * `promptTokens > 0`) and the exact cache expiry when the host reports one.
+ * Profile learning: the cache *coverage* ratio (only when `promptTokens > 0`).
+ * Session runtime: request count, the two call counters, the last request time, and the
+ * exact cache expiry of the prefix this request built. A request that reports no expiry
+ * **clears** the stored one, so a stale expiry can never control a newer prefix.
  */
 export function applyRequestObservation(
-  state: FoldPointProfileState,
+  learning: FoldPointProfileLearningState,
+  session: FoldPointSessionState,
   observation: RequestObservation,
   defaults: FoldPointDefaults,
-): FoldPointProfileState {
+): StateUpdate {
   validateRequestObservation(observation);
 
-  const next: FoldPointProfileState = {
-    ...state,
-    version: 1,
-    requestCount: state.requestCount + 1,
-    callsSinceLastCompaction: state.callsSinceLastCompaction + 1,
+  const nextLearning: FoldPointProfileLearningState = { ...learning, version: 2 };
+  const nextSession: FoldPointSessionState = {
+    ...session,
+    version: 2,
+    requestCount: session.requestCount + 1,
+    callsSinceLastAttempt: session.callsSinceLastAttempt + 1,
+    callsSinceLastSuccessfulCompaction: session.callsSinceLastSuccessfulCompaction + 1,
     lastRequestAt: observation.timestamp,
   };
 
   if (observation.cacheExpiresAt !== undefined) {
-    next.lastCacheExpiresAt = observation.cacheExpiresAt;
+    nextSession.cacheExpiresAt = observation.cacheExpiresAt;
+  } else {
+    delete nextSession.cacheExpiresAt;
   }
 
   if (observation.promptTokens > 0) {
-    const observedCacheHitRatio = clamp(
+    const observedCacheCoverageRatio = clamp(
       (observation.cachedInputTokens ?? 0) / observation.promptTokens,
       0,
       1,
     );
-    next.cacheHitRatioEma = emaUpdate(
-      state.cacheHitRatioEma,
-      observedCacheHitRatio,
+    nextLearning.cacheCoverageRatioEma = emaUpdate(
+      learning.cacheCoverageRatioEma,
+      observedCacheCoverageRatio,
       defaults.emaAlpha,
     );
-    next.cacheSamples = state.cacheSamples + 1;
+    nextLearning.cacheCoverageSamples = learning.cacheCoverageSamples + 1;
   }
 
-  // Growth is only learned when the context actually grew: a smaller prompt means a
-  // compaction or a reset happened, which says nothing about the growth rate.
-  if (state.lastPromptTokens !== undefined && observation.promptTokens >= state.lastPromptTokens) {
-    next.growthPerCallEma = emaUpdate(
-      state.growthPerCallEma,
-      observation.promptTokens - state.lastPromptTokens,
-      defaults.emaAlpha,
-    );
-    next.growthSamples = state.growthSamples + 1;
-  }
-  next.lastPromptTokens = observation.promptTokens;
-
-  return next;
+  return { learning: nextLearning, session: nextSession };
 }
 
 /**
  * Records the outcome of a real compaction attempt.
  *
- * Only successful compactions update the retention ratio, the compaction output ratio and
- * the compaction cost. Failures are counted but do not reset the cooldown, so a failing
- * compactor cannot be hammered; window safety (`FORCE`) is unaffected by the cooldown.
+ * Every attempt — successful or not — resets the cooldown (`callsSinceLastAttempt`) and
+ * bumps the attempt counter. Only successful attempts update profile learning: retention,
+ * the compaction call's usage ratios (scale-free, so they survive pricing changes) and the
+ * actual-cost scale. A failed attempt teaches nothing about the compactor.
  */
 export function applyCompactionObservation(
-  state: FoldPointProfileState,
+  learning: FoldPointProfileLearningState,
+  session: FoldPointSessionState,
   observation: CompactionObservation,
   defaults: FoldPointDefaults,
   pricing?: PricingSnapshot,
-): FoldPointProfileState {
+): StateUpdate {
   validateCompactionObservation(observation);
 
-  const next: FoldPointProfileState = {
-    ...state,
-    version: 1,
-    compactionCount: state.compactionCount + 1,
+  const nextLearning: FoldPointProfileLearningState = { ...learning, version: 2 };
+  const nextSession: FoldPointSessionState = {
+    ...session,
+    version: 2,
+    compactionAttemptCount: session.compactionAttemptCount + 1,
+    callsSinceLastAttempt: 0,
+    lastAttemptAt: observation.timestamp,
   };
 
   if (!observation.success) {
-    return next;
+    nextSession.failedCompactionCount = session.failedCompactionCount + 1;
+    return { learning: nextLearning, session: nextSession };
   }
 
-  const observedRetentionRatio = clamp(
-    observation.afterTokens / observation.beforeTokens,
-    NUMERIC_BOUNDS.retentionRatioMin,
-    NUMERIC_BOUNDS.retentionRatioMax,
-  );
-  next.retentionRatioEma = emaUpdate(
-    state.retentionRatioEma,
-    observedRetentionRatio,
+  nextSession.successfulCompactionCount = session.successfulCompactionCount + 1;
+  nextSession.callsSinceLastSuccessfulCompaction = 0;
+  nextSession.lastSuccessfulCompactionAt = observation.timestamp;
+  nextLearning.successfulCompactionCount = learning.successfulCompactionCount + 1;
+
+  const beforeTokens = observation.beforeTokens;
+
+  nextLearning.retentionRatioEma = emaUpdate(
+    learning.retentionRatioEma,
+    clamp(
+      observation.afterTokens / beforeTokens,
+      NUMERIC_BOUNDS.retentionRatioMin,
+      NUMERIC_BOUNDS.retentionRatioMax,
+    ),
     defaults.emaAlpha,
   );
-  next.retentionSamples = state.retentionSamples + 1;
+  nextLearning.retentionSamples = learning.retentionSamples + 1;
 
-  if (observation.outputTokens !== undefined) {
-    const observedCompactOutputRatio = clamp(
-      observation.outputTokens / observation.beforeTokens,
-      0,
-      NUMERIC_BOUNDS.compactOutputRatioMax,
-    );
-    next.compactOutputRatioEma = emaUpdate(
-      state.compactOutputRatioEma,
-      observedCompactOutputRatio,
+  if (observation.promptTokens !== undefined) {
+    nextLearning.compactPromptRatioEma = emaUpdate(
+      learning.compactPromptRatioEma,
+      clamp(observation.promptTokens / beforeTokens, 0, NUMERIC_BOUNDS.compactPromptRatioMax),
       defaults.emaAlpha,
     );
+    nextLearning.compactPromptSamples = learning.compactPromptSamples + 1;
   }
 
-  let observedCost: number | undefined;
-  if (observation.actualCost !== undefined) {
-    observedCost = observation.actualCost;
-  } else if (observation.promptTokens !== undefined || observation.outputTokens !== undefined) {
-    observedCost = costOfUsage(resolveUnitPrices(pricing), {
-      promptTokens: observation.promptTokens ?? 0,
+  if (observation.outputTokens !== undefined) {
+    nextLearning.compactOutputRatioEma = emaUpdate(
+      learning.compactOutputRatioEma,
+      clamp(observation.outputTokens / beforeTokens, 0, NUMERIC_BOUNDS.compactOutputRatioMax),
+      defaults.emaAlpha,
+    );
+    nextLearning.compactOutputSamples = learning.compactOutputSamples + 1;
+  }
+
+  if (observation.cachedInputTokens !== undefined && (observation.promptTokens ?? 0) > 0) {
+    nextLearning.compactCachedInputRatioEma = emaUpdate(
+      learning.compactCachedInputRatioEma,
+      clamp(observation.cachedInputTokens / (observation.promptTokens ?? 1), 0, 1),
+      defaults.emaAlpha,
+    );
+    nextLearning.compactCachedInputSamples = learning.compactCachedInputSamples + 1;
+  }
+
+  if (observation.cacheWriteTokens !== undefined && (observation.promptTokens ?? 0) > 0) {
+    nextLearning.compactCacheWriteRatioEma = emaUpdate(
+      learning.compactCacheWriteRatioEma,
+      clamp(observation.cacheWriteTokens / (observation.promptTokens ?? 1), 0, 1),
+      defaults.emaAlpha,
+    );
+    nextLearning.compactCacheWriteSamples = learning.compactCacheWriteSamples + 1;
+  }
+
+  // The actual-cost scale is dimensionless and only meaningful with a real currency, a
+  // complete usage report and a modeled cost to compare against.
+  if (
+    observation.actualCost !== undefined &&
+    observation.promptTokens !== undefined &&
+    pricing !== undefined &&
+    !isTokenOnlyPricing(pricing)
+  ) {
+    const modeledCost = costOfUsage(resolveUnitPrices(pricing), {
+      promptTokens: observation.promptTokens,
       cachedInputTokens: observation.cachedInputTokens ?? 0,
+      cacheWriteTokens: observation.cacheWriteTokens ?? 0,
       outputTokens: observation.outputTokens ?? 0,
     });
+    if (Number.isFinite(modeledCost) && modeledCost > 0) {
+      nextLearning.compactCostScaleEma = emaUpdate(
+        learning.compactCostScaleEma,
+        clamp(
+          observation.actualCost / modeledCost,
+          NUMERIC_BOUNDS.compactCostScaleMin,
+          NUMERIC_BOUNDS.compactCostScaleMax,
+        ),
+        defaults.emaAlpha,
+      );
+      nextLearning.compactCostScaleSamples = learning.compactCostScaleSamples + 1;
+    }
   }
 
-  if (observedCost !== undefined && Number.isFinite(observedCost)) {
-    const previousCost = state.compactionCostEma ?? observedCost;
-    next.compactionCostEma = emaUpdate(previousCost, observedCost, defaults.emaAlpha);
-    next.compactionCostSamples = state.compactionCostSamples + 1;
-  }
-
-  next.successfulCompactionCount = state.successfulCompactionCount + 1;
-  next.lastCompactionAt = observation.timestamp;
-  next.callsSinceLastCompaction = 0;
-
-  return next;
+  return { learning: nextLearning, session: nextSession };
 }
 
 /**
- * Records the end of a session, so the reuse horizon can be learned from real data.
- * A no-op when the profile never compacted: the horizon is only meaningful after a
- * compaction happened.
+ * Learns the reuse horizon at session end: the number of calls between the last successful
+ * compaction of this session and its end. A no-op when the session never compacted
+ * successfully, because then there is no horizon to learn.
  */
 export function applySessionEnd(
-  state: FoldPointProfileState,
+  learning: FoldPointProfileLearningState,
+  session: FoldPointSessionState,
   observation: SessionEndObservation,
   defaults: FoldPointDefaults,
-): FoldPointProfileState {
+): FoldPointProfileLearningState {
   assertFiniteNumber("timestamp", observation.timestamp, 0);
-  if (state.compactionCount <= 0) {
-    return { ...state, version: 1 };
+
+  if (session.successfulCompactionCount <= 0) {
+    return { ...learning, version: 2 };
   }
 
-  const callsSinceLastCompaction =
-    observation.callsSinceLastCompaction ?? state.callsSinceLastCompaction;
-  assertFiniteNumber("callsSinceLastCompaction", callsSinceLastCompaction, 0);
-
   return {
-    ...state,
-    version: 1,
-    reuseHorizonEma: emaUpdate(state.reuseHorizonEma, callsSinceLastCompaction, defaults.emaAlpha),
-    horizonSamples: state.horizonSamples + 1,
+    ...learning,
+    version: 2,
+    reuseHorizonEma: emaUpdate(
+      learning.reuseHorizonEma,
+      session.callsSinceLastSuccessfulCompaction,
+      defaults.emaAlpha,
+    ),
+    horizonSamples: learning.horizonSamples + 1,
   };
 }

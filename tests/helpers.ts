@@ -1,11 +1,13 @@
 import {
-  createProfileState,
+  createProfileLearningState,
+  createSessionState,
   decideFoldPoint,
   type FoldPointDecision,
   type FoldPointDecisionOptions,
   type FoldPointInput,
   type FoldPointProfile,
-  type FoldPointProfileState,
+  type FoldPointProfileLearningState,
+  type FoldPointSessionState,
   resolveDefaults,
 } from "../src/index";
 
@@ -20,6 +22,8 @@ export const PRICING = {
 };
 
 export const BASE_TIMESTAMP = 1_700_000_000_000;
+export const SESSION_A = "session-a";
+export const SESSION_B = "session-b";
 
 export function makeProfile(overrides: Partial<FoldPointProfile> = {}): FoldPointProfile {
   return {
@@ -32,12 +36,19 @@ export function makeProfile(overrides: Partial<FoldPointProfile> = {}): FoldPoin
   };
 }
 
-export function makeState(overrides: Partial<FoldPointProfileState> = {}): FoldPointProfileState {
-  return { ...createProfileState(DEFAULT_OPTIONS_SET), ...overrides };
+export function makeLearning(
+  overrides: Partial<FoldPointProfileLearningState> = {},
+): FoldPointProfileLearningState {
+  return { ...createProfileLearningState(DEFAULT_OPTIONS_SET), ...overrides };
+}
+
+export function makeSession(overrides: Partial<FoldPointSessionState> = {}): FoldPointSessionState {
+  return { ...createSessionState(), ...overrides };
 }
 
 export function makeInput(overrides: Partial<FoldPointInput> = {}): FoldPointInput {
   return {
+    sessionId: SESSION_A,
     profile: makeProfile(),
     timestamp: BASE_TIMESTAMP,
     contextTokens: 50_000,
@@ -48,29 +59,50 @@ export function makeInput(overrides: Partial<FoldPointInput> = {}): FoldPointInp
 }
 
 /**
- * A profile with real compaction history: a good compactor, a live cache with a known TTL,
- * a learned horizon of 10 calls and a learned compaction cost.
+ * A profile with real compaction history: a good compactor, learned usage ratios, a learned
+ * cache coverage ratio and a learned horizon of 10 calls.
  */
-export const HISTORY: Partial<FoldPointProfileState> = {
-  compactionCount: 1,
-  successfulCompactionCount: 1,
-  callsSinceLastCompaction: 10,
+export const HISTORY: Partial<FoldPointProfileLearningState> = {
+  successfulCompactionCount: 2,
   retentionSamples: 4,
   retentionRatioEma: 0.25,
-  cacheSamples: 3,
-  cacheHitRatioEma: 0.9,
+  compactPromptSamples: 3,
+  compactPromptRatioEma: 1,
+  compactOutputSamples: 3,
+  compactOutputRatioEma: 0.1,
+  compactCachedInputSamples: 2,
+  compactCachedInputRatioEma: 0,
+  compactCacheWriteSamples: 0,
+  compactCacheWriteRatioEma: 0,
+  compactCostScaleSamples: 0,
+  compactCostScaleEma: 1,
+  cacheCoverageSamples: 3,
+  cacheCoverageRatioEma: 0.9,
   horizonSamples: 3,
   reuseHorizonEma: 10,
-  compactionCostSamples: 2,
-  compactionCostEma: 0.05,
+};
+
+/** A session that already compacted once and is past the cooldown. */
+export const SESSION_HISTORY: Partial<FoldPointSessionState> = {
+  requestCount: 10,
+  compactionAttemptCount: 1,
+  successfulCompactionCount: 1,
+  callsSinceLastAttempt: 10,
+  callsSinceLastSuccessfulCompaction: 10,
 };
 
 export function decideWith(
   inputOverrides: Partial<FoldPointInput> = {},
-  stateOverrides: Partial<FoldPointProfileState> = {},
+  learningOverrides: Partial<FoldPointProfileLearningState> = {},
+  sessionOverrides: Partial<FoldPointSessionState> = {},
   options?: FoldPointDecisionOptions,
 ): FoldPointDecision {
-  return decideFoldPoint(makeInput(inputOverrides), makeState(stateOverrides), options);
+  return decideFoldPoint(
+    makeInput(inputOverrides),
+    makeLearning(learningOverrides),
+    makeSession(sessionOverrides),
+    options,
+  );
 }
 
 /** A profile whose cache is known to stay alive for a long time. */

@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { decideFoldPoint, tokenOnlyPricing } from "../src/index";
+import { computeBreakEvenCalls, decideFoldPoint, tokenOnlyPricing } from "../src/index";
 import {
   BASE_TIMESTAMP,
   decideWith,
   expectAllMetricsFinite,
   HISTORY,
   makeInput,
+  makeLearning,
   makeProfile,
-  makeState,
+  makeSession,
   profileWithCacheTtl,
+  SESSION_HISTORY,
 } from "./helpers";
 
 describe("17.1 basic decisions", () => {
@@ -32,7 +34,10 @@ describe("17.1 basic decisions", () => {
     const decision = decideWith(
       { contextTokens: 195_000, cachedTokens: 0 },
       {},
-      { defaults: { hardWindowRatio: 0.99 } },
+      {},
+      {
+        defaults: { hardWindowRatio: 0.99 },
+      },
     );
 
     expect(decision.action).toBe("FORCE");
@@ -49,6 +54,7 @@ describe("17.1 basic decisions", () => {
         profile: profileWithCacheTtl(300_000),
       },
       HISTORY,
+      SESSION_HISTORY,
     );
 
     expect(decision.action).toBe("COMPACT");
@@ -57,15 +63,21 @@ describe("17.1 basic decisions", () => {
     expect(decision.reasons).toContain("CACHE_LIKELY_EXPIRED");
     expect(decision.metrics.breakEvenCalls).not.toBeNull();
     expect(decision.metrics.breakEvenCalls ?? 0).toBeLessThanOrEqual(
-      decision.metrics.expectedFutureCalls,
+      decision.metrics.effectiveHorizonCalls,
     );
     expect(decision.metrics.adjustedNetSaving).toBeGreaterThan(0);
   });
 
   it("5. a compaction that can never repay itself -> KEEP", () => {
     const decision = decideWith(
-      { contextTokens: 150_000, cachedTokens: 150_000 },
-      { ...HISTORY, retentionSamples: 3, retentionRatioEma: 1, cacheHitRatioEma: 1 },
+      {
+        contextTokens: 150_000,
+        cachedTokens: 150_000,
+        idleMs: 0,
+        profile: profileWithCacheTtl(600_000),
+      },
+      { ...HISTORY, retentionSamples: 3, retentionRatioEma: 1, cacheCoverageRatioEma: 1 },
+      SESSION_HISTORY,
       { defaults: { minReclaimTokens: 0, minReclaimRatio: 0 } },
     );
 
@@ -79,8 +91,8 @@ describe("17.1 basic decisions", () => {
 
 describe("decision output shape", () => {
   it("returns full metrics and a machine-readable reason list in every branch", () => {
-    const actions = [
-      decideWith({ contextTokens: 20_000 }, {}),
+    const decisions = [
+      decideWith({ contextTokens: 20_000 }, {}, {}),
       decideWith(
         {
           contextTokens: 150_000,
@@ -89,13 +101,14 @@ describe("decision output shape", () => {
           profile: profileWithCacheTtl(300_000),
         },
         HISTORY,
+        SESSION_HISTORY,
       ),
-      decideWith({ contextTokens: 195_000 }, {}),
+      decideWith({ contextTokens: 195_000 }, {}, {}),
     ];
 
-    expect(actions.map((decision) => decision.action)).toEqual(["KEEP", "COMPACT", "FORCE"]);
+    expect(decisions.map((decision) => decision.action)).toEqual(["KEEP", "COMPACT", "FORCE"]);
 
-    for (const decision of actions) {
+    for (const decision of decisions) {
       expect(Array.isArray(decision.reasons)).toBe(true);
       expect(decision.reasons.length).toBeGreaterThan(0);
       expect(decision.confidence).toBeGreaterThanOrEqual(0);
@@ -117,6 +130,7 @@ describe("decision output shape", () => {
         profile: profileWithCacheTtl(300_000),
       },
       HISTORY,
+      SESSION_HISTORY,
     );
     const force = decideWith({ contextTokens: 195_000 });
 
@@ -124,81 +138,247 @@ describe("decision output shape", () => {
     expect(compact.nextCheckAtTokens).toBeUndefined();
     expect(force.nextCheckAtTokens).toBeUndefined();
   });
+
+  it("does not mutate the states it is given", () => {
+    const learning = makeLearning(HISTORY);
+    const session = makeSession(SESSION_HISTORY);
+    const input = makeInput({ contextTokens: 150_000, cachedTokens: 140_000 });
+    const learningBefore = JSON.stringify(learning);
+    const sessionBefore = JSON.stringify(session);
+
+    decideFoldPoint(input, learning, session);
+
+    expect(JSON.stringify(learning)).toBe(learningBefore);
+    expect(JSON.stringify(session)).toBe(sessionBefore);
+  });
 });
 
-describe("cost model", () => {
-  it("prices the current replay from uncached and cached tokens", () => {
-    const decision = decideWith(
-      { contextTokens: 100_000, cachedTokens: 60_000 },
-      { ...HISTORY, reuseHorizonEma: 2, horizonSamples: 1 },
-    );
+describe("compaction call cost from usage ratios", () => {
+  it("uses the cold-start usage ratios when nothing was learned", () => {
+    const decision = decideWith({ contextTokens: 100_000, cachedTokens: 0 }, {}, {});
 
-    const inputPerToken = 3 / 1_000_000;
-    const cacheReadPerToken = 0.3 / 1_000_000;
-    const survival = decision.metrics.estimatedCacheSurvival;
-    const expectedReplay =
-      40_000 * inputPerToken +
-      60_000 * (survival * cacheReadPerToken + (1 - survival) * inputPerToken);
-
-    expect(decision.metrics.estimatedKeepCost).toBeCloseTo(expectedReplay * 2, 12);
+    // 100k prompt tokens at the input price + 12% output tokens at the output price.
+    const expected = 100_000 * (3 / 1_000_000) + 12_000 * (15 / 1_000_000);
+    expect(decision.metrics.estimatedCompactCallCost).toBeCloseTo(expected, 12);
   });
 
-  it("charges the first post-compaction replay at the cache-write price", () => {
-    const decision = decideWith(
-      { contextTokens: 100_000, cachedTokens: 0 },
-      { retentionRatioEma: 0.5, retentionSamples: 1 },
+  it("scales a learned usage ratio to the current context instead of reusing an amount", () => {
+    const learned = {
+      compactPromptSamples: 2,
+      compactPromptRatioEma: 1,
+      compactOutputSamples: 2,
+      compactOutputRatioEma: 0.1,
+    };
+
+    const small = decideWith({ contextTokens: 10_000, cachedTokens: 0 }, learned, {});
+    const large = decideWith({ contextTokens: 100_000, cachedTokens: 0 }, learned, {});
+
+    expect(small.metrics.estimatedCompactCallCost).toBeCloseTo(
+      10_000 * (3 / 1_000_000) + 1_000 * (15 / 1_000_000),
+      12,
     );
-
-    const postCompactTokens = 100_000 * 0.5;
-    const writePrice = 3.75 / 1_000_000;
-    const inputPrice = 3 / 1_000_000;
-    const horizon = 3;
-    const coldStartCallCost = 100_000 * inputPrice + 100_000 * 0.12 * (15 / 1_000_000);
-
-    expect(decision.metrics.estimatedPostCompactTokens).toBeCloseTo(postCompactTokens, 6);
-    expect(decision.metrics.estimatedCompactCost).toBeCloseTo(
-      coldStartCallCost +
-        postCompactTokens * writePrice +
-        (horizon - 1) * postCompactTokens * inputPrice,
+    expect(large.metrics.estimatedCompactCallCost).toBeCloseTo(
+      small.metrics.estimatedCompactCallCost * 10,
       12,
     );
   });
 
-  it("uses the cold-start compaction cost estimate when nothing was learned", () => {
-    const decision = decideWith(
-      { contextTokens: 100_000, cachedTokens: 0 },
-      { retentionSamples: 0 },
+  it("prices the compaction prompt at the current prices on every call", () => {
+    const learned = {
+      compactPromptSamples: 2,
+      compactPromptRatioEma: 1,
+      compactOutputSamples: 2,
+      compactOutputRatioEma: 0.1,
+    };
+    const cheapProfile = makeProfile({ pricing: { inputPerMillion: 1, outputPerMillion: 5 } });
+    const priceyProfile = makeProfile({ pricing: { inputPerMillion: 10, outputPerMillion: 50 } });
+
+    const cheap = decideWith(
+      { contextTokens: 100_000, cachedTokens: 0, profile: cheapProfile },
+      learned,
+      {},
+    );
+    const pricey = decideWith(
+      { contextTokens: 100_000, cachedTokens: 0, profile: priceyProfile },
+      learned,
+      {},
     );
 
-    const expectedOutputTokens = 100_000 * 0.12;
-    const expectedCallCost = 100_000 * (3 / 1_000_000) + expectedOutputTokens * (15 / 1_000_000);
+    expect(cheap.metrics.estimatedCompactCallCost).toBeCloseTo(
+      100_000 * (1 / 1_000_000) + 10_000 * (5 / 1_000_000),
+      12,
+    );
+    expect(pricey.metrics.estimatedCompactCallCost).toBeCloseTo(
+      cheap.metrics.estimatedCompactCallCost * 10,
+      12,
+    );
+  });
 
-    expect(decision.metrics.compactionSamples).toBe(0);
-    expect(decision.metrics.estimatedCompactCost).toBeGreaterThanOrEqual(expectedCallCost - 1e-12);
+  it("applies the learned actual-cost scale to the modeled cost", () => {
+    const learned = {
+      compactPromptSamples: 2,
+      compactPromptRatioEma: 1,
+      compactOutputSamples: 2,
+      compactOutputRatioEma: 0.1,
+      compactCostScaleSamples: 2,
+      compactCostScaleEma: 2,
+    };
+    const decision = decideWith({ contextTokens: 100_000, cachedTokens: 0 }, learned, {});
+
+    const modeled = 100_000 * (3 / 1_000_000) + 10_000 * (15 / 1_000_000);
+    expect(decision.metrics.estimatedCompactCallCost).toBeCloseTo(modeled * 2, 12);
   });
 
   it("falls back to normalized token cost when no price is configured", () => {
-    const profile = makeProfile({ pricing: undefined });
     const decision = decideFoldPoint(
-      makeInput({ profile, contextTokens: 100_000, cachedTokens: 50_000 }),
-      makeState(HISTORY),
+      makeInput({
+        profile: makeProfile({ pricing: undefined }),
+        contextTokens: 100_000,
+        cachedTokens: 50_000,
+      }),
+      makeLearning(HISTORY),
+      makeSession(SESSION_HISTORY),
     );
 
     expectAllMetricsFinite(decision);
     expect(decision.metrics.estimatedKeepCost).toBeGreaterThan(0);
     expect(tokenOnlyPricing().inputPerMillion).toBe(1_000_000);
   });
+});
+
+describe("break-even algebra", () => {
+  it("17.4 solves N * C = K + F + (N - 1) * L exactly", () => {
+    const input = {
+      currentReplayCost: 5,
+      compactCallCost: 10,
+      firstPostCompactReplayCost: 4,
+      laterPostCompactReplayCost: 2,
+    };
+
+    const breakEven = computeBreakEvenCalls(input);
+
+    expect(breakEven).toBe(4);
+    // Keep(4) = 4 * 5 = 20, Compact(4) = 10 + 4 + 3 * 2 = 20.
+    expect(4 * input.currentReplayCost).toBe(20);
+    expect(
+      input.compactCallCost +
+        input.firstPostCompactReplayCost +
+        3 * input.laterPostCompactReplayCost,
+    ).toBe(20);
+  });
+
+  it("17.4 has the right sign on both sides of the break-even point", () => {
+    const input = {
+      currentReplayCost: 5,
+      compactCallCost: 10,
+      firstPostCompactReplayCost: 4,
+      laterPostCompactReplayCost: 2,
+    };
+    const keepCost = (calls: number) => calls * input.currentReplayCost;
+    const compactCost = (calls: number) =>
+      input.compactCallCost +
+      input.firstPostCompactReplayCost +
+      (calls - 1) * input.laterPostCompactReplayCost;
+
+    expect(compactCost(3)).toBeGreaterThan(keepCost(3));
+    expect(compactCost(5)).toBeLessThan(keepCost(5));
+    expect(compactCost(4)).toBe(keepCost(4));
+  });
+
+  it("returns null when there is no positive per-call saving", () => {
+    expect(
+      computeBreakEvenCalls({
+        currentReplayCost: 2,
+        compactCallCost: 10,
+        firstPostCompactReplayCost: 4,
+        laterPostCompactReplayCost: 2,
+      }),
+    ).toBeNull();
+    expect(
+      computeBreakEvenCalls({
+        currentReplayCost: 2,
+        compactCallCost: 10,
+        firstPostCompactReplayCost: 4,
+        laterPostCompactReplayCost: 5,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns 0 when compacting is already not more expensive before the first call", () => {
+    expect(
+      computeBreakEvenCalls({
+        currentReplayCost: 5,
+        compactCallCost: 1,
+        firstPostCompactReplayCost: 1,
+        laterPostCompactReplayCost: 4,
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("confidence", () => {
+  it("starts at the floor with no samples and grows with evidence", () => {
+    const fresh = decideWith({ contextTokens: 100_000 }, {}, {});
+    const learned = decideWith({ contextTokens: 100_000 }, HISTORY, SESSION_HISTORY);
+
+    expect(fresh.confidence).toBeCloseTo(0.35, 10);
+    expect(learned.confidence).toBeGreaterThan(fresh.confidence);
+    expect(learned.confidence).toBeLessThanOrEqual(1);
+  });
+
+  it("counts compaction usage samples as evidence", () => {
+    const withoutUsage = decideWith(
+      { contextTokens: 100_000 },
+      { compactPromptSamples: 0, compactOutputSamples: 0 },
+      {},
+    );
+    const withUsage = decideWith(
+      { contextTokens: 100_000 },
+      { compactPromptSamples: 4, compactOutputSamples: 4 },
+      {},
+    );
+
+    expect(withUsage.confidence).toBeGreaterThan(withoutUsage.confidence);
+  });
+});
+
+describe("soft-window quick-payback policy guard", () => {
+  it("caps the effective horizon below the soft window and relaxes it above", () => {
+    const belowSoft = decideWith(
+      { contextTokens: 100_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+    const aboveSoft = decideWith(
+      { contextTokens: 150_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+
+    expect(belowSoft.metrics.utilization).toBeLessThan(0.65);
+    expect(belowSoft.metrics.expectedFutureCalls).toBe(10);
+    expect(belowSoft.metrics.effectiveHorizonCalls).toBe(3);
+    expect(aboveSoft.metrics.effectiveHorizonCalls).toBe(10);
+  });
 
   it("doubles the uncertainty penalty below the soft window", () => {
-    const belowSoft = decideWith({ contextTokens: 150_000, cachedTokens: 0 }, HISTORY, {
-      defaults: { softWindowRatio: 0.8 },
-    });
-    const aboveSoft = decideWith({ contextTokens: 150_000, cachedTokens: 0 }, HISTORY, {
-      defaults: { softWindowRatio: 0.5 },
-    });
+    const belowSoft = decideWith(
+      { contextTokens: 150_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
+      {
+        defaults: { softWindowRatio: 0.8 },
+      },
+    );
+    const aboveSoft = decideWith(
+      { contextTokens: 150_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
+      {
+        defaults: { softWindowRatio: 0.5 },
+      },
+    );
 
-    expect(belowSoft.metrics.utilization).toBeLessThan(0.8);
-    expect(aboveSoft.metrics.utilization).toBeGreaterThan(0.5);
     expect(belowSoft.metrics.estimatedNetSaving).toBeCloseTo(
       aboveSoft.metrics.estimatedNetSaving,
       12,
@@ -206,25 +386,18 @@ describe("cost model", () => {
     expect(belowSoft.metrics.adjustedNetSaving).toBeLessThan(aboveSoft.metrics.adjustedNetSaving);
   });
 
-  it("reports a confidence that grows with observed samples", () => {
-    const fresh = decideWith({ contextTokens: 100_000 }, {});
-    const learned = decideWith({ contextTokens: 100_000 }, HISTORY);
-
-    expect(fresh.confidence).toBeCloseTo(0.35, 10);
-    expect(learned.confidence).toBeGreaterThan(fresh.confidence);
-    expect(learned.confidence).toBeLessThanOrEqual(1);
-  });
-
-  it("honours the host-provided horizon over the learned one", () => {
+  it("does not use a context-regrowth heuristic any more", () => {
     const decision = decideWith(
-      { contextTokens: 100_000, expectedFutureCalls: 7 },
-      { ...HISTORY, reuseHorizonEma: 2, horizonSamples: 5 },
+      { contextTokens: 150_000, cachedTokens: 0 },
+      HISTORY,
+      SESSION_HISTORY,
     );
 
-    expect(decision.metrics.expectedFutureCalls).toBe(7);
+    expect("callsUntilRefill" in decision.metrics).toBe(false);
+    expect(decision.metrics.effectiveHorizonCalls).toBe(decision.metrics.expectedFutureCalls);
   });
 
-  it("derives idle time from state when the host does not provide it", () => {
+  it("derives idle time from the session state when the host does not provide it", () => {
     const decision = decideWith(
       {
         contextTokens: 100_000,
@@ -232,9 +405,10 @@ describe("cost model", () => {
         timestamp: BASE_TIMESTAMP + 5_000,
         profile: profileWithCacheTtl(60_000),
       },
-      { ...HISTORY, lastRequestAt: BASE_TIMESTAMP },
+      HISTORY,
+      { ...SESSION_HISTORY, lastRequestAt: BASE_TIMESTAMP },
     );
 
-    expect(decision.metrics.estimatedCacheSurvival).toBeCloseTo(0.9, 10);
+    expect(decision.metrics.estimatedCacheAliveProbability).toBe(1);
   });
 });

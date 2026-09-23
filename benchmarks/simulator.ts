@@ -2,7 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createProfileState,
+  costOfUsage,
+  createProfileLearningState,
+  createSessionState,
   DEFAULTS,
   decideFoldPoint,
   FoldPoint,
@@ -10,6 +12,8 @@ import {
   type FoldPointProfile,
   percentile,
   resolveDefaults,
+  resolveUnitPrices,
+  type UnitPrices,
 } from "../src/index";
 import {
   type CompactionEvent,
@@ -19,7 +23,7 @@ import {
   type Strategy,
   type StrategyFactory,
 } from "./fixed-threshold";
-import { createRng, growthAtStep, SCENARIOS, type Scenario } from "./scenarios";
+import { createFailureRng, createRng, growthAtStep, SCENARIOS, type Scenario } from "./scenarios";
 
 const BASE_TIMESTAMP = 1_700_000_000_000;
 const REPORT_PATH = join(
@@ -44,8 +48,11 @@ export interface SessionMetrics {
   totalPromptTokens: number;
   totalCachedTokens: number;
   totalOutputTokens: number;
-  compactionCount: number;
-  forcedCompactionCount: number;
+  compactionAttemptCount: number;
+  successfulCompactionCount: number;
+  failedCompactionCount: number;
+  economicAttemptCount: number;
+  forcedAttemptCount: number;
   forceDecisionCount: number;
   overflowCount: number;
   overflowRecoveryCount: number;
@@ -65,11 +72,13 @@ export interface SessionRun {
 }
 
 /**
- * FoldPoint wired the way a host would wire it: observe every real call, record every real
- * compaction, report session end, and never hand it ground truth.
+ * FoldPoint wired the way a host would wire it: one session per scenario run, every real
+ * call observed, every compaction attempt recorded (successful or not), and the session
+ * ended at the end so the reuse horizon can be learned.
  */
 export function createFoldPointStrategy(scenario: Scenario): Strategy {
   const foldPoint = new FoldPoint();
+  const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
     model: "benchmark-model",
@@ -84,6 +93,7 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
     label: "FoldPoint",
     decide(request: DecisionRequest) {
       const input: FoldPointInput = {
+        sessionId,
         profile,
         timestamp: request.timestamp,
         contextTokens: request.contextTokens,
@@ -93,7 +103,12 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
         compactionAllowed: true,
       };
       if (scenario.hostHorizon !== undefined) {
-        input.expectedFutureCalls = scenario.hostHorizon;
+        // A host that declares a remaining budget never claims more future calls than the
+        // session can still have, so the estimate shrinks as the session proceeds.
+        input.expectedFutureCalls = Math.max(
+          1,
+          Math.min(scenario.hostHorizon, scenario.steps - request.step),
+        );
       }
 
       const decision = foldPoint.decide(input);
@@ -104,7 +119,7 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
       };
     },
     onCompaction(event: CompactionEvent) {
-      foldPoint.recordCompaction(profile, {
+      foldPoint.recordCompaction(sessionId, profile, {
         timestamp: event.timestamp,
         beforeTokens: event.beforeTokens,
         afterTokens: event.afterTokens,
@@ -114,7 +129,7 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
       });
     },
     onRequest(event: RequestEvent) {
-      foldPoint.observeRequest(profile, {
+      foldPoint.observeRequest(sessionId, profile, {
         timestamp: event.timestamp,
         promptTokens: event.promptTokens,
         cachedInputTokens: event.cachedInputTokens,
@@ -122,7 +137,7 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
       });
     },
     onSessionEnd(timestamp: number) {
-      foldPoint.endSession(profile, { timestamp });
+      foldPoint.endSession(sessionId, profile, { timestamp });
     },
   };
 }
@@ -142,25 +157,27 @@ function safePercentile(values: readonly number[], p: number): number {
  * Runs one simulated session.
  *
  * The model is identical for every strategy:
- * - new tokens are appended at the start of each step,
+ * - new tokens are appended at the start of each step, driven only by the growth RNG;
  * - the provider caches the whole prompt of a successful call, until the TTL lapses or a
- *   compaction rebuilds the prefix,
- * - an overflow is a call whose prompt exceeds the window: it is charged at the window
- *   limit and counted, and the strategy gets no second chance,
- * - the compactor behaves exactly as the scenario's ground truth says.
+ *   successful compaction rebuilds the prefix;
+ * - rebuilding a prefix is billed at the cache-write price, exactly like the engine models
+ *   the first post-compaction replay;
+ * - a compaction attempt fails with probability `1 - successRate` (failure RNG): it is
+ *   billed, it does not change the context and it does not build a cache;
+ * - an overflow is a call whose prompt exceeds the window: it is counted, and the host is
+ *   then forced to compact at the worst possible moment and pays for that recovery.
  */
 export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
-  const random = createRng(scenario.seed);
-  const pin = scenario.pricing.inputPerMillion / 1_000_000;
-  const pout = scenario.pricing.outputPerMillion / 1_000_000;
-  const pcache =
-    (scenario.pricing.cacheReadPerMillion ?? scenario.pricing.inputPerMillion) / 1_000_000;
+  const growthRandom = createRng(scenario.seed);
+  const failureRandom = createFailureRng(scenario.seed);
+  const prices: UnitPrices = resolveUnitPrices(scenario.pricing);
   const ttlMs = scenario.cachePolicy.ttlMs ?? Number.POSITIVE_INFINITY;
 
   let contextTokens = scenario.startTokens;
   let lastPromptTokens = 0;
   let lastCallAt: number | undefined;
   let cacheHeld = false;
+  let rebuildingCache = true;
   let timestamp = BASE_TIMESTAMP;
 
   const latencies: number[] = [];
@@ -170,8 +187,11 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
   let totalPromptTokens = 0;
   let totalCachedTokens = 0;
   let totalOutputTokens = 0;
-  let compactionCount = 0;
-  let forcedCompactionCount = 0;
+  let compactionAttemptCount = 0;
+  let successfulCompactionCount = 0;
+  let failedCompactionCount = 0;
+  let economicAttemptCount = 0;
+  let forcedAttemptCount = 0;
   let forceDecisionCount = 0;
   let overflowCount = 0;
   let overflowRecoveryCount = 0;
@@ -189,7 +209,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
 
   for (let step = 0; step < scenario.steps; step += 1) {
     timestamp += scenario.idleMs;
-    contextTokens += growthAtStep(scenario, step, random);
+    contextTokens += growthAtStep(scenario, step, growthRandom);
 
     const cacheAlive = cacheHeld && lastCallAt !== undefined && timestamp - lastCallAt < ttlMs;
     const cachedTokens = cacheAlive ? Math.min(lastPromptTokens, contextTokens) : 0;
@@ -213,6 +233,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
     }
 
     let callCachedTokens = cachedTokens;
+    let callRebuildsCache = rebuildingCache;
 
     if (decision.action !== "KEEP") {
       finalizeActive();
@@ -220,27 +241,26 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       const beforeTokens = contextTokens;
       const compactionOutputTokens = Math.round(beforeTokens * scenario.compactor.outputRatio);
       const afterTokens = Math.round(beforeTokens * scenario.compactor.retentionRatio);
-      const cost = beforeTokens * pin + compactionOutputTokens * pout;
-      const coverage = beforeTokens > 0 ? cachedTokens / beforeTokens : 0;
-      const perTokenReplay = coverage * pcache + (1 - coverage) * pin;
-      const savingPerCall = (beforeTokens - afterTokens) * perTokenReplay;
-      const breakEvenCalls = savingPerCall > 0 ? cost / savingPerCall : null;
-      const forced = utilization >= DEFAULTS.hardWindowRatio;
+      const success = failureRandom() < scenario.compactor.successRate;
+      const attemptCost = costOfUsage(prices, {
+        promptTokens: beforeTokens,
+        outputTokens: compactionOutputTokens,
+      });
 
-      totalSimulatedCost += cost;
-      compactionCount += 1;
+      totalSimulatedCost += attemptCost;
+      compactionAttemptCount += 1;
       utilizationAtCompactionSum += utilization;
-      if (forced) {
-        forcedCompactionCount += 1;
-      }
-      if (breakEvenCalls !== null) {
-        breakEvens.push(breakEvenCalls);
-      }
-      if (typeof decision.estimatedBreakEvenCalls === "number") {
-        estimatedBreakEvens.push(decision.estimatedBreakEvenCalls);
+      if (decision.action === "COMPACT") {
+        economicAttemptCount += 1;
+      } else {
+        forcedAttemptCount += 1;
       }
 
-      active = { beforeTokens, afterTokens, cost, saving: 0, forced };
+      const coverage = beforeTokens > 0 ? cachedTokens / beforeTokens : 0;
+      const perTokenReplay =
+        coverage * prices.cacheReadPerToken + (1 - coverage) * prices.inputPerToken;
+      const savingPerCall = (beforeTokens - afterTokens) * perTokenReplay;
+      const breakEvenCalls = success && savingPerCall > 0 ? attemptCost / savingPerCall : null;
 
       strategy.onCompaction?.({
         step,
@@ -249,22 +269,40 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         afterTokens,
         outputTokens: compactionOutputTokens,
         action: decision.action,
-        cost,
+        cost: attemptCost,
         breakEvenCalls,
-        success: true,
+        success,
       });
 
-      contextTokens = afterTokens;
-      lastPromptTokens = 0;
-      cacheHeld = false;
-      callCachedTokens = 0;
+      if (success) {
+        successfulCompactionCount += 1;
+        if (breakEvenCalls !== null) {
+          breakEvens.push(breakEvenCalls);
+        }
+        if (typeof decision.estimatedBreakEvenCalls === "number") {
+          estimatedBreakEvens.push(decision.estimatedBreakEvenCalls);
+        }
+        active = {
+          beforeTokens,
+          afterTokens,
+          cost: attemptCost,
+          saving: 0,
+          forced: decision.action === "FORCE",
+        };
+        contextTokens = afterTokens;
+        lastPromptTokens = 0;
+        cacheHeld = false;
+        callCachedTokens = 0;
+        callRebuildsCache = true;
+      } else {
+        failedCompactionCount += 1;
+        // The context is unchanged and no cache prefix was built; the next call still sees
+        // whatever the previous call left in the cache.
+      }
     }
 
     const rawContextTokens = contextTokens;
 
-    // An overflow is a call the provider rejects: the host is then forced to compact at the
-    // worst possible moment. The strategy still pays for that recovery and is charged for
-    // the overflow in the overflow count.
     if (rawContextTokens > scenario.contextWindowTokens) {
       overflowCount += 1;
       finalizeActive();
@@ -272,7 +310,11 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       const beforeTokens = rawContextTokens;
       const recoveryOutputTokens = Math.round(beforeTokens * scenario.compactor.outputRatio);
       const recoveredTokens = Math.round(beforeTokens * scenario.compactor.retentionRatio);
-      const recoveryCost = beforeTokens * pin + recoveryOutputTokens * pout;
+      const recoveryCost = costOfUsage(prices, {
+        promptTokens: beforeTokens,
+        cacheWriteTokens: beforeTokens,
+        outputTokens: recoveryOutputTokens,
+      });
 
       totalSimulatedCost += recoveryCost;
       overflowRecoveryCount += 1;
@@ -292,34 +334,46 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       lastPromptTokens = 0;
       cacheHeld = false;
       callCachedTokens = 0;
+      callRebuildsCache = true;
     }
 
-    const chargedPrompt = contextTokens;
     minRemainingHeadroom = Math.min(
       minRemainingHeadroom,
       scenario.contextWindowTokens - rawContextTokens,
     );
 
-    callCachedTokens = Math.min(callCachedTokens, chargedPrompt);
-    const callCost =
-      (chargedPrompt - callCachedTokens) * pin +
-      callCachedTokens * pcache +
-      scenario.outputTokens * pout;
+    const chargedPrompt = contextTokens;
+    const usage = callRebuildsCache
+      ? {
+          promptTokens: chargedPrompt,
+          cacheWriteTokens: chargedPrompt,
+          outputTokens: scenario.outputTokens,
+        }
+      : {
+          promptTokens: chargedPrompt,
+          cachedInputTokens: callCachedTokens,
+          outputTokens: scenario.outputTokens,
+        };
+    const callCost = costOfUsage(prices, usage);
 
     totalSimulatedCost += callCost;
     totalPromptTokens += chargedPrompt;
-    totalCachedTokens += callCachedTokens;
+    totalCachedTokens += callRebuildsCache ? 0 : callCachedTokens;
     totalOutputTokens += scenario.outputTokens;
 
     if (active) {
       const counterfactualPrompt = chargedPrompt + (active.beforeTokens - active.afterTokens);
-      const coverage = chargedPrompt > 0 ? callCachedTokens / chargedPrompt : 0;
+      const coverage =
+        chargedPrompt > 0 ? (callRebuildsCache ? 0 : callCachedTokens / chargedPrompt) : 0;
       const counterfactualCached = Math.min(
         counterfactualPrompt,
         Math.round(counterfactualPrompt * coverage),
       );
-      const counterfactualCost =
-        (counterfactualPrompt - counterfactualCached) * pin + counterfactualCached * pcache;
+      const counterfactualCost = costOfUsage(prices, {
+        promptTokens: counterfactualPrompt,
+        cachedInputTokens: counterfactualCached,
+        outputTokens: scenario.outputTokens,
+      });
       active.saving += counterfactualCost - callCost;
     }
 
@@ -327,7 +381,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       step,
       timestamp,
       promptTokens: chargedPrompt,
-      cachedInputTokens: callCachedTokens,
+      cachedInputTokens: callRebuildsCache ? 0 : callCachedTokens,
       outputTokens: scenario.outputTokens,
       cost: callCost,
     });
@@ -335,6 +389,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
     lastPromptTokens = chargedPrompt;
     lastCallAt = timestamp;
     cacheHeld = true;
+    rebuildingCache = false;
   }
 
   finalizeActive();
@@ -349,14 +404,17 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       totalPromptTokens,
       totalCachedTokens,
       totalOutputTokens,
-      compactionCount,
-      forcedCompactionCount,
+      compactionAttemptCount,
+      successfulCompactionCount,
+      failedCompactionCount,
+      economicAttemptCount,
+      forcedAttemptCount,
       forceDecisionCount,
       overflowCount,
       overflowRecoveryCount,
       minRemainingHeadroom: Number.isFinite(minRemainingHeadroom) ? minRemainingHeadroom : 0,
       averageUtilizationAtCompaction:
-        compactionCount > 0 ? utilizationAtCompactionSum / compactionCount : null,
+        compactionAttemptCount > 0 ? utilizationAtCompactionSum / compactionAttemptCount : null,
       unnecessaryCompactionCount,
       meanBreakEvenCallsAtCompaction: mean(breakEvens),
       meanEstimatedBreakEvenCallsAtCompaction: mean(estimatedBreakEvens),
@@ -376,8 +434,11 @@ export interface AggregateMetrics {
   totalPromptTokens: number;
   totalCachedTokens: number;
   totalOutputTokens: number;
-  compactionCount: number;
-  forcedCompactionCount: number;
+  compactionAttemptCount: number;
+  successfulCompactionCount: number;
+  failedCompactionCount: number;
+  economicAttemptCount: number;
+  forcedAttemptCount: number;
   forceDecisionCount: number;
   overflowCount: number;
   overflowRecoveryCount: number;
@@ -402,14 +463,14 @@ function aggregateStrategy(
   const meanOf = (pick: (metrics: SessionMetrics) => number | null): number | null =>
     mean(rows.map(pick).filter((value): value is number => value !== null));
 
-  const compactionCount = sum((metrics) => metrics.compactionCount);
+  const attempts = sum((metrics) => metrics.compactionAttemptCount);
   const weightedUtilization =
-    compactionCount > 0
+    attempts > 0
       ? rows.reduce(
           (total, metrics) =>
-            total + (metrics.averageUtilizationAtCompaction ?? 0) * metrics.compactionCount,
+            total + (metrics.averageUtilizationAtCompaction ?? 0) * metrics.compactionAttemptCount,
           0,
-        ) / compactionCount
+        ) / attempts
       : null;
 
   return {
@@ -420,8 +481,11 @@ function aggregateStrategy(
     totalPromptTokens: sum((metrics) => metrics.totalPromptTokens),
     totalCachedTokens: sum((metrics) => metrics.totalCachedTokens),
     totalOutputTokens: sum((metrics) => metrics.totalOutputTokens),
-    compactionCount,
-    forcedCompactionCount: sum((metrics) => metrics.forcedCompactionCount),
+    compactionAttemptCount: attempts,
+    successfulCompactionCount: sum((metrics) => metrics.successfulCompactionCount),
+    failedCompactionCount: sum((metrics) => metrics.failedCompactionCount),
+    economicAttemptCount: sum((metrics) => metrics.economicAttemptCount),
+    forcedAttemptCount: sum((metrics) => metrics.forcedAttemptCount),
     forceDecisionCount: sum((metrics) => metrics.forceDecisionCount),
     overflowCount: sum((metrics) => metrics.overflowCount),
     overflowRecoveryCount: sum((metrics) => metrics.overflowRecoveryCount),
@@ -452,21 +516,28 @@ export interface MicroBenchmarkResult {
 /** 100,000 pure decisions on a fixed input and state. Reported, never used as a gate. */
 export function runMicroBenchmark(iterations = MICRO_BENCHMARK_ITERATIONS): MicroBenchmarkResult {
   const defaults = resolveDefaults();
-  const state = {
-    ...createProfileState(defaults),
-    compactionCount: 1,
-    successfulCompactionCount: 1,
-    callsSinceLastCompaction: 6,
+  const learning = {
+    ...createProfileLearningState(defaults),
+    successfulCompactionCount: 2,
     retentionSamples: 4,
     retentionRatioEma: 0.3,
-    cacheSamples: 5,
-    cacheHitRatioEma: 0.8,
+    compactPromptSamples: 3,
+    compactOutputSamples: 3,
+    compactOutputRatioEma: 0.1,
+    cacheCoverageSamples: 5,
+    cacheCoverageRatioEma: 0.8,
     horizonSamples: 3,
     reuseHorizonEma: 6,
-    compactionCostSamples: 2,
-    compactionCostEma: 0.05,
+  };
+  const session = {
+    ...createSessionState(),
+    requestCount: 10,
+    compactionAttemptCount: 1,
+    successfulCompactionCount: 1,
+    callsSinceLastAttempt: 6,
   };
   const input: FoldPointInput = {
+    sessionId: "micro-benchmark",
     profile: {
       provider: "benchmark",
       model: "benchmark-model",
@@ -490,14 +561,14 @@ export function runMicroBenchmark(iterations = MICRO_BENCHMARK_ITERATIONS): Micr
   };
 
   for (let index = 0; index < 1_000; index += 1) {
-    decideFoldPoint(input, state);
+    decideFoldPoint(input, learning, session);
   }
 
   const samples = new Float64Array(iterations);
   const startedAll = performance.now();
   for (let index = 0; index < iterations; index += 1) {
     const started = performance.now();
-    decideFoldPoint(input, state);
+    decideFoldPoint(input, learning, session);
     samples[index] = performance.now() - started;
   }
   const totalMs = performance.now() - startedAll;
@@ -527,18 +598,18 @@ function fixed(value: number | null, digits = 4): string {
 
 function aggregateTable(rows: AggregateMetrics[]): string {
   const header = [
-    pad("strategy", 12),
-    padLeft("cost", 12),
-    padLeft("compactions", 12),
-    padLeft("forced", 8),
-    padLeft("unneeded", 9),
-    padLeft("overflows", 10),
-    padLeft("recovered", 10),
-    padLeft("minHeadroom", 12),
-    padLeft("avgUtil@comp", 13),
-    padLeft("breakEven", 10),
+    pad("strategy", 20),
+    padLeft("cost", 11),
+    padLeft("attempts", 9),
+    padLeft("ok", 5),
+    padLeft("failed", 7),
+    padLeft("econ", 5),
+    padLeft("forced", 7),
+    padLeft("unneed", 7),
+    padLeft("over", 5),
+    padLeft("minHead", 9),
+    padLeft("avgUtil", 8),
     padLeft("p50 ms", 9),
-    padLeft("p95 ms", 9),
     padLeft("p99 ms", 9),
   ].join(" ");
 
@@ -546,18 +617,18 @@ function aggregateTable(rows: AggregateMetrics[]): string {
   for (const row of rows) {
     lines.push(
       [
-        pad(row.strategyLabel, 12),
-        padLeft(row.totalSimulatedCost.toFixed(4), 12),
-        padLeft(String(row.compactionCount), 12),
-        padLeft(String(row.forcedCompactionCount), 8),
-        padLeft(String(row.unnecessaryCompactionCount), 9),
-        padLeft(String(row.overflowCount), 10),
-        padLeft(String(row.overflowRecoveryCount), 10),
-        padLeft(String(row.minRemainingHeadroom), 12),
-        padLeft(fixed(row.averageUtilizationAtCompaction, 3), 13),
-        padLeft(fixed(row.meanBreakEvenCallsAtCompaction, 2), 10),
+        pad(row.strategyLabel, 20),
+        padLeft(row.totalSimulatedCost.toFixed(3), 11),
+        padLeft(String(row.compactionAttemptCount), 9),
+        padLeft(String(row.successfulCompactionCount), 5),
+        padLeft(String(row.failedCompactionCount), 7),
+        padLeft(String(row.economicAttemptCount), 5),
+        padLeft(String(row.forcedAttemptCount), 7),
+        padLeft(String(row.unnecessaryCompactionCount), 7),
+        padLeft(String(row.overflowCount), 5),
+        padLeft(String(row.minRemainingHeadroom), 9),
+        padLeft(fixed(row.averageUtilizationAtCompaction, 3), 8),
         padLeft(fixed(row.decisionLatencyP50Ms, 5), 9),
-        padLeft(fixed(row.decisionLatencyP95Ms, 5), 9),
         padLeft(fixed(row.decisionLatencyP99Ms, 5), 9),
       ].join(" "),
     );
@@ -567,34 +638,30 @@ function aggregateTable(rows: AggregateMetrics[]): string {
 
 function perScenarioTable(rows: SessionMetrics[]): string {
   const header = [
-    pad("scenario", 20),
-    pad("strategy", 12),
-    padLeft("cost", 11),
-    padLeft("comp", 5),
-    padLeft("forced", 7),
+    pad("scenario", 22),
+    pad("strategy", 20),
+    padLeft("cost", 10),
+    padLeft("att", 5),
+    padLeft("ok", 4),
+    padLeft("fail", 5),
     padLeft("unneed", 7),
     padLeft("over", 5),
-    padLeft("recov", 6),
     padLeft("avgUtil", 8),
-    padLeft("cached%", 8),
   ].join(" ");
 
   const lines = [header, "-".repeat(header.length)];
   for (const row of rows) {
-    const cachedShare =
-      row.totalPromptTokens > 0 ? (row.totalCachedTokens / row.totalPromptTokens) * 100 : 0;
     lines.push(
       [
-        pad(`${row.scenarioId} ${row.scenarioName}`, 20),
-        pad(row.strategyId, 12),
-        padLeft(row.totalSimulatedCost.toFixed(3), 11),
-        padLeft(String(row.compactionCount), 5),
-        padLeft(String(row.forcedCompactionCount), 7),
+        pad(`${row.scenarioId} ${row.scenarioName}`, 22),
+        pad(row.strategyId, 20),
+        padLeft(row.totalSimulatedCost.toFixed(3), 10),
+        padLeft(String(row.compactionAttemptCount), 5),
+        padLeft(String(row.successfulCompactionCount), 4),
+        padLeft(String(row.failedCompactionCount), 5),
         padLeft(String(row.unnecessaryCompactionCount), 7),
         padLeft(String(row.overflowCount), 5),
-        padLeft(String(row.overflowRecoveryCount), 6),
         padLeft(fixed(row.averageUtilizationAtCompaction, 3), 8),
-        padLeft(cachedShare.toFixed(1), 8),
       ].join(" "),
     );
   }
@@ -630,6 +697,7 @@ function main(): void {
   const report = {
     generatedAt: new Date().toISOString(),
     environment: { node: process.version, platform: process.platform },
+    hardWindowRatioUsedForForcedDefinition: DEFAULTS.hardWindowRatio,
     seeds: Object.fromEntries(SCENARIOS.map((scenario) => [scenario.id, scenario.seed])),
     strategies: [...strategyLabels.entries()].map(([id, label]) => ({ id, label })),
     scenarios: SCENARIOS.map((scenario) => ({

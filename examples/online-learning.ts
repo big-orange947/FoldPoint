@@ -1,13 +1,17 @@
 /**
  * Online learning: the same decision input, evaluated as real compaction results arrive.
  *
+ * Shows the split between profile learning state (shared across sessions, scale-free ratios)
+ * and session runtime state (per session, discarded by endSession).
+ *
  * Run with: npm run example:online-learning
  */
 import {
   FoldPoint,
   type FoldPointProfile,
-  type FoldPointProfileState,
+  type FoldPointProfileLearningState,
   profileKey,
+  sessionKey,
 } from "../src/index";
 
 const profile: FoldPointProfile = {
@@ -19,13 +23,20 @@ const profile: FoldPointProfile = {
   cachePolicy: { ttlMs: 300_000 },
 };
 
+const sessionId = "learning-demo-session";
 const started = Date.now();
 
-function probe(state: FoldPointProfileState, label: string): void {
+function probe(learning: FoldPointProfileLearningState, label: string): void {
   const foldPoint = new FoldPoint({
-    state: { version: 1, profiles: { [profileKey(profile)]: state } },
+    state: {
+      version: 2,
+      profiles: { [profileKey(profile)]: learning },
+      sessions: {},
+    },
   });
+
   const decision = foldPoint.decide({
+    sessionId,
     profile,
     timestamp: started,
     contextTokens: 150_000,
@@ -39,10 +50,11 @@ function probe(state: FoldPointProfileState, label: string): void {
   console.log(
     [
       label.padEnd(34),
-      `retention=${state.retentionRatioEma.toFixed(3)}`,
-      `samples=${state.retentionSamples}`,
+      `retention=${learning.retentionRatioEma.toFixed(3)}`,
+      `samples=${learning.retentionSamples}`,
       `postCompact=${Math.round(decision.metrics.estimatedPostCompactTokens)}`,
       `reclaim=${Math.round(decision.metrics.estimatedReclaimTokens)}`,
+      `compactCall=$${decision.metrics.estimatedCompactCallCost.toFixed(4)}`,
       `breakEven=${decision.metrics.breakEvenCalls?.toFixed(2) ?? "n/a"}`,
       `confidence=${decision.confidence.toFixed(2)}`,
       `-> ${decision.action}`,
@@ -50,43 +62,53 @@ function probe(state: FoldPointProfileState, label: string): void {
   );
 }
 
-// A fresh profile only has the cold-start defaults.
 const fresh = new FoldPoint();
 probe(fresh.getProfileState(profile), "cold start (defaults)");
 
-// Feed it real compaction results and watch the estimate move.
 const foldPoint = new FoldPoint();
-const compactions: Array<{ before: number; after: number; cost: number }> = [
-  { before: 120_000, after: 36_000, cost: 0.42 }, // a strong compactor
-  { before: 140_000, after: 35_000, cost: 0.48 },
-  { before: 160_000, after: 40_000, cost: 0.55 },
-  { before: 150_000, after: 38_000, cost: 0.5 },
+const compactions: Array<{ before: number; after: number }> = [
+  { before: 10_000, after: 3_000 }, // learned on a small context...
+  { before: 140_000, after: 35_000 },
+  { before: 160_000, after: 40_000 },
+  { before: 150_000, after: 38_000 },
 ];
 
 compactions.forEach((compaction, index) => {
-  foldPoint.recordCompaction(profile, {
+  foldPoint.recordCompaction(sessionId, profile, {
     timestamp: started + index,
     beforeTokens: compaction.before,
     afterTokens: compaction.after,
-    actualCost: compaction.cost,
+    promptTokens: compaction.before,
+    outputTokens: Math.round(compaction.before * 0.08),
     success: true,
   });
   probe(foldPoint.getProfileState(profile), `after real compaction #${index + 1}`);
 });
 
-// A failed compaction must not move the retention estimate at all.
-const beforeFailure = foldPoint.getProfileState(profile);
-foldPoint.recordCompaction(profile, {
+// The usage ratios scale to whatever context is being compacted, so a ratio learned on a
+// 10k context prices a 150k context correctly. There is no stored currency amount.
+const learning = foldPoint.getProfileState(profile);
+console.log(
+  `\nusage ratios: prompt=${learning.compactPromptRatioEma.toFixed(3)} output=${learning.compactOutputRatioEma.toFixed(3)}`,
+);
+console.log(
+  `cost scale: ${learning.compactCostScaleEma.toFixed(3)} (samples ${learning.compactCostScaleSamples}, dimensionless)`,
+);
+
+// A failed attempt teaches nothing, but it does restart the cooldown.
+const before = foldPoint.getSessionState(sessionId, profile);
+foldPoint.recordCompaction(sessionId, profile, {
   timestamp: started + 100,
   beforeTokens: 150_000,
   afterTokens: 10_000,
   success: false,
 });
-const afterFailure = foldPoint.getProfileState(profile);
+const after = foldPoint.getSessionState(sessionId, profile);
 
 console.log(
-  `\nfailed compaction: retention ${beforeFailure.retentionRatioEma.toFixed(4)} -> ${afterFailure.retentionRatioEma.toFixed(4)}, samples ${beforeFailure.retentionSamples} -> ${afterFailure.retentionSamples}`,
+  `\nfailed attempt: retention samples ${before.compactionAttemptCount} -> ${after.compactionAttemptCount} attempts, ${after.failedCompactionCount} failed, callsSinceLastAttempt=${after.callsSinceLastAttempt}`,
 );
 console.log(
-  `counters still move: compactionCount=${afterFailure.compactionCount}, successfulCompactionCount=${afterFailure.successfulCompactionCount}`,
+  `retention learning untouched: samples=${foldPoint.getProfileState(profile).retentionSamples}`,
 );
+console.log(`session key: ${sessionKey(sessionId, profile)}`);

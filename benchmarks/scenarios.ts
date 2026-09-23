@@ -3,9 +3,10 @@ import type { CachePolicy, PricingSnapshot } from "../src/index";
 /**
  * A deterministic simulated agent session.
  *
- * Ground truth (how well the compactor really compresses, what the provider really
- * charges) lives here and is NEVER handed to a strategy: FoldPoint only ever sees what a
- * host would report through `observeRequest` / `recordCompaction`.
+ * Ground truth (how well the compactor really compresses, what the provider really charges,
+ * how often a compaction attempt fails) lives here and is NEVER handed to a strategy:
+ * FoldPoint only ever sees what a host would report through `observeRequest` and
+ * `recordCompaction`.
  */
 export interface Scenario {
   id: string;
@@ -33,6 +34,7 @@ export interface Scenario {
     retentionRatio: number;
     /** Ground-truth compaction output tokens / beforeTokens. */
     outputRatio: number;
+    /** Probability that a compaction attempt succeeds. */
     successRate: number;
   };
 
@@ -262,6 +264,25 @@ const SCENARIO_J: Scenario = {
   hostHorizon: 15,
 };
 
+/** Half of all compaction attempts fail: the cooldown must absorb the retries. */
+const SCENARIO_K: Scenario = {
+  id: "K",
+  name: "flaky-compactor",
+  title: "Flaky compactor: only half of the compaction attempts succeed",
+  seed: 1_011,
+  contextWindowTokens: 200_000,
+  pricing: USD,
+  cachePolicy: { ttlMs: 120_000 },
+  steps: 70,
+  startTokens: 10_000,
+  growthPerStep: 7_000,
+  growthJitter: 1_000,
+  outputTokens: 500,
+  idleMs: 20_000,
+  compactor: { retentionRatio: 0.4, outputRatio: 0.1, successRate: 0.5 },
+  hostHorizon: 15,
+};
+
 export const SCENARIOS: readonly Scenario[] = Object.freeze([
   SCENARIO_A,
   SCENARIO_B,
@@ -273,6 +294,7 @@ export const SCENARIOS: readonly Scenario[] = Object.freeze([
   SCENARIO_H,
   SCENARIO_I,
   SCENARIO_J,
+  SCENARIO_K,
 ]);
 
 /** mulberry32: tiny, fast, fully deterministic. */
@@ -287,9 +309,19 @@ export function createRng(seed: number): () => number {
   };
 }
 
-/** Per-step growth for a scenario, including seeded jitter and any sudden jump. */
-export function growthAtStep(scenario: Scenario, step: number, random: () => number): number {
-  const jitter = scenario.growthJitter > 0 ? (random() * 2 - 1) * scenario.growthJitter : 0;
+/**
+ * Per-step growth for a scenario, including seeded jitter and any sudden jump.
+ *
+ * Driven only by the growth RNG, so every strategy sees exactly the same growth sequence no
+ * matter how often it compacts.
+ */
+export function growthAtStep(scenario: Scenario, step: number, growthRandom: () => number): number {
+  const jitter = scenario.growthJitter > 0 ? (growthRandom() * 2 - 1) * scenario.growthJitter : 0;
   const sudden = scenario.suddenGrowth?.step === step ? scenario.suddenGrowth.tokens : 0;
   return Math.max(0, Math.round(scenario.growthPerStep + jitter + sudden));
+}
+
+/** Independent RNG for compaction failures, so attempts cannot perturb the growth stream. */
+export function createFailureRng(seed: number): () => number {
+  return createRng((seed ^ 0x9e3779b9) >>> 0);
 }

@@ -5,25 +5,36 @@
  * or operationally required, from metadata only.
  */
 
-export type { CacheSurvivalEstimate, CacheSurvivalInput, CacheSurvivalSource } from "./cache";
+export type { CacheAliveSource, CacheModel, CacheModelInput } from "./cache";
 export {
-  estimateCacheSurvival,
+  estimateCacheModel,
+  resolveCacheCoverageRatio,
   resolveCacheExpiresAt,
-  resolveCacheHitRatio,
   resolveIdleMs,
 } from "./cache";
-export { DEFAULTS, NUMERIC_BOUNDS, resolveDefaults, validateDefaults } from "./defaults";
-export { FoldPoint, profileKey } from "./engine";
-export { decideFoldPoint, validateFoldPointInput } from "./estimator";
+export {
+  DEFAULTS,
+  isResolvedDefaults,
+  NUMERIC_BOUNDS,
+  resolveDefaults,
+  validateDefaults,
+} from "./defaults";
+export { FoldPoint, profileKey, sessionKey } from "./engine";
+export type { BreakEvenInput } from "./estimator";
+export { computeBreakEvenCalls, decideFoldPoint, validateFoldPointInput } from "./estimator";
+export type { StateUpdate } from "./learner";
 export {
   applyCompactionObservation,
   applyRequestObservation,
   applySessionEnd,
-  createProfileState,
-  normalizeProfileState,
+  createProfileLearningState,
+  createSessionState,
+  normalizeProfileLearningState,
+  normalizeSessionState,
   validateCompactionObservation,
   validateRequestObservation,
 } from "./learner";
+export type { ConfidenceSampleCounts } from "./math";
 export {
   CONFIDENCE_WEIGHTS,
   clamp,
@@ -34,7 +45,13 @@ export {
   sampleConfidence,
 } from "./math";
 export type { UnitPrices } from "./pricing";
-export { assertValidPricing, costOfUsage, resolveUnitPrices, tokenOnlyPricing } from "./pricing";
+export {
+  assertValidPricing,
+  costOfUsage,
+  isTokenOnlyPricing,
+  resolveUnitPrices,
+  tokenOnlyPricing,
+} from "./pricing";
 export { ALL_REASONS, REASON_DESCRIPTIONS } from "./reasons";
 export type {
   CachePolicy,
@@ -47,8 +64,9 @@ export type {
   FoldPointInput,
   FoldPointOptions,
   FoldPointProfile,
-  FoldPointProfileState,
+  FoldPointProfileLearningState,
   FoldPointReason,
+  FoldPointSessionState,
   FoldPointState,
   PricingSnapshot,
   RequestObservation,
