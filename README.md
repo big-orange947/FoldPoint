@@ -463,7 +463,9 @@ not a counterfactual, and a cheaper session that dropped something important is 
 For the first real data there is an observe-only Pi extension in
 [`adapters/pi/foldpoint-observe.ts`](adapters/pi/foldpoint-observe.ts): it records what FoldPoint
 would have decided, never compacts, and never reads a request payload. Acting on the decisions
-comes after the data says it should.
+comes after the data says it should. [docs/pi-runbook.md](docs/pi-runbook.md) has the exact
+recipe, including how to produce compaction events for about a tenth of the token cost by
+declaring a smaller context window for the model in `~/.pi/agent/models.json`.
 
 ## Future plugins
 

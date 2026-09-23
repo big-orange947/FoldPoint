@@ -208,6 +208,9 @@ call (`cachedTokens` is omitted, so the model relies on what it has learned — 
 comparison would be circular), and it does not invent a horizon (`expectedFutureCalls` is
 omitted; Pi does not know how many calls remain).
 
+How to run it, and how to produce compaction events without paying for a full 200k context, is
+in [pi-runbook.md](pi-runbook.md).
+
 ## 6. Privacy
 
 The format has no field for conversation content. The data is still not anonymous:

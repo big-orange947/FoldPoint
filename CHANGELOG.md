@@ -6,6 +6,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi runbook
+
+`docs/pi-runbook.md`: how to collect the first real traces, checked against a local Pi checkout.
+
+- the adapter's assumptions are listed with the file each one comes from
+  (`ContextEvent`, `MessageEndEvent` + `Message.usage`, `Usage`, `getContextUsage`,
+  `CompactionPreparation.tokensBefore`, `CompactionEntry`, `Model.cost`, `Model.promptCache`,
+  and the `before_provider_request` payload the adapter never subscribes to)
+- how to run it without publishing: `pi --extension <repo>/adapters/pi/foldpoint-observe.ts`,
+  and the one import line to change if the file is copied into `~/.pi/agent/extensions/`
+- **cheap testing**: declaring a smaller `contextWindow` through
+  `~/.pi/agent/models.json` → `providers.<id>.modelOverrides.<modelId>` makes Pi compact at
+  ~16k instead of ~184k tokens, because Pi and FoldPoint read the same window. `modelOverrides`
+  merges field by field on top of the built-in provider, so costs and auth are untouched
+- what shrinking the window changes (when Pi compacts, how many compactions a session has, the
+  absolute cost) and what it does not (cache physics, the cost and retention predictions, the
+  decision mix, the class rules) — with the rule not to mix window sizes inside one analysis
+  batch unless segmenting on the recorded `contextWindowTokens`
+- the alternative lever (`reserveTokens` in settings) and when it is the wrong one: Pi compacts
+  cheaply while FoldPoint sees low utilization and mostly answers `KEEP`
+- what a first batch should contain, and the rules that keep it honest: the observer never acts,
+  no per-trace tuning, and a trace still does not prove savings
+
 ### Trace statistics review fixes, and the Pi observer
 
 Five review findings on the v0.2 trace layer, plus the first real-host adapter.
