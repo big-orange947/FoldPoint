@@ -1,257 +1,266 @@
 # FoldPoint algorithm
 
-This document is the reference for what `decide()` actually computes. The implementation is
-[`src/estimator.ts`](../src/estimator.ts); every formula below appears there in the same
-order.
+This document is the reference for what `decide()` computes. The implementation is
+[`src/estimator.ts`](../src/estimator.ts); the formulas appear there in the same order.
 
-- [1. Inputs](#1-inputs)
-- [2. Notation](#2-notation)
-- [3. Cache survival](#3-cache-survival)
-- [4. Reclaim estimate](#4-reclaim-estimate)
-- [5. Cost model](#5-cost-model)
-- [6. Horizon](#6-horizon)
-- [7. Break-even and net saving](#7-break-even-and-net-saving)
-- [8. Confidence and the uncertainty penalty](#8-confidence-and-the-uncertainty-penalty)
-- [9. Decision order](#9-decision-order)
-- [10. Reason codes](#10-reason-codes)
-- [11. nextCheckAtTokens](#11-nextcheckattokens)
-- [12. Defaults](#12-defaults)
-- [13. Online learning rules](#13-online-learning-rules)
-- [14. Worked example](#14-worked-example)
-- [15. Sensitivity](#15-sensitivity)
+**State version 2.** FoldPoint keeps two kinds of state, and they never mix:
 
-## 1. Inputs
+- **Profile learning state** (`FoldPointProfileLearningState`) is shared by every session of
+  a `provider + model + contextWindowTokens + compactorId` profile. It contains only ratios
+  and counts: retention, compaction usage ratios, an actual-cost *scale*, cache coverage,
+  the reuse horizon. No absolute amount is ever stored.
+- **Session runtime state** (`FoldPointSessionState`) belongs to one `sessionId` of one
+  profile: request count, attempt counts, the call counters, timestamps and the exact cache
+  expiry of the current prefix. `endSession` deletes it.
 
-`decide(input, state, options?)` reads:
-
-| From `input` | Meaning |
-| --- | --- |
-| `profile.contextWindowTokens` | window size, `> 0` |
-| `contextTokens` | tokens the next call would carry |
-| `cachedTokens` | tokens known to sit in the cached prefix (≤ `contextTokens`) |
-| `timestamp`, `idleMs` | now, and time since the last real request (derived from state when omitted) |
-| `safeBoundary`, `compactionAllowed` | host permissions for *economic* compaction |
-| `expectedFutureCalls` | host horizon, `>= 1` |
-| `cacheExpiresAt` | exact provider cache expiry, when known |
-| `profile.pricing` | price snapshot, or none for normalized token cost |
-| `profile.cachePolicy` | `ttlMs`, `halfLifeMs`, `disabled` |
-
-| From `state` | Meaning |
-| --- | --- |
-| `retentionRatioEma` (+ `retentionSamples`) | learned `after/before` |
-| `compactOutputRatioEma` | learned compaction output / context |
-| `compactionCostEma` (+ `compactionCostSamples`) | learned cost of one compaction call |
-| `cacheHitRatioEma` (+ `cacheSamples`) | learned cached / prompt |
-| `reuseHorizonEma` (+ `horizonSamples`) | learned calls remaining after a compaction |
-| `growthPerCallEma` (+ `growthSamples`) | learned tokens added per call |
-| `lastRequestAt`, `lastCacheExpiresAt` | timing metadata |
-| `compactionCount`, `callsSinceLastCompaction` | cooldown metadata |
-
-A learned value is used only when its sample counter is `> 0`; otherwise the cold-start
-default applies. That rule is what makes a fresh profile behave exactly like the documented
-defaults.
-
-## 2. Notation
+Keys are JSON tuples, so a `|` inside a field cannot collide:
 
 ```
-T   = contextTokens                     W  = contextWindowTokens
-C   = min(cachedTokens, T)              U  = T - C
-q   = estimatedCacheSurvival            r  = retention ratio (after/before)
-Pin = input price per token             Pcache = cache-read price per token
-Pwrite = cache-write price per token    Pout   = output price per token
-R   = expectedFutureCalls
+profileKey(profile)        = JSON.stringify([provider ?? "", model, contextWindowTokens, compactorId])
+sessionKey(sessionId, p)   = JSON.stringify([profileKey(p), sessionId])
 ```
 
-Per-token prices come from `PricingSnapshot` (`price / 1_000_000`). Missing snapshot →
-normalized token cost, all prices `1`, `hasCacheDiscount = false`. Missing
-`cacheReadPerMillion` → `Pcache = Pin` and no discount is assumed. Missing
-`cacheWritePerMillion` → `Pwrite = Pin`.
+The content order below is the order of the computation.
 
-## 3. Cache survival
+1. [Cache coverage](#1-cache-coverage)
+2. [Cache aliveness](#2-cache-aliveness)
+3. [Effective cached tokens](#3-effective-cached-tokens)
+4. [Current replay cost](#4-current-replay-cost)
+5. [Compaction call cost from usage ratios](#5-compaction-call-cost-from-usage-ratios)
+6. [Current pricing](#6-current-pricing)
+7. [First post-compaction replay](#7-first-post-compaction-replay)
+8. [Later post-compaction replay](#8-later-post-compaction-replay)
+9. [Break-even](#9-break-even)
+10. [Confidence](#10-confidence)
+11. [The quick-payback policy guard](#11-the-quick-payback-policy-guard)
+12. [Decision gates](#12-decision-gates)
+13. [Reason codes](#13-reason-codes)
+14. [nextCheckAtTokens](#14-nextcheckattokens)
+15. [Defaults](#15-defaults)
+16. [Online learning rules](#16-online-learning-rules)
+17. [Worked example](#17-worked-example)
+18. [Additions and corrections to the task book](#18-additions-and-corrections-to-the-task-book)
 
-`q` is the probability that the cached prefix is still alive, resolved in this order:
+## 1. Cache coverage
 
-1. `hasCacheDiscount === false` or `cachePolicy.disabled === true` → `q = 0`.
-2. Exact expiry known (`input.cacheExpiresAt`, else `state.lastCacheExpiresAt`):
-   `q = base * (timestamp < cacheExpiresAt ? 1 : 0)`.
-3. `cachePolicy.ttlMs` known: `q = base * (idleMs < ttlMs ? 1 : 0)`.
-4. `cachePolicy.halfLifeMs` known: `q = base * 2^(-idleMs / halfLifeMs)`.
-5. Otherwise: `q = base` (no decay knowledge).
-
-where
-
-```
-base = cacheSamples > 0
-         ? clamp(cacheHitRatioEma, 0, 1)
-         : (T > 0 && C > 0 ? clamp(C / T, 0, 1) : 0)
-```
-
-`base` is the learned cache-hit ratio, or — with no history at all — the cache coverage the
-host reports for the current context. With no history and no cached tokens, `q = 0`, which
-cannot affect a decision because `C = 0` anyway.
-
-`q` is a probability, never a claim about provider internals. FoldPoint does not probe,
-hash or inspect prefixes.
-
-## 4. Reclaim estimate
+*How much of the context the cache could serve* — a coverage ratio, not a survival
+probability. Resolved in this order:
 
 ```
-r                = clamp(learnedRetentionRatio, 0.05, 1)      (default 0.40)
-Ta               = T * r                                      estimated post-compaction tokens
-reclaimTokens    = T - Ta
-reclaimRatio     = reclaimTokens / T                          (0 when T = 0)
+input.cachedTokens is provided                  -> candidateCachedTokens = clamp(cachedTokens, 0, T)
+else cacheCoverageSamples > 0                   -> candidateCachedTokens = clamp(T * cacheCoverageRatioEma, 0, T)
+else                                            -> candidateCachedTokens = 0
+
+coverageRatio = candidateCachedTokens / T        (0 when T = 0)
 ```
 
-The `[0.05, 1]` clamp is a numeric guard against a compactor that reports an absurd ratio,
-not a scenario switch. A learned `r` of `1` means "this compactor reclaims nothing": the
-minimum-reclaim gate then refuses economic compaction, and after such an event FoldPoint
-becomes strictly more conservative.
+`cacheCoverageRatioEma` is learned from `cachedInputTokens / promptTokens` of real requests.
+It is an observed hit rate, so it must never be discounted again by a survival factor.
 
-## 5. Cost model
+## 2. Cache aliveness
 
-### 5.1 Replaying the current context (once)
+*Whether that candidate prefix is still usable.* A probability, and it does **not** contain
+the coverage ratio. Resolved in this order:
 
-```
-currentReplayCost = U * Pin + C * (q * Pcache + (1 - q) * Pin)
-```
+| Condition | aliveProbability | source |
+| --- | --- | --- |
+| no cache discount, or `cachePolicy.disabled` | 0 | `no-cache-discount` / `cache-disabled` |
+| exact expiry known (`input.cacheExpiresAt`, else the session's) | `timestamp < cacheExpiresAt ? 1 : 0` | `expiry-known` |
+| `cachePolicy.ttlMs` known | `idleMs < ttlMs ? 1 : 0` | `ttl-known` |
+| `cachePolicy.halfLifeMs` known | `2 ^ (-idleMs / halfLifeMs)` | `half-life` |
+| nothing known, and `candidateCachedTokens > 0` | 1 | `assumed-alive` |
+| nothing known, and no candidate | 0 | `no-candidate` |
 
-The uncached part always costs the input price. The cached part costs the cache-read price
-when the cache is alive and the input price when it is not.
+`idleMs` comes from the input, or from the *session's* `lastRequestAt` when omitted. The
+exact expiry is stored per session and **cleared** by any request observation that does not
+report one, so a stale expiry can never control a newer prefix.
 
-### 5.2 Replaying the context after a compaction (once)
-
-```
-qNew                = clamp(min(base, q), 0, 1)        (0 when there is no cache discount)
-laterReplayCost     = Ta * (qNew * Pcache + (1 - qNew) * Pin)
-firstReplayCost     = Ta * Pwrite
-```
-
-The first replay after a compaction rebuilds the prefix, so it is charged at the cache-write
-price (which defaults to the input price). Later replays may benefit from the cache again,
-but the rebuilt prefix is never assumed to be *better* cached than the current one — hence
-`qNew <= q`. This is an approximation: it does not model a cache state machine.
-
-### 5.3 The compaction call itself
+## 3. Effective cached tokens
 
 ```
-S              = T * compactOutputRatio                       (default 0.12)
-coldStartCall  = T * Pin + S * Pout                           (compaction reads the context)
-compactCallCost = compactionCostSamples > 0 && compactionCostEma >= 0
-                    ? compactionCostEma
-                    : coldStartCall
+effectiveCachedTokens = candidateCachedTokens * aliveProbability
 ```
 
-The cold-start form is deliberately conservative: it assumes the compaction call reads the
-whole context at the normal input price and cannot use the cache. A learned cost is an
-absolute, per-event cost in the snapshot's currency, so it reflects the context sizes that
-were actually compacted — see [limitations](limitations.md#3-the-learned-compaction-cost-is-an-absolute-value).
+Coverage and aliveness meet exactly here. The cost formula below must never multiply a
+coverage ratio in a second time: with coverage 0.8 and aliveness 0.5 the effective share is
+0.4, not 0.32.
 
-## 6. Horizon
-
-```
-R = input.expectedFutureCalls            (host wins)
-  ?? (horizonSamples > 0 ? reuseHorizonEma : DEFAULTS.expectedFutureCalls)
-```
-
-`R >= 1` is enforced (an explicit value below 1 throws). Two caps bound the horizon used by
-the economic gate:
+## 4. Current replay cost
 
 ```
-callsUntilRefill = growthPerCall > 0 ? reclaimTokens / growthPerCall : Infinity
-softCap          = utilization < softWindowRatio ? softWindowBreakEvenCalls : R
-effectiveHorizon = max(1, min(R, softCap, callsUntilRefill))
+currentReplayCost = effectiveCachedTokens * Pcache
+                  + (T - effectiveCachedTokens) * Pin
 ```
 
-- **`callsUntilRefill`** — a compaction's benefit cannot outlive the tokens it reclaimed. If
-  the context regrows by `growthPerCall` tokens per call, the reclaimed tokens are consumed
-  after `reclaimTokens / growthPerCall` calls, and the situation repeats. Counting the saving
-  over a longer horizon systematically overstates the benefit; this cap removes that
-  optimism. It is learned from `promptTokens` deltas, so it costs nothing and reads no
-  content.
-- **`softCap`** — below the soft window the window is not scarce, so a compaction must repay
-  itself quickly (`softWindowBreakEvenCalls`, default 3) instead of over the whole session.
-  This is what prevents "compact a small context every few calls" churn while still allowing
-  an overwhelming economic win below the soft window.
+`Pin` is the plain input price per token, `Pcache` the cache-read price per token. The
+uncached remainder is billed at the input price, because that is what the host pays when it
+sends the context again.
 
-`estimatedKeepCost` and `estimatedCompactCost` are still computed over the full `R`, as the
-cost-model definition of "keep for the rest of the session vs compact now"; only the gate
-uses `effectiveHorizon`.
+## 5. Compaction call cost from usage ratios
 
-## 7. Break-even and net saving
+The compaction call is priced from scale-free ratios learned from real compactions, not from
+a stored amount:
 
 ```
-estimatedKeepCost    = R * currentReplayCost
-estimatedCompactCost = compactCallCost + firstReplayCost + max(R - 1, 0) * laterReplayCost
+estimatedCompactPromptTokens = T * compactPromptRatio          (cold start 1)
+estimatedCompactOutputTokens = T * compactOutputRatio          (cold start 0.12)
+estimatedCompactCachedTokens = estimatedCompactPromptTokens * compactCachedInputRatio  (0)
+estimatedCompactWriteTokens  = estimatedCompactPromptTokens * compactCacheWriteRatio   (0)
+
+modeledCompactCallCost = costOfUsage(prices, {
+  promptTokens:     estimatedCompactPromptTokens,
+  cachedInputTokens: estimatedCompactCachedTokens,
+  cacheWriteTokens:  estimatedCompactWriteTokens,
+  outputTokens:      estimatedCompactOutputTokens,
+})
+
+compactCallCost = modeledCompactCallCost * compactCostScale     (cold start 1)
+```
+
+Consequences that matter:
+
+- a ratio learned on a 10k context prices a 180k context correctly, because everything scales
+  with `T`;
+- changing the price snapshot reprices the compaction call immediately, without resetting any
+  learning;
+- switching from `tokenOnlyPricing()` to a currency does not reinterpret a token count as
+  money, because no amount is stored.
+
+`compactCostScaleEma` is the only place an `actualCost` enters: it is learned as
+`actualCost / modeledCost`, clamped to `[0.1, 10]`, and only when the observation carries an
+`actualCost`, a `promptTokens`, and an explicit non-token-only price snapshot. In normalized
+token-cost mode it is never updated, so `11000` token units can never become `$11000`.
+
+## 6. Current pricing
+
+Per-token prices come from the profile's `PricingSnapshot` (`price / 1_000_000`):
+
+- no snapshot at all → normalized token cost, every price is `1`, no cache discount;
+- no `cacheReadPerMillion` → `Pcache = Pin` and `hasCacheDiscount = false`, so cache
+  aliveness is 0 and no saving is invented;
+- no `cacheWritePerMillion` → `Pwrite = Pin`.
+
+Prices are read on every decision; a profile is not keyed by price.
+
+## 7. First post-compaction replay
+
+```
+firstPostCompactReplayCost = estimatedPostCompactTokens * Pwrite
+estimatedPostCompactTokens = T * retentionRatio
+```
+
+The first replay after a compaction rebuilds the prefix, so it is billed at the cache-write
+price. This is the conservative direction and it matches how the benchmark's ground truth
+bills a rebuilt prefix.
+
+## 8. Later post-compaction replay
+
+```
+postCompactCoverageRatio     = cacheCoverageSamples > 0 ? cacheCoverageRatioEma : 0
+postCompactCandidateTokens   = estimatedPostCompactTokens * postCompactCoverageRatio
+postCompactEffectiveTokens   = postCompactCandidateTokens * aliveProbability
+laterPostCompactReplayCost   = postCompactEffectiveTokens * Pcache
+                             + (estimatedPostCompactTokens - postCompactEffectiveTokens) * Pin
+```
+
+With no cache history at all the later replay is priced as plain input, which is the
+conservative direction.
+
+## 9. Break-even
+
+Keeping the context for `N` future calls costs `N * C`. Compacting costs
+`K + F + (N - 1) * L`. Setting them equal and solving for `N`:
+
+```
+N * C = K + F + (N - 1) * L
+N * (C - L) = K + F - L
+breakEvenCalls = (K + F - L) / (C - L)
+
+C = currentReplayCost            K = compactCallCost
+F = firstPostCompactReplayCost   L = laterPostCompactReplayCost
+```
+
+- `C - L <= 0` → `null`: there is no positive per-call saving, so compaction can never repay
+  itself.
+- numerator `<= 0` → `0`: compacting is already not more expensive before the first call.
+- a division that overflows is reported as `Number.MAX_SAFE_INTEGER` (effectively
+  unreachable) so metrics stay JSON-safe.
+
+`computeBreakEvenCalls` is exported as a pure function so the algebra can be tested directly.
+Example: `C = 5, K = 10, F = 4, L = 2` → `(10 + 4 - 2) / (5 - 2) = 4`, and indeed
+`Keep(4) = 20 = Compact(4) = 10 + 4 + 3 * 2`.
+
+The keep/compact totals are still reported over the declared horizon:
+
+```
+estimatedKeepCost    = R * C
+estimatedCompactCost = K + F + max(R - 1, 0) * L
 estimatedNetSaving   = estimatedKeepCost - estimatedCompactCost
-savingPerFutureCall  = currentReplayCost - laterReplayCost
-
-breakEvenCalls = savingPerFutureCall > 0
-                   ? (compactCallCost + firstReplayCost) / savingPerFutureCall
-                   : null
+savingPerFutureCall  = C - L
 ```
 
-`breakEvenCalls = null` means "no positive per-call saving exists, so compaction can never
-repay itself". A division that overflows is reported as `Number.MAX_SAFE_INTEGER`
-(effectively unreachable) so metrics stay JSON-safe. `breakEvenCalls` is the most important
-explanatory number FoldPoint produces: it converts the whole estimate into "how many future
-calls must this pay off over?".
+## 10. Confidence
 
-## 8. Confidence and the uncertainty penalty
-
-`confidence` is an *evidence score*, not a probability of task quality:
+An *evidence score*, not a probability of task quality:
 
 ```
-f(n)       = n / (n + confidenceHalfSaturationSamples)         (half-saturation, default 2)
-evidence   = 0.50 * f(retentionSamples) + 0.25 * f(cacheSamples) + 0.25 * f(horizonSamples)
+f(n)       = n / (n + confidenceHalfSaturationSamples)        (half-saturation, default 2)
+evidence   = 0.40 * f(retentionSamples)
+           + 0.20 * f(compactionUsageSamples)
+           + 0.20 * f(cacheCoverageSamples)
+           + 0.20 * f(horizonSamples)
 confidence = clamp(confidenceFloor + (1 - confidenceFloor) * evidence, 0, 1)   (floor 0.35)
 ```
 
-So: 0 samples → 0.35, 1 successful compaction → ≈0.53, 4 compactions + cache + horizon
-history → ≈0.76, and it approaches 1 as evidence accumulates.
+The weights sum to 1. `compactionUsageSamples` is the largest of the compaction usage sample
+counts (prompt, output, cached-input, cache-write, cost scale): it counts compaction calls
+that reported usage, which is what prices the compaction call. Confidence starts at the
+floor, is monotone non-decreasing in every sample count, and never affects `FORCE`.
 
 ```
-penalty   = uncertaintyPenalty * (utilization < softWindowRatio ? softWindowPenaltyMultiplier : 1)
+penalty = uncertaintyPenalty * (utilization < softWindowRatio ? softWindowPenaltyMultiplier : 1)
 adjustedNetSaving = estimatedNetSaving * confidence - penalty * compactCallCost
 ```
 
-Properties this must (and does) satisfy:
+## 11. The quick-payback policy guard
 
-- with zero samples, a compaction must be clearly profitable before it is chosen;
-- more samples move the estimate towards the raw estimate;
-- uncertainty only ever affects the economic `COMPACT`, never the window-safety `FORCE`;
-- the formula is public, deterministic and has no hidden heuristic.
+```
+effectiveHorizonCalls = utilization < softWindowRatio
+  ? min(expectedFutureCalls, softWindowBreakEvenCalls)     (default 3)
+  : expectedFutureCalls
+```
 
-## 9. Decision order
+Below the soft window the window is not scarce, so a compaction has to repay itself within a
+few calls instead of over the whole session. This is a **quality-oriented policy guard, not a
+mathematical optimum**: it is the encoded form of "below the soft window, only a quick
+payback justifies compacting". It is configurable, and it is not the only trigger — an
+overwhelming economic win below the soft window still produces `COMPACT`.
 
-Gates are evaluated in this order; the first match wins. All metrics are computed *before*
-the gates, so every branch returns the same complete metrics block.
+`expectedFutureCalls` is the host value, else the learned `reuseHorizonEma`, else the
+cold-start default. There is no context-regrowth heuristic in the model.
 
-1. **Window guard → `FORCE`** if
-   `utilization >= hardWindowRatio` **or** `remainingTokens <= reserveTokens`.
-   Reasons: `HARD_WINDOW_RATIO` and/or `RESERVE_TOKENS_REACHED`. If the host has disabled
-   compaction or is not at a safe boundary, `COMPACTION_DISABLED` / `UNSAFE_BOUNDARY` are
-   added so the host knows it must compact at the nearest safe boundary. FoldPoint never
-   runs the compactor itself.
-2. **Host opt-out → `KEEP`** if `compactionAllowed === false` (`COMPACTION_DISABLED`).
-3. **Safe boundary → `KEEP`** if `safeBoundary === false` (`UNSAFE_BOUNDARY`).
-4. **Cooldown → `KEEP`** if a compaction happened before and
-   `callsSinceLastCompaction < minCallsBetweenCompactions` (`COOLDOWN_ACTIVE`).
-5. **Minimum reclaim → `KEEP`** if `reclaimTokens < minReclaimTokens` or
-   `reclaimRatio < minReclaimRatio` (`INSUFFICIENT_RECLAIM_TOKENS` /
-   `INSUFFICIENT_RECLAIM_RATIO`).
-6. **Economics → `COMPACT`** if
-   `adjustedNetSaving > minNetSaving` **and** `breakEvenCalls !== null` **and**
-   `breakEvenCalls <= effectiveHorizon`.
-   Reasons: `ECONOMIC_TRIGGER`, `BREAK_EVEN_WITHIN_HORIZON`, plus `CACHE_LIKELY_EXPIRED`
-   when the profile has cache evidence and `q` is below `cacheValuableThreshold`.
-7. **Otherwise → `KEEP`**, annotated with the diagnosis: `CACHE_STILL_VALUABLE` /
-   `CACHE_LIKELY_EXPIRED`, `NO_BREAK_EVEN`, `BREAK_EVEN_BEYOND_HORIZON`,
-   `NO_POSITIVE_SAVING`, `LOW_CONFIDENCE`, and `DEFAULT_KEEP` when nothing else applies.
+## 12. Decision gates
 
-`KEEP` also carries `nextCheckAtTokens`; `COMPACT` and `FORCE` do not, because the host
-should act rather than re-check.
+All metrics are computed before the gates, so every branch returns the same complete metrics
+block. The first matching gate wins.
 
-## 10. Reason codes
+1. **Window safety → `FORCE`** if `utilization >= hardWindowRatio` **or**
+   `remainingTokens <= reserveTokens`. If the host has disabled compaction or is not at a
+   safe boundary, `COMPACTION_DISABLED` / `UNSAFE_BOUNDARY` are added to `reasons`.
+2. **Host opt-out → `KEEP`** if `compactionAllowed === false`.
+3. **Step boundary → `KEEP`** if `safeBoundary === false`.
+4. **Cooldown → `KEEP`** if `compactionAttemptCount > 0` and
+   `callsSinceLastAttempt < minCallsBetweenCompactions`. Any attempt — successful or not —
+   resets `callsSinceLastAttempt`, so a failing compactor cannot be hammered. The cooldown
+   only blocks ordinary economic compaction; `FORCE` still wins, and retry backoff beyond
+   that remains the host's responsibility.
+5. **Minimum reclaim → `KEEP`** if `estimatedReclaimTokens < minReclaimTokens` or
+   `estimatedReclaimRatio < minReclaimRatio`.
+6. **Economics → `COMPACT`** if `adjustedNetSaving > minNetSaving` **and**
+   `breakEvenCalls !== null` **and** `breakEvenCalls <= effectiveHorizonCalls`.
+7. **Otherwise → `KEEP`**, annotated with the diagnosis.
+
+## 13. Reason codes
 
 | Code | Emitted when |
 | --- | --- |
@@ -259,189 +268,163 @@ should act rather than re-check.
 | `RESERVE_TOKENS_REACHED` | remaining window dropped to `reserveTokens` |
 | `COMPACTION_DISABLED` | host opt-out (also annotates a `FORCE`) |
 | `UNSAFE_BOUNDARY` | host is not at a step boundary (also annotates a `FORCE`) |
-| `COOLDOWN_ACTIVE` | too few calls since the last compaction |
+| `COOLDOWN_ACTIVE` | too few calls since the last compaction attempt |
 | `INSUFFICIENT_RECLAIM_TOKENS` | estimated reclaim below `minReclaimTokens` |
 | `INSUFFICIENT_RECLAIM_RATIO` | estimated reclaim ratio below `minReclaimRatio` |
-| `CACHE_STILL_VALUABLE` | cache evidence exists and `q >= cacheValuableThreshold` |
-| `CACHE_LIKELY_EXPIRED` | cache evidence exists and `q < cacheValuableThreshold` |
+| `CACHE_STILL_VALUABLE` | cache evidence exists and `aliveProbability >= cacheAliveThreshold` |
+| `CACHE_LIKELY_EXPIRED` | cache evidence exists and `aliveProbability < cacheAliveThreshold` |
 | `NO_POSITIVE_SAVING` | adjusted net saving did not clear `minNetSaving` |
 | `NO_BREAK_EVEN` | `breakEvenCalls === null` |
-| `BREAK_EVEN_BEYOND_HORIZON` | `breakEvenCalls > effectiveHorizon` |
+| `BREAK_EVEN_BEYOND_HORIZON` | `breakEvenCalls > effectiveHorizonCalls` |
 | `LOW_CONFIDENCE` | evidence score below `lowConfidenceThreshold`, with no positive saving |
-| `ECONOMIC_TRIGGER` | economics gate passed |
-| `BREAK_EVEN_WITHIN_HORIZON` | `breakEvenCalls <= effectiveHorizon` |
+| `ECONOMIC_TRIGGER` | the economics gate passed |
+| `BREAK_EVEN_WITHIN_HORIZON` | `breakEvenCalls <= effectiveHorizonCalls` |
 | `DEFAULT_KEEP` | no other reason applied |
 
-Codes are stable and machine-readable; `REASON_DESCRIPTIONS` provides log text but hosts
-must key on the code. `BREAK_EVEN_BEYOND_HORIZON` is the one code added on top of the task
-book's minimum list — see [§16](#16-additions-beyond-the-task-book).
+Codes are stable and machine-readable; `REASON_DESCRIPTIONS` provides log text but hosts must
+key on the code. Cache codes are only emitted when the profile has a cache candidate.
 
-## 11. nextCheckAtTokens
+## 14. nextCheckAtTokens
 
 An advisory hint (present only on `KEEP`) for hosts that do not want to ask on every token.
 It is the smallest of:
 
 - `ceil(softWindowRatio * W)` — the soft-window boundary;
 - `ceil(minReclaimTokens / (1 - r))` — where the reclaim floor starts to be met;
-- the economic boundary derived from the same linear model:
-  `(minNetSaving + penalty * fixedCompactCost) / slope`, where
-  `slope = (effectiveHorizon * perTokenReplayCost - perTokenCompactExtraCost) * confidence -
-  penalty * perTokenCompactExtraCost` (and `Infinity` when `slope <= 0`, i.e. the economics
-  can never turn positive in this configuration);
+- the economic boundary from the same linear model: `minNetSaving / slope`, where
+  `slope = (H * perTokenReplayCost - perTokenCompactExtraCost) * confidence -
+  penalty * perTokenCompactCost` and `H = effectiveHorizonCalls` (and `Infinity` when
+  `slope <= 0`);
 
 clamped so that it never exceeds the force boundary and is always greater than the current
-`contextTokens`. It is a hint, not a promise: the host may ask again earlier.
+`contextTokens`. It is a hint, not a promise.
 
-## 12. Defaults
+## 15. Defaults
 
 All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable through
 `FoldPointOptions.defaults`, and are validated on construction.
 
 | Default | Value | Why this value |
 | --- | --- | --- |
-| `retentionRatio` | 0.40 | a generic "summarize to 40% of the context" prior; deliberately not optimistic, and replaced by real data as soon as one compaction succeeds |
-| `compactOutputRatio` | 0.12 | a summary is usually far shorter than the context it summarizes; used only to price the compaction call before real usage is known |
-| `expectedFutureCalls` | 3 | the horizon used when neither the host nor history provides one; short, so a fresh profile does not over-commit |
-| `minCallsBetweenCompactions` | 3 | cooldown: prevents back-to-back compaction of an unchanged context |
-| `minReclaimTokens` | 4096 | an absolute floor: compacting to save a few hundred tokens is never worth a model call |
-| `minReclaimRatio` | 0.20 | a relative floor: a compactor that reclaims under 20% is not earning its call |
-| `softWindowRatio` | 0.65 | below this utilization the window is not scarce, so payback must be quick (see `softWindowBreakEvenCalls`) |
-| `softWindowBreakEvenCalls` | 3 | the "quick payback" requirement below the soft window |
-| `hardWindowRatio` | 0.90 | window-safety boundary; above it the answer is `FORCE` |
-| `reserveTokens` | 8192 | absolute safety margin for the next call's output and overhead |
-| `emaAlpha` | 0.25 | standard smoothing: adapts within a handful of events without over-reacting to one outlier |
-| `minNetSaving` | 0 | compaction must save *something* after the uncertainty penalty |
+| `retentionRatio` | 0.40 | generic "summarize to 40%" prior, replaced by real data after the first success |
+| `compactPromptRatio` | 1.00 | the compaction call reads the context it compacts |
+| `compactOutputRatio` | 0.12 | a summary is much shorter than the context it summarizes |
+| `compactCachedInputRatio` | 0 | cold start assumes the compaction call cannot read a cache |
+| `compactCacheWriteRatio` | 0 | cold start assumes no cache writes on the compaction call |
+| `compactCostScale` | 1.00 | the modeled cost is the estimate until real costs say otherwise |
+| `expectedFutureCalls` | 3 | used when neither the host nor history provides a horizon |
+| `minCallsBetweenCompactions` | 3 | cooldown between attempts |
+| `minReclaimTokens` | 4,096 | absolute floor: compacting for a few hundred tokens is never worth a call |
+| `minReclaimRatio` | 0.20 | relative floor: a compactor reclaiming under 20% is not earning its call |
+| `softWindowRatio` | 0.65 | below this the window is not scarce |
+| `softWindowBreakEvenCalls` | 3 | the quick-payback policy guard below the soft window |
+| `hardWindowRatio` | 0.90 | window-safety boundary → `FORCE` |
+| `reserveTokens` | 8,192 | absolute safety margin |
+| `emaAlpha` | 0.25 | adapts within a handful of events without over-reacting to one outlier |
+| `minNetSaving` | 0 | compaction must save something after the uncertainty penalty |
 | `uncertaintyPenalty` | 0.15 | discounts an unproven benefit by 15% of the compaction call cost |
 | `softWindowPenaltyMultiplier` | 2 | doubles that penalty below the soft window |
 | `confidenceFloor` | 0.35 | keeps overwhelming economics actionable on a fresh profile |
-| `confidenceHalfSaturationSamples` | 2 | evidence score reaches half its remaining range after 2 samples |
-| `cacheValuableThreshold` | 0.50 | above this survival, the cache counts as "still valuable" for explanations |
+| `confidenceHalfSaturationSamples` | 2 | the evidence curve reaches half its range after 2 samples |
+| `cacheAliveThreshold` | 0.50 | above this alive probability the cache counts as still valuable (the name matches what it compares) |
 | `lowConfidenceThreshold` | 0.50 | below this evidence score, `KEEP` is annotated `LOW_CONFIDENCE` |
 
-Numeric bounds (`NUMERIC_BOUNDS`): `retentionRatio ∈ [0.05, 1]`, `compactOutputRatio ∈
-[0, 1]`. These are safety clamps, not tuned thresholds.
+Numeric bounds (`NUMERIC_BOUNDS`): `retentionRatio ∈ [0.05, 1]`, `compactPromptRatio ∈ [0, 2]`,
+`compactOutputRatio ∈ [0, 1]`, `compactCostScale ∈ [0.1, 10]`. These are numerical safety
+clamps, not tuned thresholds.
 
-The defaults are starting points, not validated optima. The benchmark measures their
-sensitivity (see [benchmarks/README.md](../benchmarks/README.md)).
-
-## 13. Online learning rules
+## 16. Online learning rules
 
 ```
 newEstimate = alpha * observation + (1 - alpha) * oldEstimate
 ```
 
-| Update | Rule | Guard |
-| --- | --- | --- |
-| retention | `clamp(afterTokens / beforeTokens, 0.05, 1)`, only on `success` | a compactor that grows the context clamps to 1 and makes future economic compaction strictly harder |
-| compact output ratio | `outputTokens / beforeTokens`, clamped to `[0, 1]` | only when the host reports `outputTokens` |
-| compaction cost | `actualCost`, else usage × prices, else normalized tokens | only when some cost data exists; the first sample initializes the EMA instead of being blended with an invented prior |
-| cache hit ratio | `cachedInputTokens / promptTokens` | only when `promptTokens > 0` |
-| reuse horizon | calls between the last compaction and `endSession` | only after at least one compaction in that profile |
-| growth per call | `promptTokens - previousPromptTokens` | only when the prompt grew: a smaller prompt means a compaction, not growth |
+| Update | Observation | Where | Guard |
+| --- | --- | --- | --- |
+| retention | `afterTokens / beforeTokens`, clamped to `[0.05, 1]` | profile | success only |
+| compaction prompt ratio | `promptTokens / beforeTokens`, clamped to `[0, 2]` | profile | success, when reported |
+| compaction output ratio | `outputTokens / beforeTokens`, clamped to `[0, 1]` | profile | success, when reported |
+| compaction cached-input ratio | `cachedInputTokens / promptTokens` | profile | success, when reported |
+| compaction cache-write ratio | `cacheWriteTokens / promptTokens` | profile | success, when reported |
+| actual-cost scale | `clamp(actualCost / modeledCost, 0.1, 10)` | profile | success, real currency, complete usage |
+| cache coverage | `cachedInputTokens / promptTokens` | profile | `promptTokens > 0` |
+| reuse horizon | calls between the last successful compaction and session end | profile | `endSession` after a success |
+| request count, call counters, expiry | — | session | every observation |
 
-Failed compactions increment `compactionCount` but never touch retention, output ratio or
-cost, and they do not reset `callsSinceLastCompaction`: a failing compactor cannot be
-hammered, while `FORCE` remains available because the cooldown never blocks the window guard.
+Failed attempts increment `compactionAttemptCount` and `failedCompactionCount`, reset the
+cooldown, and update **nothing** in the profile: a failed attempt teaches nothing about the
+compactor.
 
-## 14. Worked example
+## 17. Worked example
 
-A 200,000-token window, input `$3/M`, cache read `$0.30/M`, cache write `$3.75/M`, output
-`$15/M`. The profile has learned `r = 0.25`, a compaction cost of `$0.05`, a horizon of 10
-calls, and its cache expired (`idleMs > ttlMs`).
+200,000-token window; input `$3/M`, cache read `$0.30/M`, cache write `$3.75/M`, output
+`$15/M`. The profile has learned `retentionRatio = 0.25`, `compactPromptRatio = 1`,
+`compactOutputRatio = 0.10`, no compaction cache reads, a horizon of 10 calls; the cache has
+expired (`idleMs > ttlMs`).
 
 ```
-T = 150,000, C = 140,000, U = 10,000, q = 0, R = 10
-currentReplayCost = 10,000*3e-6 + 140,000*3e-6                     = 0.4500
-Ta                = 150,000 * 0.25                                 = 37,500
-qNew              = 0                       (expired cache, no credit)
-laterReplayCost   = 37,500 * 3e-6                                  = 0.1125
-firstReplayCost   = 37,500 * 3.75e-6                               = 0.1406
-compactCallCost   = 0.05                    (learned)
-keepCost          = 10 * 0.45                                      = 4.5000
-compactCost       = 0.05 + 0.1406 + 9 * 0.1125                     = 1.2031
-netSaving         = 4.5000 - 1.2031                                = 3.2969
-savingPerCall     = 0.4500 - 0.1125                                = 0.3375
-breakEvenCalls    = (0.05 + 0.1406) / 0.3375                       = 0.56
-confidence        = 0.35 + 0.65 * (0.5*4/6 + 0.25*3/5 + 0.25*3/5)  = 0.7617
-penalty           = 0.15                    (utilization 0.75 >= soft window)
-adjustedNetSaving = 3.2969 * 0.7617 - 0.15 * 0.05                  = 2.5035
-effectiveHorizon  = min(10, 10, Infinity)                          = 10
+T = 150,000   cachedTokens = 140,000   idleMs = 600,000
+coverageRatio      = 140,000 / 150,000          = 0.9333
+aliveProbability   = 0                          (TTL lapsed)
+effectiveCached    = 140,000 * 0              = 0
+currentReplayCost  = 0 + 150,000 * 3e-6       = 0.4500
+Ta                 = 150,000 * 0.25           = 37,500
+firstReplayCost    = 37,500 * 3.75e-6         = 0.1406
+postCoverage       = 0.9  (learned)  -> postEffective = 33,750 * 0 = 0
+laterReplayCost    = 0 + 37,500 * 3e-6        = 0.1125
+compactCallCost    = 150,000 * 3e-6 + 15,000 * 15e-6 = 0.6750
+keepCost           = 10 * 0.45                = 4.5000
+compactCost        = 0.675 + 0.1406 + 9 * 0.1125 = 1.8281
+netSaving          = 4.5000 - 1.8281          = 2.6719
+savingPerFutureCall= 0.45 - 0.1125            = 0.3375
+breakEvenCalls     = (0.675 + 0.1406 - 0.1125) / 0.3375 = 2.08
+confidence         = 0.35 + 0.65 * (0.4*4/6 + 0.2*3/5 + 0.2*3/5 + 0.2*3/5) = 0.757
+penalty            = 0.15                      (utilization 0.75 >= soft window)
+adjustedNetSaving  = 2.6719 * 0.757 - 0.15 * 0.675 = 1.921
+effectiveHorizon   = 10                        (>= soft window)
 ```
 
-`adjustedNetSaving > 0` and `0.56 <= 10` → **COMPACT**, with reasons `ECONOMIC_TRIGGER`,
-`BREAK_EVEN_WITHIN_HORIZON`, `CACHE_LIKELY_EXPIRED`.
+`adjustedNetSaving > 0` and `2.08 <= 10` → **COMPACT**, with `ECONOMIC_TRIGGER`,
+`BREAK_EVEN_WITHIN_HORIZON` and `CACHE_LIKELY_EXPIRED`.
 
-Change one input — make the cache warm and cheap (`q = 0.95`, `Pcache = $0.30/M`) — and the
-same context at the same utilization produces a much smaller saving, because keeping is
-nearly free; with a short horizon the same session becomes **KEEP**.
+Make the cache warm and cheap instead (`aliveProbability = 1`, `Pcache = $0.30/M`): keeping
+the context costs `140,000 * 0.3e-6 + 10,000 * 3e-6 = 0.072` per call, the per-call saving
+collapses, and the same session becomes **KEEP**.
 
-## 15. Sensitivity
+## 18. Additions and corrections to the task book
 
-- **`retentionRatio`** — the dominant term. Worse compaction reduces `reclaimTokens` linearly
-  and raises `breakEvenCalls`; below `minReclaimRatio` it stops economic compaction entirely.
-- **`uncertaintyPenalty` / `softWindowPenaltyMultiplier`** — the main brake on acting with
-  little evidence. Raising them makes FoldPoint behave more like a wall-only policy.
-- **`minReclaimTokens` / `minReclaimRatio`** — the main brake on small-context churn.
-- **`hardWindowRatio` / `reserveTokens`** — pure safety; they also set the ceiling for
-  `nextCheckAtTokens`.
-- **`emaAlpha`** — how fast learned behaviour replaces the prior. Higher adapts faster and is
-  noisier; it cannot make `FORCE` less safe.
-- **Prices** — cheap cache reads make keeping attractive at any utilization; expensive output
-  makes the compaction call itself expensive and delays compaction.
-- **`growthPerCallEma`** — fast regrowth caps the horizon and therefore suppresses repeated
-  compaction.
+The revision task book allows the data model, state model and defaults to be adjusted, and
+requires every default to be documented and configurable. Everything FoldPoint adds or
+changes is listed here so a reviewer can accept or reject it explicitly.
 
-`npm run benchmark` exercises all of these across the ten scenarios; the raw numbers are in
-[`benchmarks/reports/benchmark-report.json`](../benchmarks/reports/benchmark-report.json).
+**Deliberate corrections to the task book's formulas:**
 
-## 16. Additions beyond the task book
+1. **First post-compaction replay price.** The task book fixes it at the plain input price;
+   FoldPoint bills it at the cache-write price (`Pwrite`, defaulting to `Pin`), because that
+   replay is what rebuilds the prefix, and the benchmark's ground truth bills it the same
+   way. With no `cacheWritePerMillion` the two are identical.
+2. **Compaction call cost.** The task book's §7.5/§9.3 ask for the compaction call to be
+   priced from usage ratios; FoldPoint adds the optional dimensionless `compactCostScale`
+   (default 1) so a host that reports a real `actualCost` can correct a modeled cost without
+   storing an amount.
 
-The task book allows the data model, state model and defaults to be adjusted, and requires
-every default to be documented and configurable. Everything FoldPoint adds is listed here so
-a reviewer can accept or reject it explicitly. Nothing else deviates.
+**Extra defaults** (all overridable, all documented in §15): `softWindowBreakEvenCalls`,
+`softWindowPenaltyMultiplier`, `confidenceFloor`, `confidenceHalfSaturationSamples`,
+`cacheAliveThreshold` (renamed from `cacheValuableThreshold` so the name matches what it
+compares), `lowConfidenceThreshold`.
 
-**Extra defaults** (the task book's list plus these; all are overridable and documented in
-§12):
+**Extra state fields:** the per-ratio sample counters (`compactPromptSamples`,
+`compactOutputSamples`, `compactCachedInputSamples`, `compactCacheWriteSamples`,
+`compactCostScaleSamples`), `successfulCompactionCount` on both profile and session, and
+`failedCompactionCount` on the session.
 
-| Default | Why it exists |
-| --- | --- |
-| `softWindowBreakEvenCalls` | the task book requires that below the soft window a compaction must "repay quickly" (13.7). Without a number for "quickly", the only options were a fixed threshold (forbidden) or an unenforced sentence. |
-| `softWindowPenaltyMultiplier` | the second half of 13.7 ("weak economic gain or low confidence → prefer KEEP"): below the soft window the uncertainty penalty is doubled. |
-| `confidenceFloor` | the confidence model of 13.9 needs a value with zero samples; without a floor, `COMPACT` would be unreachable on a fresh profile, which contradicts 13.7 and the acceptance criterion that all three actions are reachable. |
-| `confidenceHalfSaturationSamples` | the saturation point of the evidence curve. |
-| `cacheValuableThreshold` | the boundary between the `CACHE_STILL_VALUABLE` and `CACHE_LIKELY_EXPIRED` reason codes. |
-| `lowConfidenceThreshold` | the boundary for the `LOW_CONFIDENCE` reason code. |
+**Extra metrics:** `adjustedNetSaving`, `effectiveHorizonCalls`, `estimatedCompactCallCost`.
 
-**Extra state fields:**
+**Extra reason code:** `BREAK_EVEN_BEYOND_HORIZON`, so "no positive saving" and "a saving
+that is too slow" are distinguishable. The task book's list is a minimum.
 
-| Field | Why it exists |
-| --- | --- |
-| `growthPerCallEma`, `growthSamples` | the learned growth rate that caps the horizon at `callsUntilRefill`. Without it, a host that declares a long horizon gets repeated compaction of a small context (the churn case in §17.3 of the benchmark). |
-| `lastPromptTokens` | the previous prompt size, used only to learn the growth rate. |
-| `lastCacheExpiresAt` | the task book allows an exact expiry to be reported per observation (11.1); storing the last one lets it apply to later decisions without the host repeating it. |
-
-**Extra metrics:** `adjustedNetSaving` (13.9 requires the penalty; exposing the result makes
-the gate explainable), `effectiveHorizonCalls` (the gate does not always use
-`expectedFutureCalls`, so the difference must be visible), `callsUntilRefill` (the horizon
-cap that prevents churn).
-
-**Extra reason code:** `BREAK_EVEN_BEYOND_HORIZON`, so that "no positive saving" and "saving
-exists but is too slow" are distinguishable. The task book's list is a minimum ("至少包括").
-
-**Extra input field:** `cacheExpiresAt` on `FoldPointInput`, mirroring the observation field,
-so a host can pass the expiry at decision time without an observation in between.
-
-**One deliberate correction to a §12 formula:** the task book's 12.4 fixes the first
-post-compaction replay at the plain input price (`Ta × Pin`). FoldPoint charges it at the
-cache-write price (`Ta × Pwrite`, where `Pwrite` defaults to `Pin`), because that replay is
-what rebuilds the prefix. With no `cacheWritePerMillion` in the price snapshot the two are
-identical, so the difference only appears for providers that charge a cache-write premium —
-and there it makes FoldPoint slightly *more* conservative, never less.
-
-**Extra API:** `FoldPoint.getDefaults()` (inspect the resolved defaults),
-`resolveDefaults`/`validateDefaults`/`isResolvedDefaults`, `estimateCacheSurvival`,
-`resolveCacheHitRatio`, `resolveIdleMs`, `resolveCacheExpiresAt`, `computeConfidence`,
-`emaUpdate`, `sampleConfidence`, `percentile`, and the state helpers
-(`createProfileState`, `normalizeProfileState`, `applyRequestObservation`,
-`applyCompactionObservation`, `applySessionEnd`). All are pure functions; none widen the
-decision surface.
+**Removed by this revision:** `growthPerCallEma`, `growthSamples`, `lastPromptTokens`,
+`callsUntilRefill`, `compactionCostEma`, `compactionCostSamples`, `lastCacheExpiresAt`,
+`callsSinceLastCompaction`, `lastCompactionAt`, `compactionSamples`, `estimatedCacheSurvival`
+and the state version 1 shape. Version 1 snapshots are rejected with an explicit error rather
+than reinterpreted.
