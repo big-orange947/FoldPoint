@@ -82,12 +82,21 @@ export interface TraceAnalysis {
   files: string[];
   events: number;
   parseErrors: Array<{ line: number; message: string }>;
+  /** False when the input is incomplete: a trace with unreadable lines is not evidence. */
+  usableForCalibration: boolean;
+  calibrationBlockers: string[];
   sessions: number;
+  completeSessions: number;
+  /** Sessions without a `session_end` event: right-censored, excluded from horizon metrics. */
+  censoredSessions: number;
   decisions: number;
   requests: number;
   compactions: number;
   unpriceable: number;
   unpairedDecisions: number;
+  /** Requests whose cache read/write tokens the host did not report: unknown, not a miss. */
+  unknownCacheUsage: number;
+  skippedNextCall: { compaction: number; profileChange: number; unknownNextDecision: number };
   overall: ClassMetrics;
   byClass: Record<TraceClass, ClassMetrics>;
   split: { dev: ClassMetrics; holdout: ClassMetrics };
@@ -100,8 +109,8 @@ interface SessionIndex {
   requests: TraceRequestEvent[];
   compactions: TraceCompactionEvent[];
   endedAt: number | null;
-  /** Request callIds that were served from cache, in order. */
-  servedFromCache: boolean[];
+  /** Known cache-read state per request: `true` served, `false` not served, `undefined` unknown. */
+  servedFromCache: Array<boolean | undefined>;
 }
 
 const CALIBRATION_BUCKETS: ReadonlyArray<{ lowerBound: number; upperBound: number }> = [
@@ -270,8 +279,11 @@ export function analyzeTraceEvents(
   const holdout = newCollectors(worstCases);
 
   const notes: string[] = [];
+  const calibrationBlockers: string[] = [];
   let unpriceable = 0;
   let unpairedDecisions = 0;
+  let unknownCacheUsage = 0;
+  const skippedNextCall = { compaction: 0, profileChange: 0, unknownNextDecision: 0 };
 
   for (const session of sessions.values()) {
     const sessionClasses = classifySession(session);
@@ -297,8 +309,10 @@ export function analyzeTraceEvents(
 
       // --- horizon: how many calls really remained, counting the one being decided ---
       // `expectedFutureCalls` covers the current call plus the later ones, because that is
-      // what `C_now + (N - 1) * C_later` assumes.
-      if (requestIndex >= 0) {
+      // what `C_now + (N - 1) * C_later` assumes. Only a session that ended can answer it:
+      // a trace exported mid-session is right-censored, and its last recorded call is not
+      // the last call of the session.
+      if (requestIndex >= 0 && session.endedAt !== null) {
         const actualRemaining = session.requests.length - requestIndex;
         const predicted = decision.prediction.expectedFutureCalls;
         overall.horizon.add(predicted, actualRemaining, session.sessionId, decision.callId);
@@ -315,22 +329,35 @@ export function analyzeTraceEvents(
 
       // --- cache aliveness for this call, and for the next one ---
       if (request !== undefined) {
-        const served = (request.usage.cachedInputTokens ?? 0) > 0;
-        const thisCallProbability = decision.prediction.estimatedCacheAliveProbability;
-        overall.thisCall.add(thisCallProbability, served);
-        split.thisCall.add(thisCallProbability, served);
-        for (const traceClass of decisionClasses) {
-          classes[traceClass].thisCall.add(thisCallProbability, served);
+        const cacheStateKnown = request.usage.cachedInputTokens !== undefined;
+        if (!cacheStateKnown) {
+          unknownCacheUsage += 1;
+        } else {
+          const served =
+            request.usage.cachedInputTokens !== undefined && request.usage.cachedInputTokens > 0;
+          const thisCallProbability = decision.prediction.estimatedCacheAliveProbability;
+          overall.thisCall.add(thisCallProbability, served);
+          split.thisCall.add(thisCallProbability, served);
+          for (const traceClass of decisionClasses) {
+            classes[traceClass].thisCall.add(thisCallProbability, served);
+          }
         }
 
         const next = session.requests[requestIndex + 1];
-        if (next !== undefined) {
-          const nextServed = (next.usage.cachedInputTokens ?? 0) > 0;
-          const laterProbability = decision.prediction.estimatedCacheLaterAliveProbability;
-          overall.nextCall.add(laterProbability, nextServed);
-          split.nextCall.add(laterProbability, nextServed);
-          for (const traceClass of decisionClasses) {
-            classes[traceClass].nextCall.add(laterProbability, nextServed);
+        if (next !== undefined && cacheStateKnown && next.usage.cachedInputTokens !== undefined) {
+          const nextDecision = session.decisions.find((entry) => entry.callId === next.callId);
+          const blocker = nextCallBlocker(session, request, next, decision, nextDecision);
+          if (blocker === null) {
+            const nextServed =
+              next.usage.cachedInputTokens !== undefined && next.usage.cachedInputTokens > 0;
+            const laterProbability = decision.prediction.estimatedCacheLaterAliveProbability;
+            overall.nextCall.add(laterProbability, nextServed);
+            split.nextCall.add(laterProbability, nextServed);
+            for (const traceClass of decisionClasses) {
+              classes[traceClass].nextCall.add(laterProbability, nextServed);
+            }
+          } else {
+            skippedNextCall[blocker] += 1;
           }
         }
       }
@@ -351,10 +378,17 @@ export function analyzeTraceEvents(
         unpriceable += 1;
         continue;
       }
+      // A cost can only be priced when the host reported the whole prompt breakdown.
+      if (
+        request.usage.cachedInputTokens === undefined ||
+        request.usage.cacheWriteTokens === undefined
+      ) {
+        continue;
+      }
       const actualCost = costOfUsage(resolveUnitPrices(pricing), {
         promptTokens: request.usage.promptTokens,
-        cachedInputTokens: request.usage.cachedInputTokens ?? 0,
-        cacheWriteTokens: request.usage.cacheWriteTokens ?? 0,
+        cachedInputTokens: request.usage.cachedInputTokens,
+        cacheWriteTokens: request.usage.cacheWriteTokens,
         outputTokens: 0,
       });
       // A decision that compacted is followed by the *first post-compaction* replay, which
@@ -407,13 +441,29 @@ export function analyzeTraceEvents(
       `${unpriceable} decision(s) carry no pricing snapshot; their call cost cannot be priced from the trace.`,
     );
   }
+  if (unknownCacheUsage > 0) {
+    notes.push(
+      `${unknownCacheUsage} request(s) do not report cachedInputTokens; unknown is not a miss, so they are excluded from the cache calibration and the cost error.`,
+    );
+  }
+  const skippedNextCallTotal =
+    skippedNextCall.compaction +
+    skippedNextCall.profileChange +
+    skippedNextCall.unknownNextDecision;
+  if (skippedNextCallTotal > 0) {
+    notes.push(
+      `${skippedNextCallTotal} next-call cache comparison(s) were skipped because the two calls are not the same path: ${skippedNextCall.compaction} after a compaction, ${skippedNextCall.profileChange} after a model or compactor change, ${skippedNextCall.unknownNextDecision} with no decision for the next call.`,
+    );
+  }
   if (sessions.size === 0) {
     notes.push("No sessions found: the trace has no decision events.");
   }
-  const withoutEnd = [...sessions.values()].filter((session) => session.endedAt === null).length;
-  if (withoutEnd > 0) {
+  const censoredSessions = [...sessions.values()].filter(
+    (session) => session.endedAt === null,
+  ).length;
+  if (censoredSessions > 0) {
     notes.push(
-      `${withoutEnd} session(s) have no session_end event; their horizon is still measured from the requests that follow each decision.`,
+      `${censoredSessions} session(s) have no session_end event and are treated as right-censored: they are excluded from the horizon error and from the near-end class, because their last recorded call is not known to be the last call.`,
     );
   }
 
@@ -431,7 +481,11 @@ export function analyzeTraceEvents(
     files: [],
     events: events.length,
     parseErrors: [],
+    usableForCalibration: calibrationBlockers.length === 0,
+    calibrationBlockers,
     sessions: sessions.size,
+    completeSessions: sessions.size - censoredSessions,
+    censoredSessions,
     decisions: overall.decisions,
     requests: [...sessions.values()].reduce((total, session) => total + session.requests.length, 0),
     compactions: [...sessions.values()].reduce(
@@ -440,6 +494,8 @@ export function analyzeTraceEvents(
     ),
     unpriceable,
     unpairedDecisions,
+    unknownCacheUsage,
+    skippedNextCall,
     overall: finishCollectors(overall),
     byClass,
     split: { dev: finishCollectors(dev), holdout: finishCollectors(holdout) },
@@ -454,7 +510,13 @@ function classesForDecision(
   nearEndCalls: number,
 ): TraceClass[] {
   const result: TraceClass[] = sessionClasses.filter((traceClass) => traceClass !== "near-end");
-  if (requestIndex >= 0 && requestIndex >= session.requests.length - nearEndCalls) {
+  // "Near end" needs a real end: a session without a `session_end` event is right-censored,
+  // so its last recorded call is not the last call of the session.
+  if (
+    session.endedAt !== null &&
+    requestIndex >= 0 &&
+    requestIndex >= session.requests.length - nearEndCalls
+  ) {
     result.push("near-end");
   }
   return result;
@@ -467,15 +529,18 @@ function classesForDecision(
  * - `one-off-expiry`: the cache lapsed at least once *after* the first call and recovered
  *   afterwards (the first call of a session has no prefix to reuse, so it is not a lapse);
  * - `steady`: cache reads throughout;
- * - `near-end` is added per decision, for the last few calls of a session.
+ * - `near-end` is added per decision, for the last few calls of a *complete* session.
+ *
+ * Requests whose cache usage the host did not report are unknown, not misses, and are left
+ * out of the classification.
  */
 function classifySession(session: SessionIndex): TraceClass[] {
   const served = session.servedFromCache;
-  if (served.length === 0) {
+  const known = served.filter((value) => value !== undefined);
+  if (known.length === 0) {
     return [];
   }
-  const servedCount = served.filter(Boolean).length;
-  const rate = servedCount / served.length;
+  const rate = known.filter(Boolean).length / known.length;
 
   if (rate <= 0.1) {
     return ["cold-cache"];
@@ -483,7 +548,7 @@ function classifySession(session: SessionIndex): TraceClass[] {
 
   let lapsedThenRecovered = false;
   for (let index = 1; index < served.length; index += 1) {
-    if (!served[index] && served.slice(index + 1).some(Boolean)) {
+    if (served[index] === false && served.slice(index + 1).some((value) => value === true)) {
       lapsedThenRecovered = true;
       break;
     }
@@ -525,7 +590,12 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
       case "request": {
         const session = ensure(event.sessionId);
         session.requests.push(event);
-        session.servedFromCache.push((event.usage.cachedInputTokens ?? 0) > 0);
+        // `undefined` means the host did not report it: unknown, never "not served".
+        session.servedFromCache.push(
+          event.usage.cachedInputTokens === undefined
+            ? undefined
+            : event.usage.cachedInputTokens > 0,
+        );
         break;
       }
       case "compaction":
@@ -538,6 +608,39 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
   }
 
   return sessions;
+}
+
+/**
+ * Why the next-call cache prediction cannot be compared with the next call, or `null` when it
+ * can. A compaction or a model change between the two calls means they are not the same path.
+ */
+function nextCallBlocker(
+  session: SessionIndex,
+  request: TraceRequestEvent,
+  next: TraceRequestEvent,
+  decision: TraceDecisionEvent,
+  nextDecision: TraceDecisionEvent | undefined,
+): "compaction" | "profileChange" | "unknownNextDecision" | null {
+  const compactedBetween = session.compactions.some(
+    (compaction) =>
+      compaction.callId === decision.callId ||
+      (compaction.timestamp > request.timestamp && compaction.timestamp <= next.timestamp),
+  );
+  if (compactedBetween) {
+    return "compaction";
+  }
+  if (nextDecision === undefined) {
+    return "unknownNextDecision";
+  }
+  const before = decision.profile;
+  const after = nextDecision.profile;
+  if (before.model !== after.model || before.provider !== after.provider) {
+    return "profileChange";
+  }
+  if (before.compactorId !== after.compactorId) {
+    return "profileChange";
+  }
+  return null;
 }
 
 function mean(values: readonly number[]): number {
@@ -603,13 +706,23 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
     "",
     `- trace format: v${String(analysis.format.version ?? "?")}, produced by foldpoint ${analysis.format.libraryVersion ?? "?"}${analysis.format.producer ? ` (${analysis.format.producer})` : ""}`,
     `- files: ${analysis.files.length > 0 ? analysis.files.join(", ") : "n/a"}`,
-    `- events: ${analysis.events} (${analysis.sessions} sessions, ${analysis.decisions} decisions, ${analysis.requests} requests, ${analysis.compactions} compactions)`,
+    `- events: ${analysis.events} (${analysis.sessions} sessions: ${analysis.completeSessions} complete, ${analysis.censoredSessions} censored; ${analysis.decisions} decisions, ${analysis.requests} requests, ${analysis.compactions} compactions)`,
+    `- usable for calibration: ${analysis.usableForCalibration ? "yes" : "**no**"}`,
     "",
     "A positive signed error means the model **under-predicted**; a negative one means it",
     "over-predicted. Call cost is prompt-side only: output tokens are excluded on both sides",
     "because the model does not predict them.",
     "",
   ];
+
+  if (!analysis.usableForCalibration) {
+    lines.push(
+      "> **This report is not usable for calibration.**",
+      "",
+      ...analysis.calibrationBlockers.map((blocker) => `> - ${blocker}`),
+      "",
+    );
+  }
 
   for (const note of analysis.notes) {
     lines.push(`> ${note}`, "");
@@ -652,10 +765,11 @@ interface CliOptions {
   out?: string;
   nearEndCalls: number;
   holdoutModulo: number;
+  allowErrors: boolean;
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  const options: CliOptions = { nearEndCalls: 3, holdoutModulo: 5 };
+  const options: CliOptions = { nearEndCalls: 3, holdoutModulo: 5, allowErrors: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--out") {
@@ -673,6 +787,10 @@ function parseArgs(argv: readonly string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (arg === "--allow-errors") {
+      options.allowErrors = true;
+      continue;
+    }
     if (arg !== undefined && !arg.startsWith("--")) {
       options.input = arg;
     }
@@ -684,19 +802,45 @@ function parseArgs(argv: readonly string[]): CliOptions {
 export function main(argv: readonly string[] = process.argv.slice(2)): void {
   const options = parseArgs(argv);
   if (options.input === undefined) {
-    console.error("usage: npm run trace:analyze -- <trace.jsonl> [--out <prefix>]");
+    console.error(
+      "usage: npm run trace:analyze -- <trace.jsonl> [--out <prefix>] [--allow-errors]",
+    );
     process.exitCode = 1;
     return;
   }
 
   const inputPath = resolve(options.input);
   const parsed = parseTraceJsonl(readFileSync(inputPath, "utf8"));
+
+  // A trace with unreadable lines is not evidence. Refuse by default; --allow-errors writes a
+  // report that says so instead of quietly averaging over whatever parsed.
+  if (parsed.errors.length > 0 && !options.allowErrors) {
+    console.error(
+      `${basename(inputPath)}: ${parsed.errors.length} unreadable line(s); refusing to report on incomplete input.`,
+    );
+    for (const error of parsed.errors.slice(0, 10)) {
+      console.error(`  line ${error.line}: ${error.message}`);
+    }
+    if (parsed.errors.length > 10) {
+      console.error(`  ... and ${parsed.errors.length - 10} more`);
+    }
+    console.error("pass --allow-errors to get a report marked as not usable for calibration.");
+    process.exitCode = 1;
+    return;
+  }
+
   const analysis = analyzeTraceEvents(parsed.events, {
     nearEndCalls: options.nearEndCalls,
     holdoutModulo: options.holdoutModulo,
   });
   analysis.files = [basename(inputPath)];
   analysis.parseErrors = parsed.errors;
+  if (parsed.errors.length > 0) {
+    analysis.usableForCalibration = false;
+    analysis.calibrationBlockers.push(
+      `${parsed.errors.length} line(s) could not be parsed (line ${parsed.errors[0]?.line ?? "?"} first); the events that did parse are not a complete session record.`,
+    );
+  }
 
   const outPrefix =
     options.out !== undefined
@@ -707,14 +851,12 @@ export function main(argv: readonly string[] = process.argv.slice(2)): void {
   writeFileSync(`${outPrefix}.md`, `${renderTraceReport(analysis)}\n`, "utf8");
 
   console.log(
-    `events: ${analysis.events}  sessions: ${analysis.sessions}  decisions: ${analysis.decisions}`,
+    `events: ${analysis.events}  sessions: ${analysis.sessions} (${analysis.censoredSessions} censored)  decisions: ${analysis.decisions}`,
   );
   console.log(
-    `unpaired decisions: ${analysis.unpairedDecisions}  unpriceable: ${analysis.unpriceable}`,
+    `unpaired decisions: ${analysis.unpairedDecisions}  unpriceable: ${analysis.unpriceable}  unknown cache usage: ${analysis.unknownCacheUsage}`,
   );
-  if (parsed.errors.length > 0) {
-    console.log(`unreadable lines: ${parsed.errors.length}`);
-  }
+  console.log(`usable for calibration: ${analysis.usableForCalibration ? "yes" : "NO"}`);
   console.log(`report: ${outPrefix}.md`);
   console.log(`data:   ${outPrefix}.json`);
 }

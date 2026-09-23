@@ -211,6 +211,9 @@ export class TraceRecorder {
   #seq = 0;
 
   constructor(options: TraceRecorderOptions = {}) {
+    if (options.producer !== undefined) {
+      assertTraceLabel("producer", options.producer, TRACE_SHORT_LABEL_MAX);
+    }
     this.#defaults = resolveDefaults(options.defaults);
     this.#producer = options.producer;
     this.#now = options.now ?? (() => Date.now());
@@ -241,6 +244,10 @@ export class TraceRecorder {
     decision: FoldPointDecision,
     options: { callId?: string; decisionLatencyMs?: number } = {},
   ): TraceDecisionEvent {
+    assertTraceLabel("sessionId", input.sessionId);
+    if (options.callId !== undefined) {
+      assertTraceLabel("callId", options.callId);
+    }
     const seq = this.#nextSeq();
     const event: TraceDecisionEvent = {
       v: TRACE_FORMAT_VERSION,
@@ -271,6 +278,8 @@ export class TraceRecorder {
     usage: RequestObservation,
     options: { latencyMs?: number; outcome?: TraceOutcome } = {},
   ): TraceRequestEvent {
+    assertTraceLabel("sessionId", sessionId);
+    assertTraceLabel("callId", callId);
     const event: TraceRequestEvent = {
       v: TRACE_FORMAT_VERSION,
       type: "request",
@@ -300,6 +309,13 @@ export class TraceRecorder {
       errorCode?: string;
     } = {},
   ): TraceCompactionEvent {
+    assertTraceLabel("sessionId", sessionId);
+    if (options.callId !== undefined) {
+      assertTraceLabel("callId", options.callId);
+    }
+    if (options.errorCode !== undefined) {
+      assertTraceLabel("errorCode", options.errorCode, TRACE_SHORT_LABEL_MAX);
+    }
     const event: TraceCompactionEvent = {
       v: TRACE_FORMAT_VERSION,
       type: "compaction",
@@ -349,6 +365,10 @@ export class TraceRecorder {
     observation: SessionEndObservation,
     options: { reason?: string } = {},
   ): TraceSessionEndEvent {
+    assertTraceLabel("sessionId", sessionId);
+    if (options.reason !== undefined) {
+      assertTraceLabel("reason", options.reason, TRACE_SHORT_LABEL_MAX);
+    }
     const event: TraceSessionEndEvent = {
       v: TRACE_FORMAT_VERSION,
       type: "session_end",
@@ -443,6 +463,34 @@ const TRACE_EVENT_TYPES: readonly TraceEventType[] = [
   "session_end",
 ];
 
+/**
+ * Conservative charset for the free-form fields a trace carries (`sessionId`, `callId`,
+ * `producer`, `reason`, `errorCode`).
+ *
+ * The format has no field for prompt text, but these fields are strings the host fills in, and
+ * a string is a place content can end up by accident. Anything outside this charset is rejected
+ * instead of written, so a label cannot become a sentence — or a credential.
+ */
+const TRACE_LABEL_PATTERN = /^[A-Za-z0-9._@:/+#-]+$/;
+const TRACE_LABEL_MAX = 128;
+const TRACE_SHORT_LABEL_MAX = 64;
+
+function assertTraceLabel(name: string, value: unknown, max = TRACE_LABEL_MAX): void {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new RangeError(`Trace ${name} must be a non-empty string`);
+  }
+  if (value.length > max) {
+    throw new RangeError(
+      `Trace ${name} must be at most ${max} characters, received ${value.length}`,
+    );
+  }
+  if (!TRACE_LABEL_PATTERN.test(value)) {
+    throw new RangeError(
+      `Trace ${name} must match ${TRACE_LABEL_PATTERN.source}: identifiers and labels only, never free text`,
+    );
+  }
+}
+
 /** True when the value looks like a trace event of this format version. */
 export function isTraceEvent(value: unknown): value is TraceEvent {
   if (value === null || typeof value !== "object") {
@@ -478,14 +526,17 @@ export function validateTraceEvent(value: unknown): TraceEvent {
   assertFinite("seq", (event as { seq?: unknown }).seq);
 
   if (event.type !== "header") {
-    assertNonEmptyString("sessionId", (event as { sessionId?: unknown }).sessionId);
+    assertTraceLabel("sessionId", (event as { sessionId?: unknown }).sessionId);
   }
 
   switch (event.type) {
     case "header":
+      if (event.producer !== undefined) {
+        assertTraceLabel("producer", event.producer, TRACE_SHORT_LABEL_MAX);
+      }
       return event;
     case "decision": {
-      assertNonEmptyString("callId", event.callId);
+      assertTraceLabel("callId", event.callId);
       assertNonEmptyString("profile.model", event.profile?.model);
       assertFinite("input.contextTokens", event.input?.contextTokens, 0);
       assertNonEmptyString("decision.action", event.decision?.action);
@@ -496,7 +547,7 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       return event;
     }
     case "request": {
-      assertNonEmptyString("callId", event.callId);
+      assertTraceLabel("callId", event.callId);
       assertFinite("usage.promptTokens", event.usage?.promptTokens, 0);
       if (event.usage.cachedInputTokens !== undefined) {
         assertFinite("usage.cachedInputTokens", event.usage.cachedInputTokens, 0);
@@ -510,6 +561,12 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       return event;
     }
     case "compaction": {
+      if (event.callId !== undefined) {
+        assertTraceLabel("callId", event.callId);
+      }
+      if (event.errorCode !== undefined) {
+        assertTraceLabel("errorCode", event.errorCode, TRACE_SHORT_LABEL_MAX);
+      }
       assertFinite("beforeTokens", event.beforeTokens, 0);
       assertFinite("afterTokens", event.afterTokens, 0);
       if (typeof event.success !== "boolean") {
@@ -518,6 +575,9 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       return event;
     }
     case "session_end":
+      if (event.reason !== undefined) {
+        assertTraceLabel("reason", event.reason, TRACE_SHORT_LABEL_MAX);
+      }
       return event;
   }
 }

@@ -17,10 +17,13 @@ npm run trace:analyze -- traces/example.jsonl
 ## 1. What a trace contains
 
 One JSON object per line, in observation order. Every event is **metadata only**: timestamps,
-token counts, prices, cache usage, the decision and the model's estimates. There is no field
-for prompt text, tool output, chat content or credentials, and none may be added — the decision
-input FoldPoint already receives is metadata by construction, so recording it cannot leak a
-conversation.
+token counts, prices, cache usage, the decision and the model's estimates. There is no field for
+prompt text, tool output, chat content or credentials, and none may be added.
+
+That is a statement about the *format*, not a guarantee about the *data*. A trace is still a
+record of when someone worked and on which model, and the strings it does carry — `sessionId`,
+`callId`, `producer`, `reason`, `errorCode` — are written by the host. Read
+[Privacy](#6-privacy) before recording anything you would not hand to a colleague.
 
 The distinction the format exists for:
 
@@ -141,6 +144,23 @@ The command writes `<out>.md` (readable) and `<out>.json` (machine-readable). It
 Output tokens are excluded from the cost comparison on both sides, because the model does not
 predict them. A positive signed error means the model **under**-predicted.
 
+Four rules keep the numbers honest, and each one is visible in the report:
+
+- **A session without a `session_end` event is right-censored.** Its last recorded call is not
+  known to be the last call of the session, so it is excluded from the horizon error and from
+  the near-end class — a long session exported halfway through would otherwise make the horizon
+  look over-predicted. The other metrics still use the calls that were recorded.
+- **An unreported cache usage is unknown, not a miss.** A request without `cachedInputTokens`
+  is excluded from the cache calibration and from the cost error (which needs the whole prompt
+  breakdown), and it does not count towards the session's cache-hit rate. Unknowns are counted
+  so the report says how many samples were dropped.
+- **The next-call comparison only runs when the two calls are the same path.** A compaction or
+  a model/compactor change in between means the second call is not the continuation of the
+  first, so it is skipped and counted (by reason).
+- **A trace with unreadable lines is not evidence.** The command exits non-zero and writes no
+  report. `--allow-errors` produces a report that says **not usable for calibration** in its
+  first lines and in `usableForCalibration`.
+
 Decisions are grouped into scenario classes, because an average over everything hides exactly
 the cases worth looking at:
 
@@ -153,7 +173,57 @@ A decision can be in more than one class. Sessions are also split into a **devel
 and a **holdout set** by a deterministic hash of the session id (`holdoutModulo`, default 5),
 so a change that only helps the sessions it was tuned on is visible as a gap between the two.
 
-## 4. What a trace cannot prove
+## 5. The Pi adapter
+
+[`adapters/pi/foldpoint-observe.ts`](../adapters/pi/foldpoint-observe.ts) is an **observe-only**
+Pi extension: copy it to `~/.pi/agent/extensions/`, point `FOLDPOINT_TRACE` at a file, and run
+Pi. It runs FoldPoint before every model call, records what FoldPoint *would* have decided,
+records the usage Pi reports after the call, and records the compactions Pi performs. It never
+compacts, never cancels, never modifies context.
+
+It is deliberately not wired into Pi's compaction yet. Acting on the decisions would change the
+data being measured, and the first job is to find out whether the predictions match a real Pi
+session at all.
+
+What it binds, and what it refuses to bind:
+
+| Pi event | what the adapter does |
+| --- | --- |
+| `session_start` / `session_shutdown` | opens and closes a trace session |
+| `context` (before each LLM call) | decides and writes the `decision` event; also completes a compaction record whose post-compaction size only becomes known here |
+| `message_end` (assistant messages) | writes the `request` event from `message.usage` and teaches FoldPoint the real usage |
+| `session_before_compact` / `session_compact` / `session_compact_failed` | records the attempt; a failure is recorded with `afterTokens == beforeTokens`, because nothing changed |
+| `before_provider_request`, `context_with_system`, tool events | **never subscribed**: the request payload is not read, so it cannot be written |
+
+The session key is a runtime-scoped counter (`pi-<runtime-start>-<n>`), not Pi's session id or
+session file path. That keeps the trace usable for calibration and useless for joining back to a
+conversation.
+
+Pairing is checked call by call: a model call that finishes without a decision before it, or a
+decision that never gets a call, is counted and logged at session end, so a trace that cannot be
+paired is visible instead of silently averaged.
+
+Two things the adapter deliberately does **not** do: it does not guess the cache state before a
+call (`cachedTokens` is omitted, so the model relies on what it has learned — otherwise the
+comparison would be circular), and it does not invent a horizon (`expectedFutureCalls` is
+omitted; Pi does not know how many calls remain).
+
+## 6. Privacy
+
+The format has no field for conversation content. The data is still not anonymous:
+
+- **Session identifiers.** Use something irreversible. The Pi adapter uses a runtime counter
+  rather than Pi's session id. If you write your own host, do not put a raw UUID that also
+  appears in logs or exports next to the trace.
+- **Timestamps** show when and for how long someone worked, and how many calls a task took.
+- **Free-form labels** (`producer`, `reason`, `errorCode`) are the easiest place for content to
+  leak by accident. The recorder therefore validates every one of them at runtime against a
+  conservative charset (`A-Za-z0-9._@:/+#-`, at most 64 or 128 characters) and throws instead of
+  writing anything else — a label can be an identifier, never a sentence.
+- **The trace file itself** is plain text. Store it where you store logs, not where you store
+  secrets, and treat it as data about a person's work.
+
+## 7. What a trace cannot prove
 
 - **It does not prove savings.** Replaying a trace with a different compaction time is not a
   counterfactual: once the compaction time changes, the context *and* the cache after that point
@@ -164,16 +234,21 @@ so a change that only helps the sessions it was tuned on is visible as a gap bet
   session that dropped something important is not a win.
 - **It is a sample, not a distribution.** The calibration says how the model behaved on the
   sessions you recorded, not how it will behave on someone else's workload.
+- **The three stand-in sessions in `examples/trace-capture.ts` prove the pipeline runs.** They
+  are not evidence about a real agent, and nothing in them says FoldPoint saves money or keeps
+  task quality.
 
-## 5. Where this is going
+## 8. Where this is going
 
-1. **Format and capture** (this document): done.
-2. **Calibrate against the traces**: look at the error tables, and change only the general model
-   or its defaults — never a special case for one trace. The dev/holdout split exists so that
-   step can be honest.
+1. **Format, capture and the Pi observer** (this document): done.
+2. **Collect a batch of complete real Pi sessions**, then look at the error tables. Change only
+   the general model or its defaults — never a special case for one trace. The dev/holdout split
+   exists so that step can be honest.
 3. **Paired experiments on real tasks**: about ten tasks first to check that the recording is
    complete, then a spread that covers short tasks, long tool-calling sessions, frequently
-   expiring caches and a poor compactor.
+   expiring caches and a poor compactor — comparing total cost *and* task completion, tool
+   correctness, overflows, compaction count and extra latency.
 
-An adapter for a specific agent (Pi, dsh, ...) comes after those three steps, not before: the
-first one should be chosen because the data says FoldPoint helps there.
+An acting adapter for Pi (one that compacts when FoldPoint says so) comes after those three
+steps, not before: it should be built because the data says FoldPoint helps, and it reuses the
+same recorder interface. dsh and the other plugins can follow the same shape.

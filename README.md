@@ -456,9 +456,14 @@ npm run trace:analyze -- traces/example.jsonl
 
 The recorder is I/O-free, the analysis is offline, and neither touches the decision path: the
 core still runs locally, makes no network calls and answers in O(1). See
-[docs/traces.md](docs/traces.md) for the format, the wiring contract and — importantly — what a
-trace *cannot* prove: replaying a trace with a different compaction time is not a counterfactual,
-and a cheaper session that dropped something important is not a win.
+[docs/traces.md](docs/traces.md) for the format, the wiring contract, the privacy rules and —
+importantly — what a trace *cannot* prove: replaying a trace with a different compaction time is
+not a counterfactual, and a cheaper session that dropped something important is not a win.
+
+For the first real data there is an observe-only Pi extension in
+[`adapters/pi/foldpoint-observe.ts`](adapters/pi/foldpoint-observe.ts): it records what FoldPoint
+would have decided, never compacts, and never reads a request payload. Acting on the decisions
+comes after the data says it should.
 
 ## Future plugins
 

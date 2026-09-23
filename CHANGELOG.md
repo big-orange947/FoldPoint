@@ -6,6 +6,58 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Trace statistics review fixes, and the Pi observer
+
+Five review findings on the v0.2 trace layer, plus the first real-host adapter.
+
+**Fixed (analysis)**
+
+- A session without a `session_end` event is now treated as **right-censored**: it is excluded
+  from the horizon error and from the near-end class, because its last recorded call is not known
+  to be the last call. A long session exported halfway through used to make the horizon look
+  over-predicted. The analysis reports `censoredSessions` and says so in the report.
+- An unreported `cachedInputTokens` is now **unknown, not a miss**: such a request is excluded
+  from the cache calibration, from the cost error (which needs the whole prompt breakdown) and
+  from the session's cache-hit rate, and is counted in `unknownCacheUsage`. Treating unknown as
+  zero used to pollute both the calibration and the classification.
+- The next-call cache comparison now requires the two calls to be **the same path**: it is
+  skipped, and counted by reason (`compaction`, `profileChange`, `unknownNextDecision`), when a
+  compaction or a model/compactor change happened in between.
+- A trace with unreadable lines is no longer reported on: the command **exits non-zero and
+  writes nothing** by default. `--allow-errors` writes a report that carries
+  `usableForCalibration: false` and says so in its first lines.
+- Runtime validation of the whitelisted label fields (`sessionId`, `callId`, `producer`,
+  `reason`, `errorCode`): the recorder and the reader reject anything outside
+  `A-Za-z0-9._@:/+#-` (max 64/128 characters) instead of writing it, so a free-form field cannot
+  become a sentence or a credential.
+
+**Added**
+
+- `adapters/pi/foldpoint-observe.ts`: an **observe-only** Pi extension. It runs FoldPoint before
+  every model call, records what FoldPoint would have decided and the usage Pi reports after the
+  call, and records Pi's compactions. It never compacts, never cancels, never modifies context,
+  and never subscribes to `before_provider_request` — the request payload is not read, so it
+  cannot be written. Session keys are runtime-scoped counters rather than Pi's session id or
+  session file path.
+- Pairing diagnostics: a call without a decision before it, or a decision without a call, is
+  counted and logged at session end, so an unusable trace is visible instead of averaged.
+- The adapter does not guess the cache state (`cachedTokens` omitted) or the horizon
+  (`expectedFutureCalls` omitted), because guessing would make the calibration circular.
+- `docs/traces.md` gains a **Privacy** section: the format has no content fields, but session
+  identifiers, timestamps and free-form labels can still identify a person or reveal work
+  patterns; use irreversible session identifiers and keep the trace with your logs.
+- `tsconfig.json` now includes `tools` and `adapters` explicitly.
+
+**Tests**
+
+- 15 new: right-censored sessions (excluded from the horizon and the near-end class, included
+  again once `session_end` exists), unknown cache usage (excluded from calibration and cost,
+  does not turn a served session cold), path continuity (skipped after a compaction or a model
+  change, still compared when unchanged), the CLI refusing to report on unreadable lines and
+  marking a `--allow-errors` report as unusable, label validation, and the Pi observer
+  (subscribed events, decision/request pairing, unpaired calls, deferred compaction size,
+  skipped decisions, two sessions in one trace).
+
 ### Real-trajectory validation (v0.2, step 1)
 
 The synthetic benchmark is reproducible but synthetic. This adds the host-agnostic layer for
