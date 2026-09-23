@@ -1,12 +1,33 @@
 # Pi runbook: collecting the first real traces
 
 Everything here was checked against a local Pi checkout (`packages/coding-agent`,
-`packages/ai`). Re-check the two type files if your Pi version differs — the adapter only uses
-the fields listed below.
+`packages/ai`, Pi 0.87) and, where marked, against a running Pi process. Re-check the two type
+files if your Pi version differs — the adapter only uses the fields listed below.
 
 ```bash
 pi --extension D:\project\FoldPoint\adapters\pi\foldpoint-observe.ts
 ```
+
+### 0. Building Pi from source
+
+A fresh checkout has no `dist/`, so Pi cannot run yet. On Node 22.17 the build fails at the
+first step (`packages/ai` runs `node scripts/generate-models.ts`, and Node only strips
+TypeScript types by default from 22.18 on):
+
+```
+TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".ts"
+  for packages/ai/scripts/generate-models.ts
+```
+
+Two ways around it, both verified:
+
+```bash
+# Node 22.17: allow type stripping and skip the network-bound model-catalog step
+NODE_OPTIONS=--experimental-strip-types npm run build:offline
+```
+
+or use Node ≥ 22.18 and plain `npm run build`. The result is
+`packages/coding-agent/dist/bundle/cli.js` (56 files, ~8 MiB).
 
 ## 1. What was verified against the source
 
@@ -29,8 +50,23 @@ package (or to an absolute path) — nothing else.
 
 ### 1.1 Smoke test without a model call
 
-Before spending a token, check that Pi's loader resolves the adapter and that the event flow
-produces a valid trace. Run this from the Pi checkout (so `jiti` resolves) with any Node:
+Two levels, cheapest first.
+
+**Inside a real Pi process.** Pi loads extensions during boot, before any model call, so this
+proves the loader path without spending anything:
+
+```bash
+FOLDPOINT_TRACE=/tmp/foldpoint-pi-live.jsonl \
+  node <pi>/packages/coding-agent/dist/bundle/cli.js --list-models \
+    --extension <repo>/adapters/pi/foldpoint-observe.ts
+```
+
+Verified: the extension's header line appears in the trace file, written by the extension
+factory while Pi boots. If the file is missing, the extension did not load.
+
+**Without Pi at all.** Before spending a token, check that Pi's loader resolves the adapter and
+that the event flow produces a valid trace. Run this from the Pi checkout (so `jiti` resolves)
+with any Node:
 
 ```js
 // .foldpoint-smoke.mjs — delete it afterwards
@@ -102,7 +138,7 @@ numbers behind them would be meaningless.
 
 ### 2.2 Make compaction cheap: shrink the *declared* window
 
-Compaction only happens when the context approaches the window, and a 200k context costs real
+Compaction only happens when the context approaches the window, and a full context costs real
 money to build. Declare a smaller window for the model instead — Pi and FoldPoint both read it
 from the same place, so everything stays consistent:
 
@@ -124,11 +160,36 @@ from the same place, so everything stays consistent:
 ```
 
 Pi compacts at `contextWindow - reserveTokens` (`compaction.ts`), so with the defaults this
-triggers at ~16k tokens instead of ~184k: **about a 10× cheaper way to produce compaction
-events**, with the same code path.
+triggers at ~16k tokens. **Verified in a real Pi process** (Pi 0.87, `--list-models`):
 
-`modelOverrides` is applied on top of the built-in provider (`provider-composer.ts`), so the
-provider, auth and everything else stay as they are — only the listed fields change.
+```
+without the override:  anthropic  claude-sonnet-4-5   1M    64K
+with the override:     anthropic  claude-sonnet-4-5   32K   64K
+```
+
+Note the default window for that model is **1M**, not 200k — so shrinking it to 32k makes a
+context-filling session roughly 30× cheaper, and the same code path produces the compaction
+events.
+
+`modelOverrides` is applied on top of the built-in provider (`provider-composer.ts`,
+`applyModelOverride` merges field by field), so the provider, auth, prices and everything else
+stay as they are — only the listed fields change.
+
+If a 32k window with the default `reserveTokens` (16384) leaves too little room for a useful
+session, lower `reserveTokens` as well (`settings.json`): `8192` compacts at ~24k instead of
+~16k.
+
+### 2.3 Keep the test config out of your real one
+
+`PI_CODING_AGENT_DIR` points Pi at a different agent directory, so the experiment can have its
+own `models.json` and `settings.json` without touching `~/.pi/agent/`:
+
+```bash
+PI_CODING_AGENT_DIR=/tmp/foldpoint-agent pi --list-models sonnet
+```
+
+Use this for the cheap-testing configuration above: the real config stays untouched, and the
+run is reproducible from a directory you can delete afterwards.
 
 ### 2.3 What shrinking the window changes, and what it does not
 
