@@ -429,11 +429,44 @@ The full list is in [docs/limitations.md](docs/limitations.md). The short versio
   (cheaper, but more exposures to information loss).
 - "Cheaper" is not "better quality": FoldPoint only optimises *when* to compact.
 
+## Real-trajectory validation (v0.2)
+
+The synthetic benchmark above is reproducible, but it is still synthetic. v0.2 asks the
+question the benchmark cannot: does a **real** agent's cache behaviour, session length and
+compaction result match what the model predicts? Three steps, in order:
+
+1. **record** — a versioned JSONL trace format and a pure recorder (`TraceRecorder`), wired into
+   a host with three hooks: decide, after the request, after a compaction. Metadata only: no
+   prompt text, no tool output, no chat content, no credentials. The estimate made *before* a
+   call and the usage the provider reports *after* it are separate events, because a host cannot
+   know the actual cache read/write tokens at decision time.
+2. **calibrate** — `npm run trace:analyze` pairs each decision with its outcome and reports
+   prediction error for call cost, cache aliveness (this call and the next), retention and the
+   remaining-call horizon, broken down by scenario class (cold cache, one-off expiry, near end
+   of session, steady) and split into a development and a holdout set. Changes that follow are
+   driven by that error, not by a new scenario, and never by a special case for one trace.
+3. **pair** — only then, paired experiments on real tasks: the same tasks, model and compactor
+   under FoldPoint and under a guarded fixed threshold, comparing total cost *and* task
+   completion, tool correctness, overflows, compaction count and extra latency.
+
+```bash
+npm run trace:capture                      # writes traces/example.jsonl (wiring example)
+npm run trace:analyze -- traces/example.jsonl
+```
+
+The recorder is I/O-free, the analysis is offline, and neither touches the decision path: the
+core still runs locally, makes no network calls and answers in O(1). See
+[docs/traces.md](docs/traces.md) for the format, the wiring contract and — importantly — what a
+trace *cannot* prove: replaying a trace with a different compaction time is not a counterfactual,
+and a cheaper session that dropped something important is not a win.
+
 ## Future plugins
 
 v0.1 is the core only. Thin adapters for Pi, dsh and MemoEcho are planned as separate packages
 once the core has been reviewed; they will translate host events into `observeRequest` /
-`recordCompaction` / `decide` calls and nothing more. No plugin is implemented here.
+`recordCompaction` / `decide` calls and nothing more. No plugin is implemented here. The first
+adapter should be chosen after the trace data above says FoldPoint helps on that agent, and it
+will reuse the same `TraceRecorder` interface.
 
 ## Public API
 

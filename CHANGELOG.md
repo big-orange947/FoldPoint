@@ -6,6 +6,47 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Real-trajectory validation (v0.2, step 1)
+
+The synthetic benchmark is reproducible but synthetic. This adds the host-agnostic layer for
+validating the model against real agent sessions, without touching the decision path.
+
+**Added**
+
+- `TraceRecorder` and the versioned JSONL trace format (`TRACE_FORMAT_VERSION = 1`,
+  `src/trace.ts`). Events: `header` (format version, library version, the resolved defaults),
+  `decision` (the profile, the input, the action with reason codes and the full prediction
+  block), `request` (what the provider reported after the call), `compaction` (before/after
+  tokens, usage, cost, success) and `session_end`.
+- The format keeps the two things apart on purpose: the *estimate* made before a call and the
+  *actual* cache read/write tokens the provider reports after it. A host cannot know the latter
+  at decision time, and a trace that conflates them cannot calibrate anything.
+- Metadata only: there is no field for prompt text, tool output, chat content or credentials.
+  The decision input FoldPoint already receives is metadata by construction.
+- `validateTraceEvent`, `parseTraceJsonl` and `isTraceEvent` for reading traces back without
+  silently repairing them; malformed lines are reported with their line number.
+- `FOLDPOINT_VERSION`, recorded in every trace header and kept in sync with `package.json` by a
+  test.
+- `examples/trace-capture.ts` and `npm run trace:capture`: the wiring example — four hook calls
+  around a stand-in provider, with a three-line JSONL writer.
+- `tools/trace-analyze.ts` and `npm run trace:analyze`: offline analysis that pairs decisions
+  with requests by `callId` and reports prediction error for call cost (prompt side; the
+  post-compaction replay is compared against `estimatedFirstPostCompactReplayCost`), cache
+  aliveness for this call and for the next one, retention and the remaining-call horizon, by
+  scenario class (cold cache, one-off expiry, near end, steady) and split into a deterministic
+  development/holdout set. It writes a markdown report and the raw numbers as JSON, and states
+  in the report itself what a trace cannot prove.
+- `docs/traces.md`: the format, the host wiring contract, the analysis, and the limits — a
+  replayed trace with a different compaction time is not a counterfactual, and task quality is
+  not measured.
+- `estimatedFirstPostCompactReplayCost` is now a metric, so a post-compaction call can be
+  compared against the prediction that applies to it instead of against the current-call cost.
+- `expectedFutureCalls` is documented as counting the call being decided, which is what the
+  break-even formula assumes; a host that counts only the later calls understates the horizon by
+  one.
+
+`traces/` is gitignored: real trajectories are the operator's data, not repository content.
+
 ### Cache-forecast review fixes
 
 Two bugs in the previous revision, found in review. Both are fixed with exact regression

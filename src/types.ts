@@ -142,7 +142,11 @@ export interface FoldPointInput {
   /** True when the host may pause the agent here and run the compactor. */
   safeBoundary?: boolean;
 
-  /** Host estimate of how many model calls remain in this session. */
+  /**
+   * Host estimate of how many model calls remain in this session, **including the call this
+   * decision is about**: the break-even compares `C_now + (N - 1) * C_later` against the
+   * compaction, so a host that counts only the later calls understates the horizon by one.
+   */
   expectedFutureCalls?: number;
 
   /** Host opt-out from economic compaction. Window safety can still return FORCE. */
@@ -212,6 +216,11 @@ export interface FoldPointDecisionMetrics {
   estimatedKeepCost: number;
   /** Cost of the compaction call itself, in the snapshot's currency. */
   estimatedCompactCallCost: number;
+  /**
+   * Cost of the first replay after a compaction: the compacted context is written as the new
+   * prefix. Compare a post-compaction call against this, not against the current-call cost.
+   */
+  estimatedFirstPostCompactReplayCost: number;
   estimatedCompactCost: number;
   estimatedNetSaving: number;
   /**

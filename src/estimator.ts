@@ -447,6 +447,7 @@ export function decideFoldPoint(
     estimatedLaterCallReplayCost: laterReplayCost,
     estimatedKeepCost,
     estimatedCompactCallCost: compactCallCost,
+    estimatedFirstPostCompactReplayCost: firstPostCompactReplayCost,
     estimatedCompactCost,
     estimatedNetSaving,
     adjustedNetSaving,

@@ -49,6 +49,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "tsx benchmarks/simulator.ts",
+    "trace:capture": "tsx examples/trace-capture.ts",
+    "trace:analyze": "tsx tools/trace-analyze.ts",
     "example:basic": "tsx examples/basic.ts",
     "example:online-learning": "tsx examples/online-learning.ts",
     "example:cache-expiration": "tsx examples/cache-expiration.ts"

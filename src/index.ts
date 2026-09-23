@@ -58,6 +58,28 @@ export {
 } from "./pricing";
 export { ALL_REASONS, REASON_DESCRIPTIONS } from "./reasons";
 export type {
+  TraceCompactionEvent,
+  TraceDecisionEvent,
+  TraceEvent,
+  TraceEventType,
+  TraceHeaderEvent,
+  TraceInput,
+  TraceOutcome,
+  TraceParseResult,
+  TracePrediction,
+  TraceProfile,
+  TraceRecorderOptions,
+  TraceRequestEvent,
+  TraceSessionEndEvent,
+} from "./trace";
+export {
+  isTraceEvent,
+  parseTraceJsonl,
+  TRACE_FORMAT_VERSION,
+  TraceRecorder,
+  validateTraceEvent,
+} from "./trace";
+export type {
   CachePolicy,
   CompactionObservation,
   FoldPointAction,
@@ -76,3 +98,4 @@ export type {
   RequestObservation,
   SessionEndObservation,
 } from "./types";
+export { FOLDPOINT_VERSION } from "./version";
