@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { estimateCacheModel, FoldPoint } from "../src/index";
+import { costOfCall, estimateCacheModel, FoldPoint, resolveUnitPrices } from "../src/index";
 import {
   BASE_TIMESTAMP,
   decideWith,
   expectAllMetricsFinite,
   HISTORY,
   makeProfile,
+  PRICING,
   profileWithCacheTtl,
   SESSION_HISTORY,
 } from "./helpers";
@@ -46,13 +47,28 @@ describe("17.1-17.3 exact cache numbers", () => {
     );
   });
 
-  it("17.3 charges the full input price when the cache is gone", () => {
+  it("17.3 charges the cache-write price when this call has to rebuild the prefix", () => {
     const decision = replayCost(100_000, 80_000, profileWithCacheTtl(1_000), 5_000);
 
     expect(decision.metrics.estimatedCacheCoverageRatio).toBeCloseTo(0.8, 12);
     expect(decision.metrics.estimatedCacheAliveProbability).toBe(0);
     expect(decision.metrics.estimatedEffectiveCachedTokens).toBe(0);
-    expect(decision.metrics.estimatedKeepCost).toBeCloseTo(0.3, 12);
+    // The prefix lapsed, so this request writes its whole prompt at the write price.
+    expect(decision.metrics.estimatedCurrentCallReplayCost).toBeCloseTo(
+      100_000 * (3.75 / 1_000_000),
+      12,
+    );
+    expect(decision.metrics.estimatedKeepCost).toBeCloseTo(100_000 * (3.75 / 1_000_000), 12);
+    // The later calls are a forecast, not this call's verdict: the model does not assume
+    // that every future call finds the cache gone as well.
+    expect(decision.metrics.estimatedCacheLaterAliveProbability).toBe(1);
+    expect(decision.metrics.estimatedLaterCallReplayCost).toBeCloseTo(
+      80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE,
+      12,
+    );
+    expect(decision.metrics.estimatedLaterCallReplayCost).toBeLessThan(
+      decision.metrics.estimatedCurrentCallReplayCost,
+    );
   });
 
   it("17.2 multiplies coverage by aliveness exactly once", () => {
@@ -66,10 +82,124 @@ describe("17.1-17.3 exact cache numbers", () => {
     expect(decision.metrics.estimatedEffectiveCachedTokens / 100_000).toBeCloseTo(0.4, 12);
     // The double-discounted value would have been 0.8 * 0.8 * 0.5 = 0.32.
     expect(decision.metrics.estimatedEffectiveCachedTokens / 100_000).not.toBeCloseTo(0.32, 6);
+    // Half the time the prefix is served, half the time the prompt has to be written.
     expect(decision.metrics.estimatedKeepCost).toBeCloseTo(
-      40_000 * CACHE_READ_PRICE + 60_000 * INPUT_PRICE,
+      0.5 * (80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE) + 0.5 * 100_000 * (3.75 / 1_000_000),
       12,
     );
+  });
+});
+
+describe("expired cache with a write premium", () => {
+  /**
+   * cacheWritePerMillion (3.75) > inputPerMillion (3) and the TTL has lapsed. The current
+   * request must rewrite its prefix, so it pays the write price for its whole prompt; the
+   * later calls are a forecast and are *not* billed as if they all rewrote too.
+   */
+  const WRITE_PRICE = 3.75 / 1_000_000;
+
+  it("17.3b bills this call at the write price and the later calls at the read price", () => {
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        cachedTokens: 80_000,
+        idleMs: 90_000,
+        expectedFutureCalls: 3,
+        profile: profileWithCacheTtl(60_000),
+      },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+    const metrics = decision.metrics;
+
+    // This call: the whole 100k prompt is written, because the 80k prefix lapsed.
+    expect(metrics.estimatedCacheAliveProbability).toBe(0);
+    expect(metrics.estimatedCurrentCallReplayCost).toBeCloseTo(100_000 * WRITE_PRICE, 12);
+    expect(metrics.estimatedCurrentCallReplayCost).toBeGreaterThan(100_000 * INPUT_PRICE);
+
+    // Later calls: a forecast that does not inherit this call's verdict.
+    expect(metrics.estimatedCacheLaterAliveProbability).toBe(1);
+    expect(metrics.estimatedLaterCallReplayCost).toBeCloseTo(
+      80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE,
+      12,
+    );
+
+    // The keep total charges the write once, not once per future call.
+    expect(metrics.estimatedKeepCost).toBeCloseTo(
+      100_000 * WRITE_PRICE + 2 * (80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE),
+      12,
+    );
+    expect(metrics.estimatedKeepCost).toBeLessThan(3 * metrics.estimatedCurrentCallReplayCost);
+
+    // Retention 0.25, coverage 0.9: the compacted context is read, not rewritten.
+    expect(metrics.estimatedCompactCallCost).toBeCloseTo(0.45, 12);
+    expect(metrics.estimatedNetSaving).toBeCloseTo(0.543 - 0.57225, 12);
+    expect(metrics.breakEvenCalls).toBeCloseTo(
+      1 + (0.45 + 0.09375 - 0.375) / (0.084 - 0.01425),
+      12,
+    );
+    expect(metrics.breakEvenCalls).toBeCloseTo(3.419354838709677, 12);
+  });
+
+  it("17.3c does not invent a write premium when caching is not in play", () => {
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        cachedTokens: 80_000,
+        idleMs: 90_000,
+        expectedFutureCalls: 3,
+        profile: makeProfile({ pricing: { ...PRICING, cacheReadPerMillion: 3 } }),
+      },
+      HISTORY,
+      SESSION_HISTORY,
+    );
+
+    // Cache reads cost the same as plain input: no discount, so nothing is cached at all.
+    expect(decision.metrics.estimatedCurrentCallReplayCost).toBeCloseTo(100_000 * INPUT_PRICE, 12);
+    expect(decision.metrics.estimatedLaterCallReplayCost).toBeCloseTo(100_000 * INPUT_PRICE, 12);
+  });
+
+  it("17.3d charges output tokens whatever the cache does", () => {
+    const prices = resolveUnitPrices(PRICING);
+    const output = 1_000;
+
+    expect(
+      costOfCall(
+        prices,
+        100_000,
+        { prefixTokens: 0, aliveProbability: 0, cachingInPlay: true },
+        output,
+      ),
+    ).toBeCloseTo(100_000 * WRITE_PRICE + output * (15 / 1_000_000), 12);
+    expect(
+      costOfCall(
+        prices,
+        100_000,
+        { prefixTokens: 80_000, aliveProbability: 1, cachingInPlay: true },
+        output,
+      ),
+    ).toBeCloseTo(80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE + output * (15 / 1_000_000), 12);
+    expect(
+      costOfCall(
+        prices,
+        100_000,
+        { prefixTokens: 80_000, aliveProbability: 0.5, cachingInPlay: true },
+        output,
+      ),
+    ).toBeCloseTo(
+      0.5 * (80_000 * CACHE_READ_PRICE + 20_000 * INPUT_PRICE) +
+        0.5 * 100_000 * WRITE_PRICE +
+        output * (15 / 1_000_000),
+      12,
+    );
+    expect(
+      costOfCall(
+        prices,
+        100_000,
+        { prefixTokens: 80_000, aliveProbability: 1, cachingInPlay: false },
+        output,
+      ),
+    ).toBeCloseTo(100_000 * INPUT_PRICE + output * (15 / 1_000_000), 12);
   });
 });
 
@@ -182,6 +312,42 @@ describe("cache aliveness sources", () => {
     expect(model.aliveProbability).toBe(1);
     // The coverage EMA is an observed hit rate and must not be discounted a second time.
     expect(model.effectiveCachedTokens).toBeCloseTo(80_000, 6);
+  });
+
+  it("keeps the later-call forecast out of this call's verdict", () => {
+    // A lapsed TTL says this call must rewrite the prefix. It does not say that every later
+    // call lapses too, so the forecast is a separate quantity.
+    const lapsed = estimateCacheModel({ ...base, cachePolicy: { ttlMs: 1_000 }, idleMs: 5_000 });
+    expect(lapsed.aliveProbability).toBe(0);
+    expect(lapsed.laterAliveProbability).toBe(1);
+    expect(lapsed.cachingInPlay).toBe(true);
+
+    // A half-life is a distribution: its smooth form is kept for later calls as well.
+    const decaying = estimateCacheModel({
+      ...base,
+      cachePolicy: { halfLifeMs: 10_000 },
+      idleMs: 10_000,
+    });
+    expect(decaying.aliveProbability).toBeCloseTo(0.5, 12);
+    expect(decaying.laterAliveProbability).toBeCloseTo(0.5, 12);
+
+    // Without a cache discount, or without anything indicating a prefix, nothing is in play.
+    const noDiscount = estimateCacheModel({ ...base, hasCacheDiscount: false });
+    expect(noDiscount.laterAliveProbability).toBe(0);
+    expect(noDiscount.cachingInPlay).toBe(false);
+
+    const nothingAtAll = estimateCacheModel({ ...base, cachedTokens: 0, cacheCoverageSamples: 0 });
+    expect(nothingAtAll.cachingInPlay).toBe(false);
+    expect(nothingAtAll.laterAliveProbability).toBe(0);
+
+    // A policy alone puts caching in play, even before any prefix was observed.
+    const policyOnly = estimateCacheModel({
+      ...base,
+      cachedTokens: 0,
+      cacheCoverageSamples: 0,
+      cachePolicy: { ttlMs: 60_000 },
+    });
+    expect(policyOnly.cachingInPlay).toBe(true);
   });
 
   it("reports no candidate when there is nothing to be alive", () => {

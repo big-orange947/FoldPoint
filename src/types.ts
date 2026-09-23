@@ -190,9 +190,19 @@ export interface FoldPointDecisionMetrics {
   estimatedCacheCoverageRatio: number;
   /** Probability that the candidate cached prefix is still usable, in [0, 1]. */
   estimatedCacheAliveProbability: number;
+  /**
+   * Probability that a *later* call still finds its prefix alive. Deliberately not the same
+   * value as `estimatedCacheAliveProbability`: this call's expiry is a fact, the future is a
+   * forecast.
+   */
+  estimatedCacheLaterAliveProbability: number;
   /** candidateCachedTokens * aliveProbability. */
   estimatedEffectiveCachedTokens: number;
 
+  /** Cost of this call, including any prefix it has to write now. */
+  estimatedCurrentCallReplayCost: number;
+  /** Expected cost of a later call on the kept context. */
+  estimatedLaterCallReplayCost: number;
   estimatedKeepCost: number;
   /** Cost of the compaction call itself, in the snapshot's currency. */
   estimatedCompactCallCost: number;

@@ -75,6 +75,29 @@ the coverage ratio. Resolved in this order:
 exact expiry is stored per session and **cleared** by any request observation that does not
 report one, so a stale expiry can never control a newer prefix.
 
+### 2.1 The later-call forecast
+
+`aliveProbability` is a fact about the call being decided. It must **not** be reused as the
+forecast for the calls after it: "this request has to write its prefix" and "every later
+request also finds the cache gone" are different statements.
+
+```
+laterAliveProbability:
+  caching not in play                                       -> 0
+  the policy describes expiry only through a half-life      -> 2 ^ (-idleMs / halfLifeMs)
+  otherwise (exact expiry, TTL, or an assumed-alive prefix) -> 1
+```
+
+A half-life is a distribution, so its smooth form is kept: it degrades instead of asserting a
+verdict. A hard TTL or an exact expiry is a statement about *this* call, so the model does not
+extrapolate one lapsed gap into the whole future call cycle — the current call rewrites the
+prefix, and a later call starts from a live one. A host whose gaps reliably exceed its TTL
+should describe that regime with a half-life policy rather than a hard TTL.
+
+`cachingInPlay` is true when a cache discount exists, caching is not disabled, and either a
+prefix was observed or the policy describes one. A prompt is only billed at the cache-write
+price when caching is in play.
+
 ## 3. Effective cached tokens
 
 ```
@@ -85,16 +108,36 @@ Coverage and aliveness meet exactly here. The cost formula below must never mult
 coverage ratio in a second time: with coverage 0.8 and aliveness 0.5 the effective share is
 0.4, not 0.32.
 
-## 4. Current replay cost
+## 4. Call billing
+
+One rule prices every model call (`costOfCall`, exported so hosts can use the same arithmetic):
 
 ```
-currentReplayCost = effectiveCachedTokens * Pcache
-                  + (T - effectiveCachedTokens) * Pin
+caching not in play                       -> T * Pin
+prefix alive with probability p           -> p * (candidate * Pcache + (T - candidate) * Pin)
+                                             + (1 - p) * (T * Pwrite)
+no prefix at all, but caching is in play  -> T * Pwrite
 ```
 
-`Pin` is the plain input price per token, `Pcache` the cache-read price per token. The
-uncached remainder is billed at the input price, because that is what the host pays when it
-sends the context again.
+- the part of the prompt a live cache can serve is billed at the cache-read price, the
+  appended tail at the plain input price;
+- a call whose prefix is not alive **writes its whole prompt** at the cache-write price. That
+  is the "rebuild after expiry" case, and with `Pwrite > Pin` it is genuinely more expensive
+  than plain input;
+- a call that has no prefix at all while caching is in play writes its prompt as well: there
+  is nothing to read from;
+- when caching is not in play, the prompt is plain input, and a write premium is never
+  invented.
+
+The two replay costs the model needs are computed with that one rule:
+
+```
+currentCallReplayCost = costOfCall(T, candidate, aliveProbability,      cachingInPlay)
+laterCallReplayCost   = costOfCall(T, candidate, laterAliveProbability, cachingInPlay)
+```
+
+They are deliberately separate. `currentCallReplayCost` includes the write this call really
+has to do; `laterCallReplayCost` is a forecast and does not inherit this call's verdict.
 
 ## 5. Compaction call cost from usage ratios
 
@@ -145,7 +188,9 @@ Prices are read on every decision; a profile is not keyed by price.
 ## 7. First post-compaction replay
 
 ```
-firstPostCompactReplayCost = estimatedPostCompactTokens * Pwrite
+firstPostCompactReplayCost = estimatedPostCompactTokens * Pwrite     (caching in play)
+                           = estimatedPostCompactTokens * Pin       (otherwise)
+
 estimatedPostCompactTokens = T * retentionRatio
 ```
 
@@ -156,48 +201,58 @@ bills a rebuilt prefix.
 ## 8. Later post-compaction replay
 
 ```
-postCompactCoverageRatio     = cacheCoverageSamples > 0 ? cacheCoverageRatioEma : 0
-postCompactCandidateTokens   = estimatedPostCompactTokens * postCompactCoverageRatio
-postCompactEffectiveTokens   = postCompactCandidateTokens * aliveProbability
-laterPostCompactReplayCost   = postCompactEffectiveTokens * Pcache
-                             + (estimatedPostCompactTokens - postCompactEffectiveTokens) * Pin
+postCompactCoverageRatio   = cacheCoverageSamples > 0 ? cacheCoverageRatioEma : 0
+laterPostCompactReplayCost = costOfCall(estimatedPostCompactTokens,
+                                        estimatedPostCompactTokens * postCompactCoverageRatio,
+                                        laterAliveProbability,
+                                        cachingInPlay)
 ```
 
-With no cache history at all the later replay is priced as plain input, which is the
-conservative direction.
+The later replays are priced with the same rule as any other call, using the *forecast*
+aliveness rather than this call's verdict. With no cache history at all the coverage ratio is
+0, so the compacted context is priced as a prompt that has to be written.
 
 ## 9. Break-even
 
-Keeping the context for `N` future calls costs `N * C`. Compacting costs
+Keeping the context for the next `N` calls costs `C_now + (N - 1) * C_later`. Compacting costs
 `K + F + (N - 1) * L`. Setting them equal and solving for `N`:
 
 ```
-N * C = K + F + (N - 1) * L
-N * (C - L) = K + F - L
-breakEvenCalls = (K + F - L) / (C - L)
+C_now + (N - 1) * C_later = K + F + (N - 1) * L
+(N - 1) * (C_later - L) = K + F - C_now
+breakEvenCalls = 1 + (K + F - C_now) / (C_later - L)
 
-C = currentReplayCost            K = compactCallCost
-F = firstPostCompactReplayCost   L = laterPostCompactReplayCost
+C_now = currentCallReplayCost      C_later = laterCallReplayCost
+K     = compactCallCost            F       = firstPostCompactReplayCost
+L     = laterPostCompactReplayCost
 ```
 
-- `C - L <= 0` → `null`: there is no positive per-call saving, so compaction can never repay
-  itself.
-- numerator `<= 0` → `0`: compacting is already not more expensive before the first call.
+`C_now` and `C_later` are separate because they can genuinely differ: a call that finds the
+cache lapsed writes its whole prompt at the cache-write price, while the later calls it
+enables do not have to. With `C_now == C_later == C` this reduces to the familiar
+`(K + F - L) / (C - L)`.
+
+- `C_later - L <= 0` → `null`: there is no positive per-call saving, so compaction can never
+  repay itself.
+- numerator `<= 0` → `0`: compacting is already not more expensive than the current call alone.
 - a division that overflows is reported as `Number.MAX_SAFE_INTEGER` (effectively
   unreachable) so metrics stay JSON-safe.
 
 `computeBreakEvenCalls` is exported as a pure function so the algebra can be tested directly.
-Example: `C = 5, K = 10, F = 4, L = 2` → `(10 + 4 - 2) / (5 - 2) = 4`, and indeed
-`Keep(4) = 20 = Compact(4) = 10 + 4 + 3 * 2`.
+Example: `C_now = C_later = 5, K = 10, F = 4, L = 2` → `1 + (10 + 4 - 5) / (5 - 2) = 4`, and
+indeed `Keep(4) = 5 + 3 * 5 = 20 = Compact(4) = 10 + 4 + 3 * 2`.
 
 The keep/compact totals are still reported over the declared horizon:
 
 ```
-estimatedKeepCost    = R * C
+estimatedKeepCost    = C_now + max(R - 1, 0) * C_later
 estimatedCompactCost = K + F + max(R - 1, 0) * L
 estimatedNetSaving   = estimatedKeepCost - estimatedCompactCost
-savingPerFutureCall  = C - L
+savingPerFutureCall  = C_later - L
 ```
+
+The keep total charges the one-time write once, not once per future call: `R` future calls do
+not mean `R` rebuilds.
 
 ## 10. Confidence
 

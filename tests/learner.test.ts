@@ -354,6 +354,10 @@ describe("17.7 the actual-cost scale never mixes tokens and currency", () => {
 
 describe("17.11 failed attempts restart the cooldown", () => {
   it("a failed economic attempt blocks the next economic decision", () => {
+    // The gaps in this session are far longer than the TTL, so the host reports no served
+    // prefix: this call has to write its prompt. (A host that reported a prefix while the
+    // TTL says it lapsed would contradict itself, and the model prices the future
+    // optimistically in that case: see the cache tests.)
     const profile = makeProfile({ cachePolicy: { ttlMs: 1_000 } });
 
     // Control: the same session state without the failed attempt compacts.
@@ -364,7 +368,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
       profile,
       timestamp: BASE_TIMESTAMP + 20_000,
       contextTokens: 150_000,
-      cachedTokens: 140_000,
+      cachedTokens: 0,
       idleMs: 600_000,
     });
     expect(wouldCompact.action).toBe("COMPACT");
@@ -390,7 +394,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
       profile,
       timestamp: BASE_TIMESTAMP + 20_000,
       contextTokens: 150_000,
-      cachedTokens: 140_000,
+      cachedTokens: 0,
       idleMs: 600_000,
     });
 

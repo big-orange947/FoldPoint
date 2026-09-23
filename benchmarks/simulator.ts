@@ -3,14 +3,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   computeBreakEvenCalls,
+  costOfCall,
   costOfUsage,
   createProfileLearningState,
   createSessionState,
   DEFAULTS,
   decideFoldPoint,
+  estimateCacheModel,
   FoldPoint,
   type FoldPointInput,
   type FoldPointProfile,
+  isCachingInPlay,
   percentile,
   resolveDefaults,
   resolveUnitPrices,
@@ -72,7 +75,8 @@ interface OpenCompaction {
   staticBreakEvenCalls: number | null;
   /** The exact inputs handed to `computeBreakEvenCalls`, for auditing. */
   staticBreakEvenInputs: {
-    currentReplayCost: number;
+    currentCallReplayCost: number;
+    laterCallReplayCost: number;
     compactCallCost: number;
     firstPostCompactReplayCost: number;
     laterPostCompactReplayCost: number;
@@ -102,7 +106,8 @@ export interface CompactionRecord {
   staticBreakEvenCalls: number | null;
   /** The exact inputs handed to `computeBreakEvenCalls`, for auditing the metric. */
   staticBreakEvenInputs: {
-    currentReplayCost: number;
+    currentCallReplayCost: number;
+    laterCallReplayCost: number;
     compactCallCost: number;
     firstPostCompactReplayCost: number;
     laterPostCompactReplayCost: number;
@@ -245,25 +250,32 @@ function branchCache(
   };
 }
 
-/** Cost of one model call, billed exactly like the engine models it. */
+/**
+ * Cost of one model call, through the same helper the engine uses.
+ *
+ * A call that has to (re)build a cache prefix writes its whole prompt at the cache-write
+ * price; a call whose prefix is alive pays the cache-read price for the prefix and the plain
+ * input price for the appended tail. `cachingInPlay` is false for a profile without a cache
+ * discount, where the prompt is plain input.
+ */
 function branchCallCost(
   prices: UnitPrices,
   chargedPrompt: number,
   cachedTokens: number,
   rebuildsCache: boolean,
   outputTokens: number,
+  cachingInPlay: boolean,
 ): number {
-  return rebuildsCache
-    ? costOfUsage(prices, {
-        promptTokens: chargedPrompt,
-        cacheWriteTokens: chargedPrompt,
-        outputTokens,
-      })
-    : costOfUsage(prices, {
-        promptTokens: chargedPrompt,
-        cachedInputTokens: cachedTokens,
-        outputTokens,
-      });
+  return costOfCall(
+    prices,
+    chargedPrompt,
+    {
+      prefixTokens: cachedTokens,
+      aliveProbability: rebuildsCache ? 0 : 1,
+      cachingInPlay,
+    },
+    outputTokens,
+  );
 }
 
 function afterCall(branch: BranchState, chargedPrompt: number, timestamp: number): void {
@@ -300,6 +312,12 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
   const prices: UnitPrices = resolveUnitPrices(scenario.pricing);
   const ttlMs = scenario.cachePolicy.ttlMs ?? Number.POSITIVE_INFINITY;
   const windowTokens = scenario.contextWindowTokens;
+  // The provider caches the whole prompt of a successful call, so a prefix always exists
+  // once a call has happened; the scenario's policy decides whether caching is in play.
+  const cachingInPlay = isCachingInPlay(
+    { cachePolicy: scenario.cachePolicy, hasCacheDiscount: prices.hasCacheDiscount },
+    false,
+  );
 
   const actual: BranchState = {
     contextTokens: scenario.startTokens,
@@ -335,11 +353,12 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
   /** Charges one overflow recovery to a branch, at the cache-write price. */
   const chargeRecovery = (branch: BranchState, cost: { value: number }): void => {
     const recoveryOutputTokens = Math.round(branch.contextTokens * scenario.compactor.outputRatio);
-    cost.value += costOfUsage(prices, {
-      promptTokens: branch.contextTokens,
-      cacheWriteTokens: branch.contextTokens,
-      outputTokens: recoveryOutputTokens,
-    });
+    cost.value += costOfCall(
+      prices,
+      branch.contextTokens,
+      { prefixTokens: branch.contextTokens, aliveProbability: 0, cachingInPlay },
+      recoveryOutputTokens,
+    );
     branch.contextTokens = Math.round(branch.contextTokens * scenario.compactor.retentionRatio);
     branch.lastPromptTokens = 0;
     branch.cacheHeld = false;
@@ -433,34 +452,70 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         forcedAttemptCount += 1;
       }
 
-      // Static break-even at this moment, from the core solver. Output tokens are excluded:
-      // they are identical on both sides and cancel.
-      const currentReplayCost = costOfUsage(prices, {
-        promptTokens: beforeTokens,
-        cachedInputTokens: actualCache.cachedTokens,
-        outputTokens: 0,
+      // Static break-even at this moment, from the core solver and the same billing rule,
+      // evaluated on the inputs the host reports. Output tokens are excluded: they are
+      // identical on both sides and cancel.
+      //
+      // `currentCallReplayCost` is this call as it really is: when the prefix is not alive,
+      // the whole prompt is written at the cache-write price. `laterCallReplayCost` is a
+      // forecast for the calls after this one, so it does not inherit this call's verdict —
+      // `resolveLaterAliveProbability` is the same function the engine uses.
+      const cacheModel = estimateCacheModel({
+        timestamp,
+        idleMs: stepIdleMs,
+        contextTokens: beforeTokens,
+        cachedTokens: actualCache.cachedTokens,
+        cachePolicy: scenario.cachePolicy,
+        cacheCoverageRatioEma: 0,
+        cacheCoverageSamples: 0,
+        hasCacheDiscount: prices.hasCacheDiscount,
       });
-      const firstPostCompactReplayCost = costOfUsage(prices, {
-        promptTokens: afterTokens,
-        cacheWriteTokens: afterTokens,
-        outputTokens: 0,
-      });
-      const postCompactCacheStaysAlive = idleAtStep(scenario, step + 1) < ttlMs;
-      const laterPostCompactReplayCost = postCompactCacheStaysAlive
-        ? costOfUsage(prices, {
-            promptTokens: afterTokens,
-            cachedInputTokens: afterTokens,
-            outputTokens: 0,
-          })
-        : firstPostCompactReplayCost;
+      const currentCallReplayCost = costOfCall(
+        prices,
+        beforeTokens,
+        {
+          prefixTokens: cacheModel.candidateCachedTokens,
+          aliveProbability: cacheModel.aliveProbability,
+          cachingInPlay: cacheModel.cachingInPlay,
+        },
+        0,
+      );
+      const laterCallReplayCost = costOfCall(
+        prices,
+        beforeTokens,
+        {
+          prefixTokens: cacheModel.candidateCachedTokens,
+          aliveProbability: cacheModel.laterAliveProbability,
+          cachingInPlay: cacheModel.cachingInPlay,
+        },
+        0,
+      );
+      const firstPostCompactReplayCost = costOfCall(
+        prices,
+        afterTokens,
+        { prefixTokens: afterTokens, aliveProbability: 0, cachingInPlay: cacheModel.cachingInPlay },
+        0,
+      );
+      const laterPostCompactReplayCost = costOfCall(
+        prices,
+        afterTokens,
+        {
+          prefixTokens: afterTokens * cacheModel.coverageRatio,
+          aliveProbability: cacheModel.laterAliveProbability,
+          cachingInPlay: cacheModel.cachingInPlay,
+        },
+        0,
+      );
       const staticBreakEvenCalls = computeBreakEvenCalls({
-        currentReplayCost,
+        currentCallReplayCost,
+        laterCallReplayCost,
         compactCallCost: attemptCost,
         firstPostCompactReplayCost,
         laterPostCompactReplayCost,
       });
       const staticBreakEvenInputs = {
-        currentReplayCost,
+        currentCallReplayCost,
+        laterCallReplayCost,
         compactCallCost: attemptCost,
         firstPostCompactReplayCost,
         laterPostCompactReplayCost,
@@ -560,6 +615,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       callCachedTokens,
       callRebuildsCache,
       scenario.outputTokens,
+      cachingInPlay,
     );
 
     totalSimulatedCost += actualCallCost;
@@ -599,6 +655,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         shadowCache.cachedTokens,
         shadowCache.rebuildsCache,
         scenario.outputTokens,
+        cachingInPlay,
       );
       afterCall(shadow, shadowPrompt, timestamp);
     }

@@ -6,6 +6,67 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Cache-billing semantics revision
+
+One rule now prices every model call, in the engine and in the benchmark alike, and the
+current call is priced separately from the later calls.
+
+**Breaking changes**
+
+- `computeBreakEvenCalls` takes five inputs instead of four:
+  `{ currentCallReplayCost, laterCallReplayCost, compactCallCost, firstPostCompactReplayCost,
+  laterPostCompactReplayCost }`. The solution is
+  `1 + (K + F - C_now) / (C_later - L)`, which reduces to the previous
+  `(K + F - L) / (C - L)` whenever `C_now == C_later`. The old shape could not express a call
+  that has to write a prefix while the later calls do not.
+- `estimateCacheModel` returns `laterAliveProbability` and `cachingInPlay` in addition to the
+  existing fields; `costOfCall` and the two new cache helpers are exported.
+
+**Added**
+
+- `costOfCall(prices, promptTokens, { prefixTokens, aliveProbability, cachingInPlay },
+  outputTokens)`: the single call-billing rule. A live prefix is read at the cache-read price
+  with the appended tail at the input price; a prefix that is not alive — or that does not
+  exist yet while caching is in play — makes the whole prompt a cache write; without a cache
+  discount the prompt is plain input and no write premium is invented.
+- `resolveLaterAliveProbability`: the forecast for the calls *after* the one being decided. It
+  keeps the smooth form of a half-life policy and otherwise assumes the prefix written by the
+  current call survives, because one lapsed gap is evidence about that gap, not about every
+  future one.
+- `isCachingInPlay`: true when a cache discount exists, caching is not disabled, and either a
+  prefix was observed or the policy describes one.
+- Metrics `estimatedCurrentCallReplayCost`, `estimatedLaterCallReplayCost` and
+  `estimatedCacheLaterAliveProbability`, so the split is visible to hosts.
+
+**Changed**
+
+- The keep cost is `C_now + (R - 1) * C_later` instead of `R * C`. Multiplying one replay cost
+  by the whole horizon charged every future call as if it too would find the cache gone.
+- A call whose cache prefix has lapsed is billed at the cache-write price. Previously the
+  engine billed it at the plain input price while the benchmark billed it at the write price;
+  the two now agree, and with no `cacheWritePerMillion` nothing changes.
+- The benchmark's static break-even inputs are the core's rule evaluated on the simulation's
+  cache state, with `C_now` and `C_later` recorded separately.
+- Behaviour note: a host that reports a served prefix while its own TTL says the prefix lapsed
+  is contradicting itself, and the forecast will price the future optimistically. A host whose
+  gaps reliably exceed its TTL should describe that regime with a half-life policy, or report
+  no served prefix (which the model reads as "this prompt has to be written").
+
+**Fixed**
+
+- `costOfCall` output tokens are charged whatever the cache does; an intermediate revision of
+  this change dropped them from the cache-alive branch.
+
+**Tests**
+
+- An exact test for a write premium (`cacheWritePerMillion > inputPerMillion`) with a lapsed
+  TTL: the current call is billed at the write price, the later calls are not, the keep total
+  charges the write once, and `breakEvenCalls` is `3.419354838709677` from the recorded inputs.
+- Tests for the later-call forecast and `cachingInPlay`, for output tokens under every cache
+  state, for the "no write premium without a cache discount" case, for the generalized
+  break-even (`C_now = 8, C_later = 5, K = 9, F = 5, L = 2 → 3`, and `→ 4` with
+  `C_now = 5`), and for the benchmark's `C` when the cache has lapsed.
+
 ### Benchmark credibility revision
 
 No core behaviour changed; the scope is the benchmark, its tests and the documentation.

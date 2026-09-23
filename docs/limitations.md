@@ -69,6 +69,13 @@ The coverage ratio has its own limitation: when the host does not report `cached
 FoldPoint uses the learned average coverage, which cannot know that *this* prompt is the
 first one after a long tool output.
 
+The forecast for the calls *after* the current one is a belief too, and it is deliberately
+separate from the current call's verdict: a lapsed TTL says this request has to write its
+prefix, not that every later request will. The model keeps the smooth form of a half-life
+policy and otherwise assumes the prefix the current call writes survives. A host whose gaps
+reliably exceed its TTL should describe that regime with a half-life policy, or report no
+served prefix, rather than expect FoldPoint to infer it from one lapsed gap.
+
 ## 5. Compactors differ, and learning is slow
 
 Different compactors produce very different retention ratios, and the same compactor varies

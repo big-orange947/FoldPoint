@@ -247,9 +247,10 @@ describe("compaction call cost from usage ratios", () => {
 });
 
 describe("break-even algebra", () => {
-  it("17.4 solves N * C = K + F + (N - 1) * L exactly", () => {
+  it("17.4 solves C_now + (N - 1) * C_later = K + F + (N - 1) * L exactly", () => {
     const input = {
-      currentReplayCost: 5,
+      currentCallReplayCost: 5,
+      laterCallReplayCost: 5,
       compactCallCost: 10,
       firstPostCompactReplayCost: 4,
       laterPostCompactReplayCost: 2,
@@ -258,8 +259,8 @@ describe("break-even algebra", () => {
     const breakEven = computeBreakEvenCalls(input);
 
     expect(breakEven).toBe(4);
-    // Keep(4) = 4 * 5 = 20, Compact(4) = 10 + 4 + 3 * 2 = 20.
-    expect(4 * input.currentReplayCost).toBe(20);
+    // Keep(4) = 5 + 3 * 5 = 20, Compact(4) = 10 + 4 + 3 * 2 = 20.
+    expect(input.currentCallReplayCost + 3 * input.laterCallReplayCost).toBe(20);
     expect(
       input.compactCallCost +
         input.firstPostCompactReplayCost +
@@ -267,14 +268,38 @@ describe("break-even algebra", () => {
     ).toBe(20);
   });
 
+  it("17.4b charges the current call separately when it has to rewrite its prefix", () => {
+    // The current call writes its prefix (C_now = 8); the later calls do not (C_later = 5).
+    const input = {
+      currentCallReplayCost: 8,
+      laterCallReplayCost: 5,
+      compactCallCost: 9,
+      firstPostCompactReplayCost: 5,
+      laterPostCompactReplayCost: 2,
+    };
+
+    expect(computeBreakEvenCalls(input)).toBe(3);
+    // Keep(3) = 8 + 2 * 5 = 18, Compact(3) = 9 + 5 + 2 * 2 = 18.
+    expect(input.currentCallReplayCost + 2 * input.laterCallReplayCost).toBe(18);
+    expect(
+      input.compactCallCost +
+        input.firstPostCompactReplayCost +
+        2 * input.laterPostCompactReplayCost,
+    ).toBe(18);
+    // Ignoring the one-time write would have answered 1 + (9 + 5 - 5) / (5 - 2) = 4.
+    expect(computeBreakEvenCalls({ ...input, currentCallReplayCost: 5 })).toBe(4);
+  });
+
   it("17.4 has the right sign on both sides of the break-even point", () => {
     const input = {
-      currentReplayCost: 5,
+      currentCallReplayCost: 5,
+      laterCallReplayCost: 5,
       compactCallCost: 10,
       firstPostCompactReplayCost: 4,
       laterPostCompactReplayCost: 2,
     };
-    const keepCost = (calls: number) => calls * input.currentReplayCost;
+    const keepCost = (calls: number) =>
+      input.currentCallReplayCost + (calls - 1) * input.laterCallReplayCost;
     const compactCost = (calls: number) =>
       input.compactCallCost +
       input.firstPostCompactReplayCost +
@@ -288,7 +313,8 @@ describe("break-even algebra", () => {
   it("returns null when there is no positive per-call saving", () => {
     expect(
       computeBreakEvenCalls({
-        currentReplayCost: 2,
+        currentCallReplayCost: 2,
+        laterCallReplayCost: 2,
         compactCallCost: 10,
         firstPostCompactReplayCost: 4,
         laterPostCompactReplayCost: 2,
@@ -296,7 +322,8 @@ describe("break-even algebra", () => {
     ).toBeNull();
     expect(
       computeBreakEvenCalls({
-        currentReplayCost: 2,
+        currentCallReplayCost: 2,
+        laterCallReplayCost: 2,
         compactCallCost: 10,
         firstPostCompactReplayCost: 4,
         laterPostCompactReplayCost: 5,
@@ -307,7 +334,8 @@ describe("break-even algebra", () => {
   it("returns 0 when compacting is already not more expensive before the first call", () => {
     expect(
       computeBreakEvenCalls({
-        currentReplayCost: 5,
+        currentCallReplayCost: 5,
+        laterCallReplayCost: 5,
         compactCallCost: 1,
         firstPostCompactReplayCost: 1,
         laterPostCompactReplayCost: 4,

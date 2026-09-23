@@ -39,6 +39,20 @@ export interface CacheModel {
   aliveProbability: number;
   /** candidateCachedTokens * aliveProbability. */
   effectiveCachedTokens: number;
+  /**
+   * Probability that a *later* call still finds its prefix alive.
+   *
+   * This call's aliveness is a fact about this call: if the TTL has lapsed, this call must
+   * rewrite the prefix. That is not evidence that every later call lapses too, so the
+   * forecast does not inherit the binary verdict. It keeps the smooth form of a half-life
+   * policy, and otherwise assumes the prefix written by this call is still there.
+   */
+  laterAliveProbability: number;
+  /**
+   * True when caching is actually in play for this call: a cache discount exists, caching is
+   * not disabled, and either a candidate prefix was observed or the policy describes one.
+   */
+  cachingInPlay: boolean;
   source: CacheAliveSource;
 }
 
@@ -72,6 +86,63 @@ export function resolveCacheExpiresAt(
   session: Pick<FoldPointSessionState, "cacheExpiresAt">,
 ): number | undefined {
   return input.cacheExpiresAt ?? session.cacheExpiresAt;
+}
+
+/** True when the policy itself says something about cache expiry. */
+function hasExpiryPolicy(input: Pick<CacheModelInput, "cachePolicy" | "cacheExpiresAt">): boolean {
+  return (
+    input.cacheExpiresAt !== undefined ||
+    input.cachePolicy?.ttlMs !== undefined ||
+    (input.cachePolicy?.halfLifeMs !== undefined && input.cachePolicy.halfLifeMs > 0)
+  );
+}
+
+/**
+ * True when caching is in play for this call: there is a cache discount, caching is not
+ * disabled, and either a prefix was observed or the policy describes one. A prompt is only
+ * billed at the cache-write price when caching is in play.
+ */
+export function isCachingInPlay(
+  input: Pick<CacheModelInput, "cachePolicy" | "cacheExpiresAt" | "hasCacheDiscount">,
+  hasCandidate: boolean,
+): boolean {
+  if (!input.hasCacheDiscount || input.cachePolicy?.disabled === true) {
+    return false;
+  }
+  return hasCandidate || hasExpiryPolicy(input);
+}
+
+/**
+ * Probability that a *later* call finds its prefix alive: the forecast half of the cache
+ * model, kept separate from this call's verdict.
+ *
+ * - caching not in play, or nothing indicates a prefix -> 0;
+ * - a half-life is a distribution, so its smooth form is kept (it degrades instead of
+ *   asserting a verdict, and it is the model's only way to express a cache that lapses
+ *   sometimes);
+ * - a hard TTL or an exact expiry is a statement about *this* call: the current call
+ *   rewrites the prefix, so a later call starts from a live one. The model does not
+ *   extrapolate one lapsed gap into the whole future call cycle.
+ */
+export function resolveLaterAliveProbability(
+  input: Pick<CacheModelInput, "cachePolicy" | "cacheExpiresAt" | "hasCacheDiscount" | "idleMs">,
+  hasCandidate: boolean,
+): number {
+  if (!isCachingInPlay(input, hasCandidate)) {
+    return 0;
+  }
+
+  const halfLifeMs = input.cachePolicy?.halfLifeMs;
+  const onlyHalfLifeDescribesExpiry =
+    input.cacheExpiresAt === undefined &&
+    input.cachePolicy?.ttlMs === undefined &&
+    halfLifeMs !== undefined &&
+    halfLifeMs > 0;
+  if (onlyHalfLifeDescribesExpiry) {
+    return clamp(2 ** (-Math.max(0, input.idleMs) / halfLifeMs), 0, 1);
+  }
+
+  return 1;
 }
 
 /**
@@ -137,12 +208,15 @@ export function estimateCacheModel(input: CacheModelInput): CacheModel {
   }
 
   const clampedAlive = clamp(aliveProbability, 0, 1);
+  const cachingInPlay = isCachingInPlay(input, candidateCachedTokens > 0);
 
   return {
     coverageRatio,
     candidateCachedTokens,
     aliveProbability: clampedAlive,
     effectiveCachedTokens: candidateCachedTokens * clampedAlive,
+    laterAliveProbability: resolveLaterAliveProbability(input, candidateCachedTokens > 0),
+    cachingInPlay,
     source,
   };
 }

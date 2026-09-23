@@ -42,11 +42,17 @@ loop; the only difference is the decision it returns.
    context becomes `round(beforeTokens * retentionRatio)` and the provider cache is
    invalidated; on failure the context is unchanged, no cache prefix is built and no
    counterfactual branch is opened.
-4. The model call is charged with `costOfUsage`: a call that has to (re)build a cache prefix —
-   the first call, the first call after a successful compaction, and any call whose prefix has
-   lapsed — is billed at the cache-write price; otherwise the previously cached part is billed
-   at the cache-read price and the appended tail at the plain input price. `Pwrite` defaults to
-   `Pin`, so a scenario without a cache-write price bills such calls as plain input.
+4. The model call is charged with `costOfCall`, the same helper the engine uses. Caching is
+   "in play" when the scenario has a cache discount and a cache policy. Then:
+   - a call whose prefix is alive pays the cache-read price for the previously cached part and
+     the plain input price for the appended tail;
+   - a call that has to (re)build a prefix — the first call, the first call after a successful
+     compaction, and any call whose prefix has lapsed — writes its **whole prompt** at the
+     cache-write price;
+   - a call with no prefix at all writes its prompt too: there is nothing to read from.
+   Without a cache discount the prompt is plain input and no write premium is invented.
+   `Pwrite` defaults to `Pin`, so a scenario without a cache-write price bills such calls as
+   plain input.
 5. After a successful call the provider holds a cache for that whole prompt. The cache stays
    alive while the idle gap before the next call is below the scenario's TTL and no successful
    compaction has rebuilt the prefix since. A scenario may vary the idle gap with
@@ -54,9 +60,9 @@ loop; the only difference is the decision it returns.
 6. FoldPoint additionally receives `observeRequest`, `recordCompaction` (with the real
    `success` flag) and `endSession` events. The baselines ignore them.
 
-The simulator and the engine use the same `costOfUsage` / `resolveUnitPrices` helpers, and the
-static break-even metric is produced by the core `computeBreakEvenCalls`, so there is no second
-formula anywhere in the project.
+The simulator and the engine use the same `costOfCall` / `costOfUsage` / `resolveUnitPrices`
+helpers, the same `estimateCacheModel` forecast and the core `computeBreakEvenCalls`, so there
+is no second formula anywhere in the project.
 
 **Ground truth is hidden.** The compactor's real retention ratio, the real failure rate, the
 real cache behaviour and the real prices never reach a strategy except through the
@@ -158,15 +164,23 @@ attempts. `judgedCompactionCount` reports how many compactions the metric actual
 | `averageUtilizationAtCompaction` | mean pre-compaction utilization, weighted by attempts |
 | `judgedCompactionCount` | successful, non-forced compactions whose counterfactual payback was measured |
 | `unnecessaryCompactionCount` | judged compactions with `realizedSaving < 0`, excluding any whose shadow branch overflowed |
-| `meanStaticBreakEvenCallsAtCompaction` | mean of `computeBreakEvenCalls({ C, K, F, L })` at the moment of a successful attempt. **A local static approximation** — it assumes the context does not keep growing — not the session's real payback. The dynamic answer comes from the shadow branch |
+| `meanStaticBreakEvenCallsAtCompaction` | mean of `computeBreakEvenCalls({ C_now, C_later, K, F, L })` at the moment of a successful attempt. **A local static approximation** — it assumes the context does not keep growing — not the session's real payback. The dynamic answer comes from the shadow branch |
 | `meanFoldPointEstimatedBreakEvenCallsAtCompaction` | FoldPoint's own `metrics.breakEvenCalls` at the same moment, for comparison |
 | `decisionLatencyP50/P95/P99Ms` | wall-clock time around the strategy's decision call |
 
 The static inputs are recorded per compaction (`staticBreakEvenInputs`) so any value can be
-recomputed: `C` uses the real pre-compaction cache coverage, `K` is the attempt cost, `F` is
-the post-compaction prefix write, and `L` follows from the scenario's TTL and the next idle
-gap. Model output tokens are excluded from `C`/`F`/`L` because they are identical on both sides
-and cancel.
+recomputed with the exported solver. They are the core's rule evaluated on the simulation's
+exact cache state: `C_now` is this call as it really is (including a write when the prefix is
+not alive), `C_later` is the forecast for the calls after it, `K` is the attempt cost, `F` is
+the post-compaction prefix write, and `L` follows from the scenario's policy and the same
+`laterAliveProbability` the engine uses. Model output tokens are excluded from all five because
+they are identical on both sides and cancel.
+
+`C_now` and `C_later` are separate on purpose. A call that finds the cache lapsed writes its
+whole prompt at the cache-write price; the later calls it enables do not have to, and the
+forecast does not inherit this call's verdict. In a scenario where every gap exceeds the TTL,
+the host reports no served prefix, so both are priced as writes and the model still sees the
+true regime.
 
 ## Determinism and fairness auditing
 
@@ -202,22 +216,23 @@ Two runs produce identical costs, token counts, attempt counts and decision outc
 
 | strategy | cost | attempts | ok | failed | econ | forced | judged | unneeded | overflows | min headroom | avg util @ comp |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Never | 218.26 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 45 | -32,528 | n/a |
-| Fixed 50% raw | 171.13 | 117 | 109 | 8 | 117 | 0 | 109 | 89 | 0 | 57,396 | 0.558 |
-| Fixed 70% raw | 189.51 | 81 | 76 | 5 | 81 | 0 | 76 | 44 | 0 | 43,114 | 0.722 |
-| Fixed 80% raw | 197.88 | 66 | 64 | 2 | 66 | 0 | 64 | 35 | 0 | 25,106 | 0.823 |
-| Fixed 90% raw | 208.52 | 55 | 53 | 2 | 55 | 0 | 53 | 29 | 0 | 6,618 | 0.922 |
-| Fixed 70% guarded | 191.50 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 20,149 | 0.807 |
-| Fixed 80% guarded | 199.23 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 18,996 | 0.869 |
-| Fixed 90% guarded | 208.52 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 6,618 | 0.922 |
-| **FoldPoint** | **136.44** | 125 | 123 | 2 | 82 | 43 | 82 | **6** | **0** | 13,105 | 0.423 |
+| Never | 217.82 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 45 | -32,528 | n/a |
+| Fixed 50% raw | 170.93 | 117 | 109 | 8 | 117 | 0 | 109 | 89 | 0 | 57,396 | 0.558 |
+| Fixed 70% raw | 189.33 | 81 | 76 | 5 | 81 | 0 | 76 | 44 | 0 | 43,114 | 0.722 |
+| Fixed 80% raw | 197.73 | 66 | 64 | 2 | 66 | 0 | 64 | 35 | 0 | 25,106 | 0.823 |
+| Fixed 90% raw | 208.35 | 55 | 53 | 2 | 55 | 0 | 53 | 29 | 0 | 6,618 | 0.922 |
+| Fixed 70% guarded | 191.32 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 20,149 | 0.807 |
+| Fixed 80% guarded | 199.07 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 18,996 | 0.869 |
+| Fixed 90% guarded | 208.35 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 6,618 | 0.922 |
+| **FoldPoint** | **136.00** | 125 | 123 | 2 | 82 | 43 | 82 | **6** | **0** | 13,105 | 0.419 |
 
 Read that honestly:
 
 - FoldPoint is the cheapest strategy in aggregate, and it never overflows. The cost advantage
-  comes from the cold-cache scenarios (`D`, `E`, `J`), where every call replays the whole
-  context and keeping the context small is directly cheaper: in `D` FoldPoint spends 8.66
-  against 19.93 for the cheapest fixed threshold.
+  comes from the scenarios where the cache does not save the session (`D`, `E`, `J`), where
+  every call replays the whole context and keeping the context small is directly cheaper: in
+  `D` FoldPoint spends 9.52 against 23.67 for the cheapest fixed threshold, in `E` 5.88 against
+  18.16, in `J` 7.30 against 17.09.
 - **FoldPoint also compacts more often than the 70/80/90% baselines** (125 attempts against
   55–81). In the cold-cache scenarios it keeps the context near 12–15% of the window and
   compacts roughly every cooldown period, because each of those compactions repays itself.
@@ -232,11 +247,13 @@ Read that honestly:
   (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
 - Scenario `F` (a compactor that reclaims 5%) is the honest counter-example for the cold-start
   prior: FoldPoint still compacts while its learned retention ratio is walking from the 0.40
-  default towards the real 0.95.
+  default towards the real 0.95, and it is not the cheapest strategy there (59.20 against 53.24
+  for the 50% baseline). It is also not the cheapest in `G` (21.05 against 19.10 for the 80%
+  baseline) or in `K` (9.23 against 8.92 for the guarded 70% baseline).
 - Scenario `K` is where the failure handling shows: half of all attempts fail, and the cooldown
   keeps the retries from turning into a storm.
 
-### Withdrawn from the previous revision
+### Withdrawn from earlier revisions
 
 The earlier report measured "unnecessary compactions" with an approximation (the actual cache
 coverage applied to a counterfactual prompt) and quoted `meanBreakEvenCallsAtCompaction` as if
@@ -249,16 +266,28 @@ it were a ground-truth payback. Both are withdrawn:
   static estimate, not the session's dynamic payback. The dynamic answer is the shadow branch's
   `realizedSaving`.
 
-Costs also changed (FoldPoint 131.31 → 136.44 in aggregate) because a call that rebuilds a
-lapsed prefix is now billed at the cache-write price, matching the engine's own model, instead
-of at the plain input price.
+The billing semantics were unified afterwards, and the costs moved again (FoldPoint 136.44 →
+136.00 in aggregate):
+
+- a call that rebuilds a lapsed prefix is billed at the cache-write price. Earlier revisions
+  billed the *current* call at the plain input price while the simulator billed it at the write
+  price, so the engine under-stated what keeping a lapsed context costs;
+- the keep cost used to be `horizon × currentReplayCost`, which charged every future call as if
+  it too would find the cache gone. The current call and the later calls are now priced
+  separately (`C_now` and `C_later`), and the break-even is
+  `1 + (K + F - C_now) / (C_later - L)`;
+- a prompt is only billed at the write price when caching is in play, so a profile without a
+  cache discount (scenario `J`) is priced as plain input on both sides.
 
 ## Conclusion discipline
 
-The numbers above may only be used to claim simulated cost, compaction counts, failures,
-window overflows and economically unrepaid compactions.
+These results may be described as **a reproducible cost comparison over synthetic scenarios**.
+6 of 82 judged compactions did not repay themselves *within these scenarios and their
+settlement intervals*; the costs, counts and overflows reproduce exactly from the committed
+seeds.
 
-**Fewer compactions reduce the number of exposures to potential information loss, but that
-does not prove better task quality.** The benchmark says nothing about whether a compaction
-kept the information a task needed, nothing about answer accuracy, and nothing about real
-provider cache behaviour.
+**Task quality and real provider traces still need separate validation.** The benchmark says
+nothing about whether a compaction kept the information a task needed, nothing about answer
+accuracy, and nothing about how a real provider's cache actually behaves. Fewer compactions
+reduce the number of exposures to potential information loss without proving better task
+quality.

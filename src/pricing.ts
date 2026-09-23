@@ -104,6 +104,66 @@ export function resolveUnitPrices(pricing?: PricingSnapshot): UnitPrices {
   };
 }
 
+/** The cache situation of a single call, as the caller understands it. */
+export interface CallCacheState {
+  /**
+   * Tokens this prompt shares with the previously cached prefix: the part a live cache can
+   * serve, and the part that has to be rewritten when the cache is not alive.
+   */
+  prefixTokens: number;
+  /** Probability that the prefix is still usable. 0 means this call has to rewrite it. */
+  aliveProbability: number;
+  /**
+   * False when caching is not in play for this call (no cache discount, caching disabled, or
+   * nothing indicates a cached prefix): the prompt is then billed as plain input.
+   */
+  cachingInPlay: boolean;
+}
+
+/**
+ * Cost of one call under the unified cache billing rule.
+ *
+ * - caching not in play -> the whole prompt at the input price;
+ * - the prefix is served from a live cache -> the prefix at the cache-read price, the
+ *   appended tail at the input price;
+ * - the prefix is not alive (lapsed, or not built yet) -> **the whole prompt is written**, at
+ *   the cache-write price;
+ * - caching is in play but there is no prefix at all -> the call writes its prompt: there is
+ *   nothing to read from.
+ *
+ * The rewrite case is deliberately about *this* call only: `aliveProbability` is a per-call
+ * input, so a caller that wants to model later calls must pass its own forecast instead of
+ * reusing this call's verdict. Charging the whole prompt at the write price is the same rule
+ * the engine applies to the first replay after a compaction.
+ */
+export function costOfCall(
+  prices: UnitPrices,
+  promptTokens: number,
+  cache: CallCacheState,
+  outputTokens = 0,
+): number {
+  const prompt = clamp(promptTokens, 0, Number.MAX_SAFE_INTEGER);
+  const output = clamp(outputTokens, 0, Number.MAX_SAFE_INTEGER);
+
+  if (!cache.cachingInPlay) {
+    return prompt * prices.inputPerToken + output * prices.outputPerToken;
+  }
+
+  const rewriteCost = prompt * prices.cacheWritePerToken + output * prices.outputPerToken;
+  const prefixTokens = clamp(cache.prefixTokens, 0, prompt);
+  if (prefixTokens <= 0) {
+    return rewriteCost;
+  }
+
+  const alive = clamp(cache.aliveProbability, 0, 1);
+  const aliveCost =
+    prefixTokens * prices.cacheReadPerToken +
+    (prompt - prefixTokens) * prices.inputPerToken +
+    output * prices.outputPerToken;
+
+  return alive * aliveCost + (1 - alive) * rewriteCost;
+}
+
 /**
  * Cost of one call's reported usage, in the snapshot's currency.
  *

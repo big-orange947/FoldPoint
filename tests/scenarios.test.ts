@@ -258,9 +258,11 @@ describe("simulated sessions", () => {
 
     const economic = session.compactions.filter((entry) => entry.action === "COMPACT");
     // The cold-start prior (retention 0.40) allows a few early economic compactions before
-    // the EMA has seen enough real results; the observed number is 4, and every compaction
-    // after them is a window-safety FORCE.
-    expect(economic.length).toBeLessThanOrEqual(4);
+    // the EMA has seen enough real results; the observed number is 5, and every compaction
+    // after them is a window-safety FORCE. (A lapsed cache is billed at the cache-write
+    // price, which makes the saving per kept call slightly larger than the input-price
+    // version of this model, so one more early compaction is repaid.)
+    expect(economic.length).toBeLessThanOrEqual(5);
     expect(session.compactions.length).toBeLessThan(fixed.compactions.length);
     expect(
       session.compactions.slice(economic.length).every((entry) => entry.action === "FORCE"),

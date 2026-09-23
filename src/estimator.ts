@@ -6,7 +6,7 @@ import {
 } from "./cache";
 import { isResolvedDefaults, NUMERIC_BOUNDS, resolveDefaults } from "./defaults";
 import { clamp, computeConfidence, safeDivide } from "./math";
-import { costOfUsage, resolveUnitPrices, type UnitPrices } from "./pricing";
+import { costOfCall, costOfUsage, resolveUnitPrices, type UnitPrices } from "./pricing";
 import type {
   FoldPointDecision,
   FoldPointDecisionMetrics,
@@ -24,10 +24,15 @@ import type {
  */
 const UNREACHABLE_BREAK_EVEN = Number.MAX_SAFE_INTEGER;
 
-/** The four costs the break-even formula needs. */
+/** The five costs the break-even formula needs. */
 export interface BreakEvenInput {
-  /** Cost of replaying the current context once. */
-  currentReplayCost: number;
+  /**
+   * Cost of the call being decided about, **including any prefix it has to write now**
+   * because the cache is not alive. A one-time cost, not the steady-state per-call cost.
+   */
+  currentCallReplayCost: number;
+  /** Expected cost of a later call on the kept context (no one-time write). */
+  laterCallReplayCost: number;
   /** Cost of the compaction call itself. */
   compactCallCost: number;
   /** Cost of the first replay after compaction (the prefix has to be rebuilt). */
@@ -39,35 +44,40 @@ export interface BreakEvenInput {
 /**
  * Break-even call count, solved exactly.
  *
- * Keeping the context for `N` future calls costs `N * C`. Compacting costs
+ * Keeping costs `C_now + (N - 1) * C_later` for the next `N` calls. Compacting costs
  * `K + F + (N - 1) * L`. Setting them equal:
  *
  * ```
- * N * C = K + F + (N - 1) * L
- * N * (C - L) = K + F - L
- * N = (K + F - L) / (C - L)
+ * C_now + (N - 1) * C_later = K + F + (N - 1) * L
+ * (N - 1) * (C_later - L) = K + F - C_now
+ * N = 1 + (K + F - C_now) / (C_later - L)
  * ```
  *
+ * `C_now` and `C_later` are separate because they can genuinely differ: a call that finds
+ * the cache lapsed writes its whole prompt at the cache-write price, while the later calls
+ * it enables do not have to. With `C_now == C_later == C` this reduces to the familiar
+ * `(K + F - L) / (C - L)`.
+ *
  * Returns:
- * - `null` when `C - L <= 0`: there is no positive per-call saving, so compaction can
+ * - `null` when `C_later - L <= 0`: there is no positive per-call saving, so compaction can
  *   never repay itself;
- * - `0` when the numerator is not positive: compacting is already not more expensive
- *   before the first future call;
+ * - `0` when the numerator is not positive: compacting is already not more expensive than
+ *   the current call alone;
  * - `Number.MAX_SAFE_INTEGER` if the division overflows (effectively unreachable).
  */
 export function computeBreakEvenCalls(input: BreakEvenInput): number | null {
-  const denominator = input.currentReplayCost - input.laterPostCompactReplayCost;
+  const denominator = input.laterCallReplayCost - input.laterPostCompactReplayCost;
   if (!(denominator > 0)) {
     return null;
   }
 
   const numerator =
-    input.compactCallCost + input.firstPostCompactReplayCost - input.laterPostCompactReplayCost;
+    input.compactCallCost + input.firstPostCompactReplayCost - input.currentCallReplayCost;
   if (numerator <= 0) {
     return 0;
   }
 
-  const ratio = numerator / denominator;
+  const ratio = 1 + numerator / denominator;
   return Number.isFinite(ratio) ? ratio : UNREACHABLE_BREAK_EVEN;
 }
 
@@ -322,10 +332,31 @@ export function decideFoldPoint(
   const estimatedReclaimTokens = contextTokens - estimatedPostCompactTokens;
   const estimatedReclaimRatio = safeDivide(estimatedReclaimTokens, contextTokens, 0);
 
-  // --- replay costs ---
-  const currentReplayCost =
-    cache.effectiveCachedTokens * prices.cacheReadPerToken +
-    (contextTokens - cache.effectiveCachedTokens) * prices.inputPerToken;
+  // --- replay costs: this call and the later calls are priced separately ---
+  // This call: if the prefix is not alive, this request has to write it now. That is a fact
+  // about this call, and it is billed at the cache-write price.
+  const currentReplayCost = costOfCall(
+    prices,
+    contextTokens,
+    {
+      prefixTokens: cache.candidateCachedTokens,
+      aliveProbability: cache.aliveProbability,
+      cachingInPlay: cache.cachingInPlay,
+    },
+    0,
+  );
+  // Later calls: whether they also find the cache gone is a forecast, not this call's
+  // verdict. `laterAliveProbability` deliberately does not inherit a lapsed TTL.
+  const laterReplayCost = costOfCall(
+    prices,
+    contextTokens,
+    {
+      prefixTokens: cache.candidateCachedTokens,
+      aliveProbability: cache.laterAliveProbability,
+      cachingInPlay: cache.cachingInPlay,
+    },
+    0,
+  );
 
   const postCompactCoverageRatio = cacheEnabled
     ? resolveCacheCoverageRatio({
@@ -334,12 +365,21 @@ export function decideFoldPoint(
       })
     : 0;
   const postCompactCandidateTokens = estimatedPostCompactTokens * postCompactCoverageRatio;
-  const postCompactEffectiveTokens = postCompactCandidateTokens * cache.aliveProbability;
-  const laterPostCompactReplayCost =
-    postCompactEffectiveTokens * prices.cacheReadPerToken +
-    (estimatedPostCompactTokens - postCompactEffectiveTokens) * prices.inputPerToken;
+  const laterPostCompactReplayCost = costOfCall(
+    prices,
+    estimatedPostCompactTokens,
+    {
+      prefixTokens: postCompactCandidateTokens,
+      aliveProbability: cache.laterAliveProbability,
+      cachingInPlay: cache.cachingInPlay,
+    },
+    0,
+  );
 
-  const firstPostCompactReplayCost = estimatedPostCompactTokens * prices.cacheWritePerToken;
+  // The first replay after compaction writes the whole compacted context as the new prefix.
+  const firstPostCompactReplayCost = cache.cachingInPlay
+    ? estimatedPostCompactTokens * prices.cacheWritePerToken
+    : estimatedPostCompactTokens * prices.inputPerToken;
 
   // --- compaction call cost: usage ratios scaled to the current context, priced now ---
   const estimatedCompactPromptTokens = contextTokens * compactPromptRatio;
@@ -362,16 +402,18 @@ export function decideFoldPoint(
     defaults,
   );
 
-  const estimatedKeepCost = expectedFutureCalls * currentReplayCost;
+  const estimatedKeepCost =
+    currentReplayCost + Math.max(expectedFutureCalls - 1, 0) * laterReplayCost;
   const estimatedCompactCost =
     compactCallCost +
     firstPostCompactReplayCost +
     Math.max(expectedFutureCalls - 1, 0) * laterPostCompactReplayCost;
   const estimatedNetSaving = estimatedKeepCost - estimatedCompactCost;
-  const estimatedSavingPerFutureCall = currentReplayCost - laterPostCompactReplayCost;
+  const estimatedSavingPerFutureCall = laterReplayCost - laterPostCompactReplayCost;
 
   const breakEvenCalls = computeBreakEvenCalls({
-    currentReplayCost,
+    currentCallReplayCost: currentReplayCost,
+    laterCallReplayCost: laterReplayCost,
     compactCallCost,
     firstPostCompactReplayCost,
     laterPostCompactReplayCost,
@@ -400,7 +442,14 @@ export function decideFoldPoint(
     estimatedReclaimRatio,
     estimatedCacheCoverageRatio: cache.coverageRatio,
     estimatedCacheAliveProbability: cache.aliveProbability,
+    /** The forecast for later calls, which does not inherit this call's verdict. */
+    estimatedCacheLaterAliveProbability: cache.laterAliveProbability,
     estimatedEffectiveCachedTokens: cache.effectiveCachedTokens,
+
+    /** Cost of this call, including any prefix it has to write now. */
+    estimatedCurrentCallReplayCost: currentReplayCost,
+    /** Expected cost of a later call on the kept context. */
+    estimatedLaterCallReplayCost: laterReplayCost,
     estimatedKeepCost,
     estimatedCompactCallCost: compactCallCost,
     estimatedCompactCost,

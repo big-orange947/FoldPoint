@@ -8,9 +8,11 @@
 export type { CacheAliveSource, CacheModel, CacheModelInput } from "./cache";
 export {
   estimateCacheModel,
+  isCachingInPlay,
   resolveCacheCoverageRatio,
   resolveCacheExpiresAt,
   resolveIdleMs,
+  resolveLaterAliveProbability,
 } from "./cache";
 export {
   DEFAULTS,
@@ -44,9 +46,10 @@ export {
   safeDivide,
   sampleConfidence,
 } from "./math";
-export type { UnitPrices } from "./pricing";
+export type { CallCacheState, UnitPrices } from "./pricing";
 export {
   assertValidPricing,
+  costOfCall,
   costOfUsage,
   isTokenOnlyPricing,
   resolveUnitPrices,

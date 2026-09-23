@@ -187,7 +187,8 @@ describe("4/5. the benchmark reuses the core break-even solver", () => {
   it("5. reproduces the fixture K=9, F=5, L=2, C=5 -> 4", () => {
     expect(
       computeBreakEvenCalls({
-        currentReplayCost: 5,
+        currentCallReplayCost: 5,
+        laterCallReplayCost: 5,
         compactCallCost: 9,
         firstPostCompactReplayCost: 5,
         laterPostCompactReplayCost: 2,
@@ -206,17 +207,48 @@ describe("4/5. the benchmark reuses the core break-even solver", () => {
       throw new Error("missing static break-even inputs");
     }
 
-    // C: 100k served from the warm cache at the read price.
-    expect(inputs.currentReplayCost).toBeCloseTo(100_000 * (0.3 / 1_000_000), 12);
+    // C_now: 100k served from the warm cache at the read price.
+    expect(inputs.currentCallReplayCost).toBeCloseTo(100_000 * (0.3 / 1_000_000), 12);
+    // C_later: the same context read from cache again, not rewritten.
+    expect(inputs.laterCallReplayCost).toBeCloseTo(100_000 * (0.3 / 1_000_000), 12);
     // K: the compaction prompt at the input price.
     expect(inputs.compactCallCost).toBeCloseTo(100_000 * (3 / 1_000_000), 12);
     // F: the rebuilt 50k prefix at the cache-write price.
     expect(inputs.firstPostCompactReplayCost).toBeCloseTo(50_000 * (3.75 / 1_000_000), 12);
-    // L: the next gap stays inside the TTL, so the prefix is read, not rewritten.
+    // L: a later call reads the prefix; it is not assumed to rebuild it.
     expect(inputs.laterPostCompactReplayCost).toBeCloseTo(50_000 * (0.3 / 1_000_000), 12);
 
     expect(record?.staticBreakEvenCalls).toBe(computeBreakEvenCalls(inputs));
-    expect(record?.staticBreakEvenCalls).toBeCloseTo((0.3 + 0.1875 - 0.015) / (0.03 - 0.015), 12);
+    expect(record?.staticBreakEvenCalls).toBeCloseTo(
+      1 + (0.3 + 0.1875 - 0.03) / (0.03 - 0.015),
+      12,
+    );
+  });
+
+  it("4c. bills the current call at the write price when the cache has lapsed", () => {
+    // A write premium (3.75 against 3.00 input) and a gap beyond the TTL. The host reports no
+    // served prefix, so this call has nothing to read: C is the whole prompt at the
+    // cache-write price, not at the input price. (The current-call/later-call distinction
+    // shows up when a prefix is reported while the TTL has lapsed: see the core's 17.3b.)
+    const scenario = testScenario({
+      cachePolicy: { ttlMs: 1_000 },
+      idleMs: 600_000,
+      steps: 3,
+    });
+    const run = runSession(scenario, compactAtStep(1));
+    const inputs = run.compactions[0]?.staticBreakEvenInputs;
+
+    if (!inputs) {
+      throw new Error("missing static break-even inputs");
+    }
+
+    expect(inputs.currentCallReplayCost).toBeCloseTo(100_000 * (3.75 / 1_000_000), 12);
+    expect(inputs.currentCallReplayCost).toBeGreaterThan(100_000 * (3 / 1_000_000));
+    expect(inputs.laterCallReplayCost).toBeCloseTo(100_000 * (3.75 / 1_000_000), 12);
+    // F and L both write the compacted prefix: there is no live prefix to read from.
+    expect(inputs.firstPostCompactReplayCost).toBeCloseTo(50_000 * (3.75 / 1_000_000), 12);
+    expect(inputs.laterPostCompactReplayCost).toBeCloseTo(50_000 * (3.75 / 1_000_000), 12);
+    expect(run.compactions[0]?.staticBreakEvenCalls).toBe(computeBreakEvenCalls(inputs));
   });
 
   it("4b. every recorded static break-even is the core solver's answer", () => {
