@@ -424,3 +424,36 @@ trying to move, and it is fully visible in the data.
 Until those two exist, the plugin is the only place this can live — and it is a reasonable
 place for it: the policy needs calibration that is still moving, and Pi's core should not
 inherit a third-party cost model's release cadence.
+
+## 6. The paired trial
+
+Everything above measures *predictions*. Whether FoldPoint's timing is better than Pi's own is
+a separate question, and the only honest way to answer it is to run the same tasks twice.
+
+```bash
+PI_CLI=<pi>/packages/coding-agent/dist/bundle/cli.js \
+PI_CODING_AGENT_DIR=/tmp/foldpoint-agent \
+PI_SCRATCH=/tmp/foldpoint-scratch \
+npx tsx tools/pi-paired-run.ts --reps 3
+```
+
+The protocol is fixed before the first run, because a task chosen after seeing the numbers is
+not evidence:
+
+- **One variable**: `FOLDPOINT_MODE`. `observe` leaves Pi's threshold compaction alone, `act`
+  lets FoldPoint veto it. Same model, same compactor (Pi's), same adapter, same prompts.
+- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships two tasks: one appends the
+  first line number of each 60-line chunk to `notes.md` (8 exact values), one writes the sum of
+  1..1000 to `out-sum.md` (500500). A run that is cheaper and wrong is not a win, so the check
+  is printed next to the cost and a missing artifact is visible in the table.
+- **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
+  every call that ran, output included, plus the compactions themselves. `trace:analyze` prints
+  the same table under `## Session cost`.
+- **Both directions matter**. A task that never reaches the threshold cannot show a difference
+  (the `sum` task is a control); the one that does (`steps`) is where the veto has something to
+  decide.
+
+What the trial still cannot do: a handful of runs on one model is a signal, not a result. The
+model is not deterministic, so per-run cost varies with how much new text each call carried, and
+the cost model's remaining error (see `limitations.md` §4) feeds straight into the decisions
+being compared. Read the table as "does this direction look plausible", not as a saving.

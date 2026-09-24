@@ -26,6 +26,7 @@ import {
   makeLearning,
   makeProfile,
   makeSession,
+  PRICING,
   profileWithCacheTtl,
   SESSION_HISTORY,
 } from "./helpers";
@@ -455,6 +456,85 @@ describe("trace analysis", () => {
 
     expect(analysis.overall.retention.count).toBe(0);
     expect(analysis.notes.join(" ")).toContain("have no decision to compare against");
+  });
+
+  it("counts what a session cost, including the compactions", () => {
+    // The prediction metrics price the prompt only. This is the money: output tokens are on
+    // the bill too, and a compaction is a model call like any other.
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    const profile = profileWithCacheTtl(60_000);
+    const input = makeInput({
+      sessionId: "cost",
+      profile,
+      contextTokens: 100_000,
+      cachedTokens: 80_000,
+      idleMs: 0,
+      expectedFutureCalls: 1,
+    });
+    const decision = decideFoldPoint(input, makeLearning(HISTORY), makeSession(SESSION_HISTORY));
+    events.push(trace.decision(input, decision, { callId: "c-1" }));
+    events.push(
+      trace.request("cost", "c-1", {
+        timestamp: BASE_TIMESTAMP,
+        promptTokens: 100_000,
+        cachedInputTokens: 80_000,
+        cacheWriteTokens: 0,
+        outputTokens: 1_000,
+      }),
+    );
+    events.push(
+      trace.compaction(
+        "cost",
+        {
+          timestamp: BASE_TIMESTAMP + 500,
+          beforeTokens: 100_000,
+          afterTokens: 30_000,
+          success: true,
+          promptTokens: 90_000,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 5_000,
+        },
+        { action: "COMPACT" },
+      ),
+    );
+    // A compaction that never ran still counts as an attempt.
+    events.push(
+      trace.compaction(
+        "cost",
+        {
+          timestamp: BASE_TIMESTAMP + 600,
+          beforeTokens: 30_000,
+          afterTokens: 30_000,
+          success: false,
+        },
+        { action: "COMPACT", errorCode: "aborted" },
+      ),
+    );
+    events.push(trace.sessionEnd("cost", { timestamp: BASE_TIMESTAMP + 1_000 }));
+
+    const analysis = analyzeTraceEvents(events);
+    const cost = analysis.sessionCosts[0];
+
+    expect(cost?.calls).toBe(1);
+    expect(cost?.callCost).toBeCloseTo(
+      (20_000 * PRICING.inputPerMillion +
+        80_000 * (PRICING.cacheReadPerMillion ?? 0) +
+        1_000 * PRICING.outputPerMillion) /
+        1_000_000,
+      12,
+    );
+    expect(cost?.compactions).toBe(1);
+    expect(cost?.compactionsNotRun).toBe(1);
+    expect(cost?.compactionCost).toBeCloseTo(
+      (90_000 * PRICING.inputPerMillion + 5_000 * PRICING.outputPerMillion) / 1_000_000,
+      12,
+    );
+    expect(cost?.totalCost).toBeCloseTo((cost?.callCost ?? 0) + (cost?.compactionCost ?? 0), 12);
+    expect(cost?.compactionShare).toBeGreaterThan(0);
+    // And it reaches the report, which is the point of measuring it.
+    expect(renderTraceReport(analysis)).toContain("## Session cost");
   });
 
   it("splits sessions into development and holdout deterministically", () => {

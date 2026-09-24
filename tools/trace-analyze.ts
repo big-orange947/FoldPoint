@@ -26,6 +26,7 @@ import {
   costOfUsage,
   parseTraceJsonl,
   resolveUnitPrices,
+  safeDivide,
   type TraceCompactionEvent,
   type TraceDecisionEvent,
   type TraceEvent,
@@ -77,6 +78,32 @@ export interface ClassMetrics {
   horizon: ErrorSummary;
 }
 
+/**
+ * What a session actually cost, as opposed to how well the model predicted it.
+ *
+ * The prediction metrics price the prompt only, because the model does not predict output.
+ * This is the money: every call's input, cache read, cache write *and* output, plus what the
+ * compactions themselves cost. A compaction is a model call too, and on a provider whose cache
+ * reads are cheap it is often the largest single line in a session.
+ */
+export interface SessionCost {
+  sessionId: string;
+  /** Calls that actually ran, including ones with no decision to compare against. */
+  calls: number;
+  /** Every priced token of those calls, output included. */
+  callCost: number;
+  /** Compactions that ran, and what their summarisation calls cost. */
+  compactions: number;
+  compactionCost: number;
+  /** Compaction attempts that did not run: vetoed by a host, or aborted. */
+  compactionsNotRun: number;
+  /** `callCost + compactionCost`. */
+  totalCost: number;
+  /** `compactionCost / totalCost`, in [0, 1]. */
+  compactionShare: number;
+  currency: string;
+}
+
 export interface TraceAnalysis {
   format: { version: number | null; libraryVersion: string | null; producer: string | null };
   files: string[];
@@ -100,6 +127,8 @@ export interface TraceAnalysis {
   overall: ClassMetrics;
   byClass: Record<TraceClass, ClassMetrics>;
   split: { dev: ClassMetrics; holdout: ClassMetrics };
+  /** Per session, in trace order. The only place output tokens are counted. */
+  sessionCosts: SessionCost[];
   notes: string[];
 }
 
@@ -568,8 +597,79 @@ export function analyzeTraceEvents(
     overall: finishCollectors(overall),
     byClass,
     split: { dev: finishCollectors(dev), holdout: finishCollectors(holdout) },
+    sessionCosts: collectSessionCosts(sessions),
     notes,
   };
+}
+
+/**
+ * What each session cost in money, per session and in trace order.
+ *
+ * Every call that ran is counted, paired or not: an unpaired call still appeared on a bill.
+ * A call with no pricing snapshot in its session cannot be priced, so the session is reported
+ * with whatever could be priced - and `unpriceable` in the summary says how many decisions had
+ * no prices at all.
+ */
+function collectSessionCosts(sessions: Map<string, SessionIndex>): SessionCost[] {
+  const costs: SessionCost[] = [];
+  for (const session of sessions.values()) {
+    const pricing = session.decisions.find((decision) => decision.profile.pricing !== undefined)
+      ?.profile.pricing;
+    if (pricing === undefined) {
+      continue;
+    }
+    const prices = resolveUnitPrices(pricing);
+
+    let calls = 0;
+    let callCost = 0;
+    for (const request of session.requests) {
+      if (isFailedRequest(request) || request.usage.cachedInputTokens === undefined) {
+        continue;
+      }
+      calls += 1;
+      callCost += costOfUsage(prices, {
+        promptTokens: request.usage.promptTokens,
+        cachedInputTokens: request.usage.cachedInputTokens,
+        cacheWriteTokens: request.usage.cacheWriteTokens,
+        outputTokens: request.usage.outputTokens ?? 0,
+      });
+    }
+
+    let compactions = 0;
+    let compactionCost = 0;
+    let compactionsNotRun = 0;
+    for (const compaction of session.compactions) {
+      if (!compaction.success) {
+        compactionsNotRun += 1;
+        continue;
+      }
+      compactions += 1;
+      if (compaction.usage === undefined) {
+        continue;
+      }
+      const compactionUsage = compaction.usage;
+      compactionCost += costOfUsage(prices, {
+        promptTokens: compactionUsage.promptTokens ?? 0,
+        cachedInputTokens: compactionUsage.cachedInputTokens ?? 0,
+        cacheWriteTokens: compactionUsage.cacheWriteTokens ?? 0,
+        outputTokens: compactionUsage.outputTokens ?? 0,
+      });
+    }
+
+    const totalCost = callCost + compactionCost;
+    costs.push({
+      sessionId: session.sessionId,
+      calls,
+      callCost,
+      compactions,
+      compactionCost,
+      compactionsNotRun,
+      totalCost,
+      compactionShare: safeDivide(compactionCost, totalCost, 0),
+      currency: pricing.currency ?? "USD",
+    });
+  }
+  return costs;
 }
 
 function classesForDecision(
@@ -810,6 +910,58 @@ function renderClass(label: string, metrics: ClassMetrics): string[] {
   return lines;
 }
 
+/**
+ * What the sessions cost, which is a different question from how well they were predicted.
+ *
+ * Output tokens are counted here and nowhere else: the model does not predict them, but they
+ * are on the bill. A compaction is a model call too, and on a provider with a cheap cache read
+ * it is often the largest single item of a session - which is the cost a timing decision moves.
+ */
+function renderSessionCosts(costs: readonly SessionCost[]): string[] {
+  if (costs.length === 0) {
+    return [];
+  }
+  const lines = [
+    "## Session cost",
+    "",
+    "Every call that ran, output included, plus the compactions themselves. Not comparable",
+    "across window sizes, and not the same number as the prediction metrics above (which price",
+    "the prompt only, and only for calls with a decision).",
+    "",
+    "| session | calls | calls cost | compactions | compaction cost | not run | total | compaction share |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const cost of costs) {
+    lines.push(
+      `| ${cost.sessionId} | ${cost.calls} | ${formatMoney(cost.callCost, cost.currency)} | ${cost.compactions} | ${formatMoney(cost.compactionCost, cost.currency)} | ${cost.compactionsNotRun} | ${formatMoney(cost.totalCost, cost.currency)} | ${(cost.compactionShare * 100).toFixed(0)}% |`,
+    );
+  }
+
+  // A total only makes sense when every session was priced in the same currency.
+  const currencies = new Set(costs.map((cost) => cost.currency));
+  if (currencies.size === 1) {
+    const currency = costs[0]?.currency ?? "";
+    const total = costs.reduce((sum, cost) => sum + cost.totalCost, 0);
+    const compactionCost = costs.reduce((sum, cost) => sum + cost.compactionCost, 0);
+    lines.push(
+      `| **all** | ${costs.reduce((sum, cost) => sum + cost.calls, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactions, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactionsNotRun, 0)} | **${formatMoney(total, currency)}** | **${(safeDivide(compactionCost, total, 0) * 100).toFixed(0)}%** |`,
+    );
+  } else {
+    lines.push(
+      "",
+      `> The sessions were priced in ${currencies.size} currencies (${[...currencies].join(", ")}); no total is shown.`,
+    );
+  }
+  lines.push("");
+  return lines;
+}
+
+/** Six significant decimals: a session can cost fractions of a cent. */
+function formatMoney(amount: number, currency: string): string {
+  const digits = amount > 0 && amount < 0.01 ? 6 : 4;
+  return `${amount.toFixed(digits)} ${currency}`;
+}
+
 /** Renders the analysis as a markdown report. */
 export function renderTraceReport(analysis: TraceAnalysis): string {
   const lines: string[] = [
@@ -857,6 +1009,8 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
   lines.push("## Development vs holdout", "");
   lines.push(...renderClass("development set", analysis.split.dev));
   lines.push(...renderClass("holdout set", analysis.split.holdout));
+
+  lines.push(...renderSessionCosts(analysis.sessionCosts));
 
   lines.push(
     "## What this report cannot say",
