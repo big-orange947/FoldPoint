@@ -14,7 +14,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -123,16 +123,78 @@ function sessionCostOf(tracePath: string): SessionCost | null {
   return analysis.sessionCosts[0] ?? null;
 }
 
+/** Files the tasks need; everything else in the scratch directory is reset before each run. */
+const SCRATCH_INPUTS = ["big.txt", "notes-a.txt", "data-01.txt", "data-02.txt", "data-03.txt"];
+
+/**
+ * A run must not inherit the previous run's workspace, or a later run gets a head start.
+ *
+ * Only the seeded inputs survive: every artifact a task can produce is removed, so both arms
+ * start from the same state whatever the previous run left behind.
+ */
+function resetScratch(scratch: string): void {
+  mkdirSync(scratch, { recursive: true });
+  for (const entry of readdirSync(scratch)) {
+    if (!SCRATCH_INPUTS.includes(entry)) {
+      rmSync(join(scratch, entry), { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * Proves the extension is actually loaded before anything is spent.
+ *
+ * Pi loads extensions during boot, before any model call, and the adapter writes its trace
+ * header from the extension factory. A `--list-models` run therefore costs nothing and still
+ * shows whether the adapter is in the process - the difference between "FoldPoint vetoed" and
+ * "FoldPoint was never there" is otherwise invisible in the results.
+ */
+function preflight(scratch: string, tracePath: string): void {
+  const piCli = process.env.PI_CLI;
+  if (piCli === undefined) {
+    throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
+  }
+  rmSync(tracePath, { force: true });
+  const result = spawnSync(
+    process.execPath,
+    [piCli, "--list-models", "--extension", extensionPath()],
+    {
+      cwd: scratch,
+      encoding: "utf8",
+      env: { ...process.env, FOLDPOINT_TRACE: tracePath },
+    },
+  );
+  if ((result.status ?? -1) !== 0) {
+    throw new Error(`preflight failed: Pi exited ${result.status}\n${result.stderr}`);
+  }
+  let firstLine = "";
+  try {
+    firstLine = readFileSync(tracePath, "utf8").split("\n")[0] ?? "";
+  } catch {
+    throw new Error(
+      `preflight failed: the extension wrote no trace at ${tracePath}, so it did not load`,
+    );
+  }
+  if (!firstLine.includes('"type":"header"')) {
+    throw new Error(`preflight failed: ${tracePath} does not start with a trace header`);
+  }
+}
+
+function extensionPath(): string {
+  return (
+    process.env.PI_EXTENSION ??
+    fileURLToPath(new URL("../adapters/pi/foldpoint-observe.ts", import.meta.url))
+  );
+}
+
 function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
   }
-  const extension =
-    process.env.PI_EXTENSION ??
-    fileURLToPath(new URL("../adapters/pi/foldpoint-observe.ts", import.meta.url));
+  const extension = extensionPath();
 
-  rmSync(join(scratch, spec.task.artifact), { force: true });
+  resetScratch(scratch);
   rmSync(tracePath, { force: true });
   mkdirSync(dirname(tracePath), { recursive: true });
 
@@ -239,12 +301,19 @@ function main(): void {
   const selected = TASKS.filter((task) => options.tasks.includes(task.id));
   const specs: RunSpec[] = [];
   for (const task of selected) {
-    for (const condition of ["default", "act"] as const) {
-      for (let rep = 1; rep <= options.reps; rep += 1) {
+    for (let rep = 1; rep <= options.reps; rep += 1) {
+      // Alternate which arm goes first: if the model or the provider drifts over the session,
+      // running all of one arm and then all of the other would turn that drift into an effect.
+      const conditions =
+        rep % 2 === 1 ? (["default", "act"] as const) : (["act", "default"] as const);
+      for (const condition of conditions) {
         specs.push({ task, condition, rep });
       }
     }
   }
+
+  preflight(scratch, `${options.outPrefix}-preflight.jsonl`);
+  console.log("preflight: the extension loaded and wrote a trace header");
 
   const results: RunResult[] = [];
   for (const spec of specs) {

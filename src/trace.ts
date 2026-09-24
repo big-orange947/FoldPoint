@@ -126,6 +126,20 @@ export interface TraceDecisionEvent {
   prediction: TracePrediction;
   /** Wall-clock time the decision itself took, when the host measured it. */
   decisionLatencyMs?: number;
+  /**
+   * The host's compaction-policy checks since the previous decision, when the host runs one.
+   *
+   * A host with a low compaction threshold asks before nearly every call. Those answers are not
+   * model-call decisions, so they are not separate events; they are counted here, on the real
+   * decision they preceded, which keeps a session with forty checks from looking like a session
+   * with forty decisions.
+   */
+  compactionChecks?: {
+    count: number;
+    vetoed: number;
+    totalLatencyMs: number;
+    maxLatencyMs: number;
+  };
 }
 
 export interface TraceRequestEvent {
@@ -163,6 +177,19 @@ export interface TraceCompactionEvent {
   durationMs?: number;
   /** A short machine-readable code. Never a message that could contain content. */
   errorCode?: string;
+  /**
+   * Why the host proposed this compaction (`"threshold"`, `"manual"`, `"overflow"`), when it
+   * said so. Overflow recovery is the one reason a policy may never overrule.
+   */
+  reason?: string;
+  /**
+   * A *policy check* rather than a model call: the reasons a host's policy gave for vetoing the
+   * compaction, and how long the answer took. These live here, not on a decision event, because
+   * a host may ask before every call - and a session with forty checks must not look like a
+   * session with forty decisions.
+   */
+  reasons?: string[];
+  policyLatencyMs?: number;
 }
 
 export interface TraceSessionEndEvent {
@@ -246,7 +273,16 @@ export class TraceRecorder {
   decision(
     input: FoldPointInput,
     decision: FoldPointDecision,
-    options: { callId?: string; decisionLatencyMs?: number } = {},
+    options: {
+      callId?: string;
+      decisionLatencyMs?: number;
+      compactionChecks?: {
+        count: number;
+        vetoed: number;
+        totalLatencyMs: number;
+        maxLatencyMs: number;
+      };
+    } = {},
   ): TraceDecisionEvent {
     assertTraceLabel("sessionId", input.sessionId);
     if (options.callId !== undefined) {
@@ -271,6 +307,9 @@ export class TraceRecorder {
     };
     if (options.decisionLatencyMs !== undefined) {
       event.decisionLatencyMs = options.decisionLatencyMs;
+    }
+    if (options.compactionChecks !== undefined && options.compactionChecks.count > 0) {
+      event.compactionChecks = { ...options.compactionChecks };
     }
     return event;
   }
@@ -311,6 +350,9 @@ export class TraceRecorder {
       callId?: string;
       durationMs?: number;
       errorCode?: string;
+      reason?: string;
+      reasons?: readonly string[];
+      policyLatencyMs?: number;
     } = {},
   ): TraceCompactionEvent {
     assertTraceLabel("sessionId", sessionId);
@@ -319,6 +361,12 @@ export class TraceRecorder {
     }
     if (options.errorCode !== undefined) {
       assertTraceLabel("errorCode", options.errorCode, TRACE_SHORT_LABEL_MAX);
+    }
+    if (options.reason !== undefined) {
+      assertTraceLabel("reason", options.reason, TRACE_SHORT_LABEL_MAX);
+    }
+    for (const reason of options.reasons ?? []) {
+      assertTraceLabel("reasons", reason, TRACE_SHORT_LABEL_MAX);
     }
     const event: TraceCompactionEvent = {
       v: TRACE_FORMAT_VERSION,
@@ -339,6 +387,15 @@ export class TraceRecorder {
     }
     if (options.errorCode !== undefined) {
       event.errorCode = options.errorCode;
+    }
+    if (options.reason !== undefined) {
+      event.reason = options.reason;
+    }
+    if (options.reasons !== undefined && options.reasons.length > 0) {
+      event.reasons = [...options.reasons];
+    }
+    if (options.policyLatencyMs !== undefined) {
+      event.policyLatencyMs = options.policyLatencyMs;
     }
 
     const usage: NonNullable<TraceCompactionEvent["usage"]> = {};

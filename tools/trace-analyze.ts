@@ -124,6 +124,17 @@ export interface TraceAnalysis {
   /** Requests whose cache read/write tokens the host did not report: unknown, not a miss. */
   unknownCacheUsage: number;
   skippedNextCall: { compaction: number; profileChange: number; unknownNextDecision: number };
+  /**
+   * Compaction-policy checks a host ran between model calls. Not decisions: a host with a low
+   * threshold asks before nearly every call, and those answers are counted here instead of
+   * inflating the decision statistics.
+   */
+  compactionPolicy: {
+    checks: number;
+    vetoed: number;
+    meanLatencyMs: number | null;
+    maxLatencyMs: number | null;
+  };
   overall: ClassMetrics;
   byClass: Record<TraceClass, ClassMetrics>;
   split: { dev: ClassMetrics; holdout: ClassMetrics };
@@ -594,11 +605,54 @@ export function analyzeTraceEvents(
     unpairedDecisions,
     unknownCacheUsage,
     skippedNextCall,
+    compactionPolicy: collectCompactionPolicy(sessions),
     overall: finishCollectors(overall),
     byClass,
     split: { dev: finishCollectors(dev), holdout: finishCollectors(holdout) },
     sessionCosts: collectSessionCosts(sessions),
     notes,
+  };
+}
+
+/**
+ * How often a host asked its policy whether it may compact, and how long the answer took.
+ *
+ * Two sources, deliberately not added together: the per-decision counters say how many checks
+ * happened in total, and the compaction events marked `errorCode: "vetoed"` say how many of
+ * them overruled the host. Checks made after the last model call are not attached to any
+ * decision, so `checks` can under-count by the trailing ones.
+ */
+function collectCompactionPolicy(sessions: Map<string, SessionIndex>): {
+  checks: number;
+  vetoed: number;
+  meanLatencyMs: number | null;
+  maxLatencyMs: number | null;
+} {
+  let checks = 0;
+  let vetoed = 0;
+  let totalLatencyMs = 0;
+  let maxLatencyMs = 0;
+  for (const session of sessions.values()) {
+    for (const decision of session.decisions) {
+      const counters = decision.compactionChecks;
+      if (counters === undefined) {
+        continue;
+      }
+      checks += counters.count;
+      totalLatencyMs += counters.totalLatencyMs;
+      maxLatencyMs = Math.max(maxLatencyMs, counters.maxLatencyMs);
+    }
+    for (const compaction of session.compactions) {
+      if (compaction.errorCode === "vetoed") {
+        vetoed += 1;
+      }
+    }
+  }
+  return {
+    checks,
+    vetoed,
+    meanLatencyMs: checks > 0 ? totalLatencyMs / checks : null,
+    maxLatencyMs: checks > 0 ? maxLatencyMs : null,
   };
 }
 
@@ -1011,6 +1065,21 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
   lines.push(...renderClass("holdout set", analysis.split.holdout));
 
   lines.push(...renderSessionCosts(analysis.sessionCosts));
+
+  const policy = analysis.compactionPolicy;
+  if (policy.checks > 0 || policy.vetoed > 0) {
+    lines.push(
+      "## Compaction policy checks",
+      "",
+      `- checks: ${policy.checks} (${policy.vetoed} vetoed)`,
+      `- check latency: mean ${policy.meanLatencyMs === null ? "n/a" : `${policy.meanLatencyMs.toFixed(2)}ms`}, max ${policy.maxLatencyMs === null ? "n/a" : `${policy.maxLatencyMs.toFixed(2)}ms`}`,
+      "",
+      "> A policy check is not a model-call decision. A host with a low compaction threshold asks",
+      "> before nearly every call, so these are counted separately and never enter the decision",
+      "> statistics above. Checks made after the last call are not attached to any decision.",
+      "",
+    );
+  }
 
   lines.push(
     "## What this report cannot say",

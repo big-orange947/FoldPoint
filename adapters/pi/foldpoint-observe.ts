@@ -187,6 +187,20 @@ interface PendingCompaction {
   at: number;
 }
 
+/**
+ * What FoldPoint answered when Pi asked whether it may compact, and how long the answer took.
+ *
+ * This is deliberately not a decision event: Pi can ask before every call, and a session with
+ * forty checks would then look like a session with forty decisions. The answer is recorded on
+ * the compaction attempt it belongs to.
+ */
+interface PendingPolicyCheck {
+  reasons: readonly string[];
+  latencyMs: number;
+  /** True when FoldPoint let the compaction run. */
+  allowed: boolean;
+}
+
 interface ObserverState {
   sessionKey: string | null;
   decisions: PendingDecision[];
@@ -199,6 +213,15 @@ interface ObserverState {
   failedCalls: number;
   /** Threshold compactions this adapter vetoed, in `act` mode. */
   vetoes: number;
+  /** The answer to Pi's most recent compaction question, until Pi reports what happened. */
+  pendingPolicyCheck: PendingPolicyCheck | null;
+  /** Compaction-policy checks since the previous model-call decision, for the next decision. */
+  checksSinceDecision: {
+    count: number;
+    vetoed: number;
+    totalLatencyMs: number;
+    maxLatencyMs: number;
+  };
   /** Fingerprint of Pi's system prompt, when Pi exposes it. Part of the profile identity. */
   prefixId: string | undefined;
   /** Tokens of Pi's stable prefix, measured from the provider's own cache read. */
@@ -483,6 +506,8 @@ export function createFoldPointObserver(
       lastProfile: undefined,
       failedCalls: 0,
       vetoes: 0,
+      pendingPolicyCheck: null,
+      checksSinceDecision: { count: 0, vetoed: 0, totalLatencyMs: 0, maxLatencyMs: 0 },
       prefixId: undefined,
       fixedPrefixTokens: undefined,
       callsObserved: 0,
@@ -622,7 +647,10 @@ export function createFoldPointObserver(
       }
 
       const decision = foldPoint.decide(input);
-      const event = trace.decision(input, decision);
+      const event = trace.decision(input, decision, {
+        compactionChecks: { ...state.checksSinceDecision },
+      });
+      state.checksSinceDecision = { count: 0, vetoed: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
       state.decisions.push({ callId: event.callId, at: timestamp, contextTokens: usage.tokens });
       write(event);
 
@@ -750,17 +778,33 @@ export function createFoldPointObserver(
           ? {}
           : { fixedPrefixTokens: state.fixedPrefixTokens }),
       };
+      const startedAt = now();
       const vetoDecision = foldPoint.decide(vetoInput);
+      const policyLatencyMs = Math.max(0, now() - startedAt);
+      // A threshold check is not a model-call decision. It gets its own record - the compaction
+      // attempt Pi is about to make, marked as vetoed - so that a session where FoldPoint is
+      // asked forty times does not look like a session with forty decisions. The reasons and
+      // the time the check took go on that record.
+      state.pendingPolicyCheck = {
+        reasons: vetoDecision.reasons,
+        latencyMs: policyLatencyMs,
+        allowed: vetoDecision.action !== "KEEP",
+      };
+      state.checksSinceDecision.count += 1;
+      state.checksSinceDecision.totalLatencyMs += policyLatencyMs;
+      state.checksSinceDecision.maxLatencyMs = Math.max(
+        state.checksSinceDecision.maxLatencyMs,
+        policyLatencyMs,
+      );
       if (vetoDecision.action !== "KEEP") {
         // FoldPoint agrees with Pi, or wants it sooner than Pi does; either way the compaction
         // Pi already prepared is the right one to run.
         return;
       }
-      const vetoCallId = `${sessionKey}#veto-${state.vetoes + 1}`;
       state.vetoes += 1;
-      write(trace.decision(vetoInput, vetoDecision, { callId: vetoCallId }));
+      state.checksSinceDecision.vetoed += 1;
       log(
-        `[foldpoint] vetoed Pi's threshold compaction (${vetoDecision.reasons.join(",")}) at ${tokensBefore} tokens`,
+        `[foldpoint] vetoed Pi's threshold compaction (${vetoDecision.reasons.join(",")}) at ${tokensBefore} tokens, check took ${policyLatencyMs}ms`,
       );
       return { cancel: true };
     });
@@ -786,13 +830,18 @@ export function createFoldPointObserver(
       // count comes from the `session_before_compact` that preceded it; when Pi did not
       // report one, the attempt is logged instead of recorded with a made-up size.
       const pending = state.pendingCompaction;
+      const policy = state.pendingPolicyCheck;
       state.pendingCompaction = null;
+      state.pendingPolicyCheck = null;
       if (pending === null || pending.tokensBefore <= 0) {
         log(
           `[foldpoint] a compaction attempt ${event.aborted ? "was aborted" : "failed"} without a known size`,
         );
         return;
       }
+      // A veto is ours; anything else is Pi's own failure or abort, and the difference matters
+      // when counting how often FoldPoint overruled the host.
+      const vetoed = policy !== null && !policy.allowed;
       write(
         trace.compaction(
           sessionKey,
@@ -802,7 +851,14 @@ export function createFoldPointObserver(
             afterTokens: pending.tokensBefore,
             success: false,
           },
-          { action: "COMPACT", errorCode: event.aborted ? "aborted" : "failed" },
+          {
+            action: "COMPACT",
+            errorCode: vetoed ? "vetoed" : event.aborted ? "aborted" : "failed",
+            reason: pending.reason,
+            ...(vetoed && policy !== null
+              ? { reasons: [...policy.reasons], policyLatencyMs: policy.latencyMs }
+              : {}),
+          },
         ),
       );
     });

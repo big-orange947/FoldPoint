@@ -386,10 +386,29 @@ describe("Pi observer adapter", () => {
     });
 
     expect(result).toEqual({ cancel: true });
-    const decisions = readTrace(path).filter((event) => event.type === "decision");
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0]?.decision.action).toBe("KEEP");
-    expect(decisions[0]?.callId).toContain("#veto-");
+
+    // Pi reports the cancellation, and that is where the check itself is recorded.
+    fake.emit("session_compact_failed", {
+      type: "session_compact_failed",
+      reason: "threshold",
+      aborted: true,
+    });
+
+    const events = readTrace(path);
+    // A threshold check is not a model-call decision: a session where Pi asks forty times must
+    // not look like a session with forty decisions.
+    expect(events.filter((event) => event.type === "decision")).toHaveLength(0);
+
+    const compaction = events.find((event) => event.type === "compaction");
+    expect(compaction?.type).toBe("compaction");
+    if (compaction?.type !== "compaction") {
+      throw new Error("missing compaction");
+    }
+    expect(compaction.success).toBe(false);
+    expect(compaction.errorCode).toBe("vetoed");
+    expect(compaction.reason).toBe("threshold");
+    expect(compaction.reasons?.length).toBeGreaterThan(0);
+    expect(compaction.policyLatencyMs).toBeGreaterThanOrEqual(0);
   });
 
   it("never vetoes an overflow or a manual compaction, and never in observe mode", () => {

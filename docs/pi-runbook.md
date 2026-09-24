@@ -376,28 +376,59 @@ timing is genuinely available to an extension:
 | --- | --- | --- |
 | `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | **does**: `FOLDPOINT_MODE=act` vetoes a threshold compaction FoldPoint does not want |
 | `session_before_compact` returning `{ compaction }` | the extension supplies the summary, `fromExtension: true` | **never** — that would be taking over the strategy |
-| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **not yet**: it returns `void` (fire and forget), so a compaction started at a request boundary races the request it is meant to precede |
-| `settings.compaction.enabled = false` | Pi stops compacting on the threshold | not used; the veto achieves the same without touching Pi's settings |
+| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **never**: it returns `void`, and awaiting its `onComplete` inside a handler deadlocks — Pi waits for the handler, the manual compaction first calls `abort()` and waits for the agent to go idle, and the agent is waiting for the handler. Not awaiting it avoids the cycle but may interrupt the turn, so it cannot promise "compacted before the next request" either |
+| `settings.compaction.enabled = false` | Pi stops compacting on the threshold | not reachable: the extension context exposes no settings (13 capabilities, no `setAutoCompactionEnabled`) |
 
-### 5.1 What `FOLDPOINT_MODE=act` actually does
+### 5.1 High-frequency control of Pi's threshold, and what it is not
 
-Observe-only is the default and stays the default. In `act` mode the adapter answers Pi's
-`session_before_compact`:
+`FOLDPOINT_MODE=act` answers Pi's `session_before_compact`:
 
 - `reason: "overflow"` — never vetoed. That is Pi's last defence against a request that no
   longer fits, and FoldPoint's own `FORCE` is the same kind of net on its side.
 - `reason: "manual"` — never vetoed. The user asked for it.
 - `reason: "threshold"` — FoldPoint decides at that moment, with `preparation.tokensBefore`
-  known, and vetoes only when it says `KEEP`. The veto decision goes into the trace with a
-  `#veto-N` callId, and Pi reports the cancellation as `success: false, errorCode: "aborted"`.
+  known, and vetoes only when it says `KEEP`.
 
-Because only *threshold* compactions are questioned, `act` mode replaces Pi's threshold with
-FoldPoint's own hard window ratio: the context is allowed to grow past
-`contextWindow - reserveTokens` and Pi compacts at the first threshold check after FoldPoint
-stops saying `KEEP` (its `FORCE`, at `hardWindowRatio` = 90% of the window). A real session
-(32k window, 8 steps): six vetoes between 17.7k and 23.0k tokens, the session finished
-normally, and every call after a veto still had a known context size — a vetoed compaction
-leaves Pi's accounting intact, which the observer's post-compaction call does not.
+A veto does not make Pi back off: the next check that still meets
+`contextTokens > contextWindow - reserveTokens` asks again. That is what makes the mode useful
+— **by moving Pi's threshold earlier, FoldPoint gets to answer at many more call boundaries**,
+and its yes/no becomes the timing. Call it *high-frequency control of Pi's automatic threshold
+compaction*, not unconditional control:
+
+- it is not free. Pi prepares the compaction and resolves the summarisation request's auth
+  *before* it asks the extension, so every check costs something.
+- it is not asked at every boundary. When there is no compactable history yet,
+  `prepareCompaction` returns nothing and the hook never fires.
+- the threshold cannot be lowered without limit, because `keepRecentTokens` decides what
+  survives: a threshold below what a compaction must keep would ask for compactions that free
+  nothing.
+
+A session that never reaches the threshold cannot be steered by this at all — which is why the
+trial keeps a task that does and one that does not.
+
+### 5.2 Policy checks are not decisions
+
+A vetoed threshold check is recorded as the *compaction attempt* Pi was about to make, marked
+`errorCode: "vetoed"`, with the policy's reasons and how long the check took. It is **not** a
+decision event: a session where Pi asks forty times must not look like a session with forty
+decisions. The checks between two model calls are counted on the decision that follows them
+(`compactionChecks`), and the report sums them separately under `## Compaction policy checks`.
+
+### 5.3 The three arms a fair trial needs
+
+Moving the threshold is part of the mechanism, not a side condition, so comparing "Pi as
+configured" against "low threshold plus veto" compares two things at once. The clean design is
+three arms, all with the same tasks, model and compactor:
+
+| arm | threshold | mode | isolates |
+| --- | --- | --- | --- |
+| `default` | Pi's own | observe | the baseline |
+| `ask` | low | observe | what asking more often alone does |
+| `veto` | low | act | what FoldPoint's answers add on top |
+
+`tools/pi-paired-run.ts` currently runs `default` and `act`; the `ask` arm is the same run with
+`FOLDPOINT_MODE=observe` and the low-threshold config, and it is what turns a difference into an
+explanation.
 
 ### 5.2 What Pi would have to expose for the rest
 

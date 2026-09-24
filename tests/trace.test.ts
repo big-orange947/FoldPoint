@@ -458,6 +458,60 @@ describe("trace analysis", () => {
     expect(analysis.notes.join(" ")).toContain("have no decision to compare against");
   });
 
+  it("counts compaction policy checks apart from decisions", () => {
+    // A host that asks before nearly every call must not turn a 5-call session into a 45-decision
+    // one. The checks ride on the decisions they preceded, and the vetoes are on the attempts.
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    const input = makeInput({ sessionId: "policy", contextTokens: 10_000 });
+    const decision = decideFoldPoint(input, makeLearning(), makeSession());
+    events.push(
+      trace.decision(input, decision, {
+        callId: "p-1",
+        compactionChecks: { count: 6, vetoed: 5, totalLatencyMs: 3, maxLatencyMs: 1 },
+      }),
+    );
+    events.push(
+      trace.request("policy", "p-1", {
+        timestamp: BASE_TIMESTAMP,
+        promptTokens: 10_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 10,
+      }),
+    );
+    events.push(
+      trace.compaction(
+        "policy",
+        {
+          timestamp: BASE_TIMESTAMP + 1,
+          beforeTokens: 10_000,
+          afterTokens: 10_000,
+          success: false,
+        },
+        {
+          action: "COMPACT",
+          errorCode: "vetoed",
+          reason: "threshold",
+          reasons: ["CACHE_STILL_VALUABLE"],
+          policyLatencyMs: 1,
+        },
+      ),
+    );
+    events.push(trace.sessionEnd("policy", { timestamp: BASE_TIMESTAMP + 2 }));
+
+    const analysis = analyzeTraceEvents(events);
+
+    expect(analysis.decisions).toBe(1);
+    expect(analysis.compactionPolicy.checks).toBe(6);
+    expect(analysis.compactionPolicy.vetoed).toBe(1);
+    expect(analysis.compactionPolicy.meanLatencyMs).toBeCloseTo(0.5, 12);
+    expect(analysis.compactionPolicy.maxLatencyMs).toBe(1);
+    const report = renderTraceReport(analysis);
+    expect(report).toContain("## Compaction policy checks");
+    expect(report).toContain("checks: 6 (1 vetoed)");
+  });
+
   it("counts what a session cost, including the compactions", () => {
     // The prediction metrics price the prompt only. This is the money: output tokens are on
     // the bill too, and a compaction is a model call like any other.
