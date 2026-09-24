@@ -40,7 +40,7 @@ or use Node ≥ 22.18 and plain `npm run build`. The result is
 | `session_before_compact.preparation.tokensBefore` | `CompactionPreparation.tokensBefore` | ✅ |
 | `session_compact.compactionEntry.tokensBefore` / `.usage` | `CompactionEntry` | ✅ |
 | `Model.cost.{input,output,cacheRead,cacheWrite}` (USD per million) | `packages/ai/src/types.ts` → `ModelCost` | ✅ |
-| `Model.promptCache.short` (seconds) → `cachePolicy.ttlMs` | `Model.promptCache` | ✅ |
+| `Model.promptCache.short` (seconds) → `cachePolicy.ttlMs` | `Model.promptCache` | ✅ (absent for DeepSeek, see §2.3) |
 | `before_provider_request` carries the payload — **never subscribed** | `BeforeProviderRequestEvent.payload` | ✅ |
 
 The adapter imports FoldPoint through a relative path (`../../src/index`), so running Pi with
@@ -179,6 +179,61 @@ If a 32k window with the default `reserveTokens` (16384) leaves too little room 
 session, lower `reserveTokens` as well (`settings.json`): `8192` compacts at ~24k instead of
 ~16k.
 
+### 2.2.1 DeepSeek: what is different
+
+DeepSeek is the cheapest provider Pi knows (verified with `--list-models`, Pi 0.87):
+
+| model | window (default) | input | output | cache read | cache write |
+| --- | --- | --- | --- | --- | --- |
+| `deepseek-flash` | 1M | 0.30 | 1.20 | 0.006 | 0 |
+| `deepseek-v4-pro` | 1M | 1.32 | 3.96 | 0.044 | 0 |
+
+USD per million tokens, from Pi's generated catalog (`packages/ai/src/providers/data/deepseek.json`).
+Auth comes from `DEEPSEEK_API_KEY` (`packages/ai/src/env-api-keys.ts`), so no `auth.json` entry
+is needed.
+
+The same window override works:
+
+```json
+{
+  "providers": {
+    "deepseek": {
+      "modelOverrides": {
+        "deepseek-flash": { "contextWindow": 32000 }
+      }
+    }
+  }
+}
+```
+
+```
+without the override:  deepseek  deepseek-flash  1M    384K
+with the override:     deepseek  deepseek-flash  32K   384K
+```
+
+Three properties differ from Anthropic, and each one changes what FoldPoint can predict:
+
+- **Caching is automatic.** There is no cache-control marker to send, so nothing in the request
+  decides what gets cached. Pi reads DeepSeek's `prompt_cache_hit_tokens` into `Usage.cacheRead`
+  (`api/openai-completions.ts`), and `cacheWrite` stays 0: writes are free, reads are discounted.
+  FoldPoint omits `cacheWritePerMillion` when the rate is 0, so the pricing snapshot stays
+  truthful rather than carrying a zero price for a real operation.
+- **No published TTL.** Pi's DeepSeek catalog has no `promptCache` field, so
+  `profileFromModel` sets no `cachePolicy` and FoldPoint falls into its `assumed-alive` branch:
+  the cache counts as alive whenever a candidate prefix exists (`src/cache.ts:247`). DeepSeek
+  does evict idle caches, but it does not publish a TTL, so writing one into the override would
+  be inventing the number being validated. Leave it out for collection; the `cache alive for the
+  next call` table is exactly the measurement that would justify a TTL later.
+- **A warm prefix can exist before the session starts.** A first call can already report cache
+  hits from an identical prefix sent earlier on the same account, which a cold-start model
+  cannot know. That is a real observation, not a bug — but it means the first call of a session
+  is a poor calibration point for cache coverage.
+
+**Verified in a real Pi process** (one `--print` call, `deepseek-flash`, 32k override):
+`promptTokens 1211, cachedInputTokens 384, cacheWriteTokens 0, outputTokens 2`, cost predicted
+`4.137e-4` against `2.504e-4` actual (over-prediction, because the cold-start model expected no
+cache coverage).
+
 ### 2.3 Keep the test config out of your real one
 
 `PI_CODING_AGENT_DIR` points Pi at a different agent directory, so the experiment can have its
@@ -190,6 +245,19 @@ PI_CODING_AGENT_DIR=/tmp/foldpoint-agent pi --list-models sonnet
 
 Use this for the cheap-testing configuration above: the real config stays untouched, and the
 run is reproducible from a directory you can delete afterwards.
+
+A complete DeepSeek run (this is the one that produced the numbers in §2.2.1):
+
+```powershell
+$env:PI_CODING_AGENT_DIR = "$env:TEMP\foldpoint-agent"   # holds the 32k models.json above
+$env:FOLDPOINT_TRACE      = "$env:USERPROFILE\.foldpoint\traces\pi-deepseek.jsonl"
+node <pi>/packages/coding-agent/dist/bundle/cli.js --print "<task>" `
+  --model deepseek-flash --no-approve `
+  --extension <repo>/adapters/pi/foldpoint-observe.ts
+```
+
+The extension prints one line to stderr when it starts observing, so `--print` output and the
+trace line do not mix: `[foldpoint] observing session <key> -> <path>`.
 
 ### 2.3 What shrinking the window changes, and what it does not
 
