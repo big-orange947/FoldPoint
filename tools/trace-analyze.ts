@@ -283,11 +283,46 @@ export function analyzeTraceEvents(
   let unpriceable = 0;
   let unpairedDecisions = 0;
   let unknownCacheUsage = 0;
+  let unpairedCompactions = 0;
   const skippedNextCall = { compaction: 0, profileChange: 0, unknownNextDecision: 0 };
 
   for (const session of sessions.values()) {
     const sessionClasses = classifySession(session);
     const split = isHoldoutSession(session.sessionId, holdoutModulo) ? holdout : dev;
+    // Two pairings come out of one pass over the compactions, and they are not the same pairing.
+    //
+    // Retention belongs to the decision in force *when* the compaction happened: that call's
+    // context is the one that was shrunk, and that decision is the one that predicted what
+    // would survive. Cost belongs to the *next* call, which is the first replay of the new
+    // prefix and is priced differently.
+    //
+    // A host that acts on its own decisions attributes the compaction to the decision that
+    // asked for it, and that decision is already the next call. A host that compacts by its own
+    // policy (Pi) attributes nothing, and there the two have to be found by time.
+    const retentionDecisionByCompaction = new Map<TraceCompactionEvent, TraceDecisionEvent>();
+    const firstReplayAfterCompaction = new Set<string>();
+    for (const compaction of session.compactions) {
+      const decision =
+        compaction.callId === undefined
+          ? lastDecisionBefore(session, compaction.timestamp)
+          : session.decisions.find((entry) => entry.callId === compaction.callId);
+      if (compaction.success) {
+        if (decision === undefined) {
+          unpairedCompactions += 1;
+        } else {
+          retentionDecisionByCompaction.set(compaction, decision);
+        }
+      }
+      // A failed compaction changed nothing, so the next call replays the old prefix.
+      if (compaction.success) {
+        const firstReplay =
+          compaction.callId ??
+          session.requests.find((request) => request.timestamp > compaction.timestamp)?.callId;
+        if (firstReplay !== undefined) {
+          firstReplayAfterCompaction.add(firstReplay);
+        }
+      }
+    }
 
     for (const decision of session.decisions) {
       const requestIndex = session.requests.findIndex(
@@ -401,9 +436,7 @@ export function analyzeTraceEvents(
       });
       // A decision that compacted is followed by the *first post-compaction* replay, which
       // the model prices separately: the compacted context is written as a new prefix.
-      const compacted = session.compactions.some(
-        (compaction) => compaction.callId === decision.callId && compaction.success,
-      );
+      const compacted = firstReplayAfterCompaction.has(decision.callId);
       const predictedCost = compacted
         ? decision.prediction.estimatedFirstPostCompactReplayCost
         : decision.prediction.estimatedCurrentCallReplayCost;
@@ -419,7 +452,7 @@ export function analyzeTraceEvents(
       if (!compaction.success) {
         continue;
       }
-      const decision = session.decisions.find((entry) => entry.callId === compaction.callId);
+      const decision = retentionDecisionByCompaction.get(compaction);
       if (decision === undefined) {
         continue;
       }
@@ -462,6 +495,11 @@ export function analyzeTraceEvents(
   if (failedRequests > 0) {
     notes.push(
       `${failedRequests} request(s) failed or were aborted; they are recorded in the trace but excluded from every prediction metric, because a call that never reached the cache proves nothing about it.`,
+    );
+  }
+  if (unpairedCompactions > 0) {
+    notes.push(
+      `${unpairedCompactions} compaction(s) have no decision to compare against (a compaction before the first call, or one the host attached to a callId that has no decision); they are excluded from the retention error.`,
     );
   }
   const skippedNextCallTotal =
@@ -627,6 +665,32 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
   }
 
   return sessions;
+}
+
+/**
+ * The decision in force when a compaction happened.
+ *
+ * Used when the host does not attach a `callId` to its compaction events, which is the case for
+ * a host that compacts by its own policy. The call whose context the compaction shrank is the
+ * one decided last before it, and that decision is the one that predicted the retention.
+ *
+ * The comparison uses the timestamp of the call itself, not of the decision: a call and the
+ * compaction that follows it can land in the same millisecond, and then the decision timestamp
+ * alone would also match the *next* decision.
+ */
+function lastDecisionBefore(
+  session: SessionIndex,
+  timestamp: number,
+): TraceDecisionEvent | undefined {
+  let found: TraceDecisionEvent | undefined;
+  for (const decision of session.decisions) {
+    const request = session.requests.find((entry) => entry.callId === decision.callId);
+    const at = request?.timestamp ?? decision.timestamp;
+    if (at <= timestamp) {
+      found = decision;
+    }
+  }
+  return found;
 }
 
 /**

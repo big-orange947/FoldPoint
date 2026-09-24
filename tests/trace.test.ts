@@ -370,6 +370,93 @@ describe("trace analysis", () => {
     );
   });
 
+  it("pairs a compaction the host did not attribute to a call", () => {
+    // Pi compacts by its own policy, so its compaction events carry no callId: the decision in
+    // force when it happened is the last one made before it.
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    const profile = profileWithCacheTtl(60_000);
+    const input = makeInput({
+      sessionId: "unattributed",
+      profile,
+      contextTokens: 100_000,
+      cachedTokens: 80_000,
+      idleMs: 0,
+      expectedFutureCalls: 2,
+    });
+    const decision = decideFoldPoint(input, makeLearning(HISTORY), makeSession(SESSION_HISTORY));
+    events.push(trace.decision(input, decision, { callId: "u-1" }));
+    events.push(
+      trace.request("unattributed", "u-1", {
+        timestamp: BASE_TIMESTAMP,
+        promptTokens: 100_000,
+        cachedInputTokens: 80_000,
+        cacheWriteTokens: 0,
+        outputTokens: 50,
+      }),
+    );
+    // The compaction Pi ran after that call, and the call that replays the new prefix.
+    events.push(
+      trace.compaction(
+        "unattributed",
+        {
+          timestamp: BASE_TIMESTAMP + 500,
+          beforeTokens: 100_000,
+          afterTokens: 30_000,
+          success: true,
+        },
+        { action: "COMPACT" },
+      ),
+    );
+    const second = decideFoldPoint(
+      makeInput({ ...input, timestamp: BASE_TIMESTAMP + 1_000 }),
+      makeLearning(HISTORY),
+      makeSession(SESSION_HISTORY),
+    );
+    events.push(
+      trace.decision(makeInput({ ...input, timestamp: BASE_TIMESTAMP + 1_000 }), second, {
+        callId: "u-2",
+      }),
+    );
+    events.push(
+      trace.request("unattributed", "u-2", {
+        timestamp: BASE_TIMESTAMP + 1_000,
+        promptTokens: 30_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 50,
+      }),
+    );
+    events.push(trace.sessionEnd("unattributed", { timestamp: BASE_TIMESTAMP + 2_000 }));
+
+    const analysis = analyzeTraceEvents(events);
+
+    expect(analysis.overall.retention.count).toBe(1);
+    expect(analysis.overall.retention.worst[0]?.callId).toBe("u-1");
+    expect(analysis.notes.join(" ")).not.toContain("have no decision to compare against");
+    // The first replay of the new prefix is priced as a write, not as a re-read.
+    expect(analysis.overall.callCost.count).toBe(2);
+    expect(analysis.overall.callCost.worst[0]?.callId).toBe("u-2");
+  });
+
+  it("counts a compaction no decision preceded", () => {
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    events.push(
+      trace.compaction(
+        "early",
+        { timestamp: BASE_TIMESTAMP, beforeTokens: 5_000, afterTokens: 1_000, success: true },
+        { action: "COMPACT" },
+      ),
+    );
+    events.push(trace.sessionEnd("early", { timestamp: BASE_TIMESTAMP + 1_000 }));
+
+    const analysis = analyzeTraceEvents(events);
+
+    expect(analysis.overall.retention.count).toBe(0);
+    expect(analysis.notes.join(" ")).toContain("have no decision to compare against");
+  });
+
   it("splits sessions into development and holdout deterministically", () => {
     const analysis = analyzeTraceEvents(buildTrace());
 
