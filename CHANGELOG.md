@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### First real-provider Pi paired trial
+
+- The paired runner supports a separate Pi Node executable and a sum-only run without a large
+  seed file; task prompts now follow CLI options, and long-task artifact checks require the
+  exact ordered eight-line result.
+- A 12-run, real-DeepSeek controlled 26K-window trial is documented as provisional. It found
+  lower estimated cost for FoldPoint in two synthetic tasks, while explicitly withholding a
+  general savings claim until a tuned fixed-late-threshold baseline and broader quality tests.
+
 ### Pi 0.87 cache warming compatibility and safer paired trials
 
 - Trace v2 records successful, paid `cache_warm` usage separately from agent requests; the

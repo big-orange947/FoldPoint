@@ -12,6 +12,15 @@ import {
 import type { SessionCost } from "../tools/trace-analyze";
 
 describe("paired Pi trial isolation", () => {
+  it("requires each step artifact to contain the ordered eight numbers exactly once", () => {
+    const task = TASKS.find((entry) => entry.id === "steps");
+    expect(task).toBeDefined();
+    const valid = "1\n61\n121\n181\n241\n301\n361\n421\n";
+    expect(task?.check(valid)).toBe(true);
+    expect(task?.check(`${valid}421\n`)).toBe(false);
+    expect(task?.check("421\n361\n301\n241\n181\n121\n61\n1\n")).toBe(false);
+  });
+
   it("creates fresh workspaces without deleting anything in PI_SCRATCH", () => {
     const root = mkdtempSync(join(tmpdir(), "foldpoint-seed-"));
     writeFileSync(join(root, "big.txt"), "seed");
@@ -24,6 +33,13 @@ describe("paired Pi trial isolation", () => {
     expect(readFileSync(join(first, "out-sum.md"), "utf8")).toBe("old result");
     expect(readFileSync(join(second, "big.txt"), "utf8")).toBe("seed");
     expect(() => readFileSync(join(second, "out-sum.md"), "utf8")).toThrow();
+  });
+
+  it("allows a sum-only run without a big.txt fixture", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-sum-seed-"));
+    const scratch = prepareScratch(root, []);
+    expect(scratch).not.toBe(root);
+    expect(() => prepareScratch(root)).toThrow(/missing required seed file big.txt/);
   });
 
   it("isolates arm settings and explicitly disables Pi cache warming in the timing trial", () => {

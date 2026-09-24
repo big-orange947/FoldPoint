@@ -430,6 +430,11 @@ three arms, all with the same tasks, model and compactor:
 both runs exit successfully and pass the artifact check; unmatched successful runs are reported
 but never used in the percentage delta.
 
+The first real-provider, artificially capped 26K-window result is documented in
+[`benchmarks/pi-real-paired-2026-09-24.md`](../benchmarks/pi-real-paired-2026-09-24.md).
+It is provisional: the normal 1M DeepSeek window did not compact on the short connectivity
+task, and a tuned fixed late threshold has not yet been compared.
+
 ### Pi 0.87 cache warming and experimental control
 
 Pi's `cacheWarming` (default `streaming`) may replay a cached request with a one-token output

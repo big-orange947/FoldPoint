@@ -9,7 +9,8 @@
  *
  *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--cache-warming off|streaming|idle] [--out <prefix>]
  *
- * Environment: `PI_CLI` (path to Pi's cli.js), `PI_CODING_AGENT_DIR`, `PI_MODEL` (default
+ * Environment: `PI_CLI` (path to Pi's cli.js), optional `PI_NODE` (Node >=22.19),
+ * `PI_CODING_AGENT_DIR`, `PI_MODEL` (default
  * `deepseek-flash`), `PI_EXTENSION` (default `adapters/pi/foldpoint-observe.ts`).
  */
 
@@ -75,17 +76,25 @@ export const CONDITIONS: ReadonlyArray<{
 /** The line numbers an 8-step read of 60-line chunks must report. */
 const STEP_LINES = [1, 61, 121, 181, 241, 301, 361, 421];
 
+function hasExactStepLines(contents: string): boolean {
+  const lines = contents
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  return (
+    lines.length === STEP_LINES.length &&
+    lines.every((line, index) => line === String(STEP_LINES[index]))
+  );
+}
+
 export const TASKS: readonly Task[] = [
   {
     id: "steps",
     prompt:
-      "Work through big.txt in 8 steps of 60 lines each, one step at a time, waiting for each read to finish: step 1 offset 1 limit 60, step 2 offset 61 limit 60, and so on. After each read append one line to notes.md with the first line number you saw. After step 8 print DONE.",
+      "Work through big.txt in 8 steps of 60 lines each, one step at a time, waiting for each read to finish: step 1 offset 1 limit 60, step 2 offset 61 limit 60, and so on. After each read append exactly the first line number you saw as one line in notes.md, with no other text. After step 8 print DONE.",
     artifact: "notes.md",
     expectation: "notes.md contains a line for each of the 8 chunk starts, 1 61 ... 421",
-    check: (contents) =>
-      STEP_LINES.every((line) =>
-        contents.split(/\r?\n/).some((row) => new RegExp(`(^|\\D)${line}(\\D|$)`).test(row)),
-      ),
+    check: hasExactStepLines,
   },
   {
     id: "sum",
@@ -101,13 +110,10 @@ export const TASKS: readonly Task[] = [
     // their costs comparable - a cheaper run that lost the task is not a saving.
     id: "resume",
     prompt:
-      "Work through big.txt in 8 steps of 60 lines each. For step N read 60 lines starting at offset (N-1)*60+1. Before every step, read notes.md to see which steps are already recorded and do the next step that is missing. After each read, append one line to notes.md with that chunk's first line number. When all 8 steps are recorded, print DONE.",
+      "Work through big.txt in 8 steps of 60 lines each. For step N read 60 lines starting at offset (N-1)*60+1. Before every step, read notes.md to see which steps are already recorded and do the next step that is missing. After each read, append exactly that chunk's first line number as one line in notes.md, with no other text. When all 8 steps are recorded, print DONE.",
     artifact: "notes.md",
     expectation: "notes.md contains a line for each of the 8 chunk starts, 1 61 ... 421",
-    check: (contents) =>
-      STEP_LINES.every((line) =>
-        contents.split(/\r?\n/).some((row) => new RegExp(`(^|\\D)${line}(\\D|$)`).test(row)),
-      ),
+    check: hasExactStepLines,
   },
 ];
 
@@ -153,24 +159,43 @@ function parseArgs(argv: readonly string[]): {
 }
 
 function sessionCostOf(tracePath: string): SessionCost | null {
+  if (!existsSync(tracePath)) return null;
   const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
   if (parsed.errors.length > 0) {
     return null;
   }
   const analysis = analyzeTraceEvents(parsed.events as TraceEvent[]);
+  // A partial trace may contain a plausible but undercounted cost. Never compare it as a
+  // successful priced run; the report will show '?' and omit it from paired deltas.
+  if (
+    !analysis.usableForCalibration ||
+    analysis.completeSessions !== 1 ||
+    analysis.censoredSessions !== 0 ||
+    analysis.sessionCosts.length !== 1 ||
+    analysis.unpairedDecisions !== 0 ||
+    analysis.unpriceable !== 0 ||
+    analysis.unknownCacheUsage !== 0
+  ) {
+    return null;
+  }
   return analysis.sessionCosts[0] ?? null;
 }
 
 /** Read-only seed files. A run gets a fresh directory; nothing in PI_SCRATCH is deleted. */
 const SCRATCH_INPUTS = ["big.txt", "notes-a.txt", "data-01.txt", "data-02.txt", "data-03.txt"];
 
-export function prepareScratch(seedRoot: string): string {
+export function prepareScratch(
+  seedRoot: string,
+  requiredInputs: readonly string[] = ["big.txt"],
+): string {
   if (!existsSync(seedRoot) || !lstatSync(seedRoot).isDirectory()) {
     throw new Error(`PI_SCRATCH must be an existing seed directory: ${seedRoot}`);
   }
   const seeded = SCRATCH_INPUTS.filter((name) => existsSync(join(seedRoot, name)));
-  if (!seeded.includes("big.txt")) {
-    throw new Error(`PI_SCRATCH is missing required seed file big.txt: ${seedRoot}`);
+  for (const name of requiredInputs) {
+    if (!seeded.includes(name)) {
+      throw new Error(`PI_SCRATCH is missing required seed file ${name}: ${seedRoot}`);
+    }
   }
   for (const name of seeded) {
     if (!lstatSync(join(seedRoot, name)).isFile()) {
@@ -241,8 +266,8 @@ function preflight(scratch: string, tracePath: string, agentDir: string): void {
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   mkdirSync(dirname(tracePath), { recursive: true });
   const result = spawnSync(
-    process.execPath,
-    [piCli, "--list-models", "--extension", extensionPath()],
+    process.env.PI_NODE ?? process.execPath,
+    [piCli, "--list-models", "--no-approve", "--extension", extensionPath()],
     {
       cwd: scratch,
       encoding: "utf8",
@@ -298,16 +323,16 @@ function runOnce(
   mkdirSync(dirname(tracePath), { recursive: true });
 
   const result = spawnSync(
-    process.execPath,
+    process.env.PI_NODE ?? process.execPath,
     [
       piCli,
       "--print",
-      spec.task.prompt,
       "--model",
       process.env.PI_MODEL ?? "deepseek-flash",
       "--no-approve",
       "--extension",
       extension,
+      spec.task.prompt,
     ],
     {
       cwd: scratch,
@@ -432,6 +457,7 @@ function main(): void {
     throw new Error("PI_CODING_AGENT_DIR is required for a controlled trial");
 
   const selected = TASKS.filter((task) => options.tasks.includes(task.id));
+  const requiredInputs = selected.some((task) => task.id !== "sum") ? ["big.txt"] : [];
   const specs: RunSpec[] = [];
   const armOrder = CONDITIONS.map((condition) => condition.id);
   for (const task of selected) {
@@ -459,7 +485,7 @@ function main(): void {
   if (occupied !== undefined) throw new Error(`Refusing to overwrite existing output: ${occupied}`);
 
   preflight(
-    prepareScratch(scratch),
+    prepareScratch(scratch, requiredInputs),
     `${options.outPrefix}-preflight.jsonl`,
     prepareAgentDir(agentBase, "default", options.cacheWarming),
   );
@@ -470,7 +496,7 @@ function main(): void {
     const tracePath = `${options.outPrefix}-${spec.task.id}-${spec.condition}-${spec.rep}.jsonl`;
     const result = runOnce(
       spec,
-      prepareScratch(scratch),
+      prepareScratch(scratch, requiredInputs),
       tracePath,
       prepareAgentDir(agentBase, spec.condition, options.cacheWarming),
       options.cacheWarming,
