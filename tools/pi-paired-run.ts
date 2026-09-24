@@ -66,6 +66,20 @@ export const TASKS: readonly Task[] = [
     expectation: "out-sum.md contains 500500",
     check: (contents) => contents.includes("500500"),
   },
+  {
+    // The point of this one: the task state lives in the workspace, not in the context, so a
+    // compaction cannot make it fail. Both arms should finish it correctly, which is what makes
+    // their costs comparable - a cheaper run that lost the task is not a saving.
+    id: "resume",
+    prompt:
+      "Work through big.txt in 8 steps of 60 lines each. For step N read 60 lines starting at offset (N-1)*60+1. Before every step, read notes.md to see which steps are already recorded and do the next step that is missing. After each read, append one line to notes.md with that chunk's first line number. When all 8 steps are recorded, print DONE.",
+    artifact: "notes.md",
+    expectation: "notes.md contains a line for each of the 8 chunk starts, 1 61 ... 421",
+    check: (contents) =>
+      STEP_LINES.every((line) =>
+        contents.split(/\r?\n/).some((row) => new RegExp(`(^|\\D)${line}(\\D|$)`).test(row)),
+      ),
+  },
 ];
 
 interface RunSpec {
@@ -191,6 +205,28 @@ export function renderComparison(results: readonly RunResult[], tasks: readonly 
         `${def === 0 ? "n/a" : `${(((act - def) / def) * 100).toFixed(0)}%`}, ` +
         `quality ${quality("default")}/${byCondition("default").length} vs ${quality("act")}/${byCondition("act").length}`,
     );
+
+    // The comparison that answers "what does it save when the outcome is the same": only runs
+    // that produced the expected artifact, so a failed run cannot make an arm look cheap.
+    const passing = runs.filter((result) => result.artifactOk && result.cost !== null);
+    const passingCost = (condition: "default" | "act"): { total: number; runs: number } => {
+      const selected = passing.filter((result) => result.condition === condition);
+      return {
+        total: selected.reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0),
+        runs: selected.length,
+      };
+    };
+    const defPassing = passingCost("default");
+    const actPassing = passingCost("act");
+    if (defPassing.runs > 0 && actPassing.runs > 0) {
+      lines.push(
+        `  - same outcome only (${defPassing.runs} vs ${actPassing.runs} runs): ` +
+          `${defPassing.total.toFixed(6)} vs ${actPassing.total.toFixed(6)} — ` +
+          `**${(((actPassing.total - defPassing.total) / defPassing.total) * 100).toFixed(0)}%**`,
+      );
+    } else {
+      lines.push("  - same outcome only: not enough passing runs in both arms to compare");
+    }
   }
   return lines.join("\n");
 }
