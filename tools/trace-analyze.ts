@@ -81,7 +81,7 @@ export interface TraceAnalysis {
   format: { version: number | null; libraryVersion: string | null; producer: string | null };
   files: string[];
   events: number;
-  parseErrors: Array<{ line: number; message: string }>;
+  parseErrors: Array<{ file?: string; line: number; message: string }>;
   /** False when the input is incomplete: a trace with unreadable lines is not evidence. */
   usableForCalibration: boolean;
   calibrationBlockers: string[];
@@ -842,7 +842,9 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
   if (analysis.parseErrors.length > 0) {
     lines.push("## Unreadable lines", "");
     for (const error of analysis.parseErrors.slice(0, 20)) {
-      lines.push(`- line ${error.line}: ${error.message}`);
+      lines.push(
+        `- ${error.file === undefined ? "" : `${error.file} `}line ${error.line}: ${error.message}`,
+      );
     }
     lines.push("");
   }
@@ -872,7 +874,7 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
 }
 
 interface CliOptions {
-  input?: string;
+  inputs: string[];
   out?: string;
   nearEndCalls: number;
   holdoutModulo: number;
@@ -880,7 +882,12 @@ interface CliOptions {
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
-  const options: CliOptions = { nearEndCalls: 3, holdoutModulo: 5, allowErrors: false };
+  const options: CliOptions = {
+    inputs: [],
+    nearEndCalls: 3,
+    holdoutModulo: 5,
+    allowErrors: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--out") {
@@ -903,60 +910,71 @@ function parseArgs(argv: readonly string[]): CliOptions {
       continue;
     }
     if (arg !== undefined && !arg.startsWith("--")) {
-      options.input = arg;
+      options.inputs.push(arg);
     }
   }
   return options;
 }
 
-/** CLI entry point: read a JSONL trace, write `<out>.md` and `<out>.json`. */
+/** CLI entry point: read one or more JSONL traces, write `<out>.md` and `<out>.json`. */
 export function main(argv: readonly string[] = process.argv.slice(2)): void {
   const options = parseArgs(argv);
-  if (options.input === undefined) {
+  if (options.inputs.length === 0) {
     console.error(
-      "usage: npm run trace:analyze -- <trace.jsonl> [--out <prefix>] [--allow-errors]",
+      "usage: npm run trace:analyze -- <trace.jsonl> [<trace.jsonl> ...] [--out <prefix>] [--allow-errors]",
     );
     process.exitCode = 1;
     return;
   }
 
-  const inputPath = resolve(options.input);
-  const parsed = parseTraceJsonl(readFileSync(inputPath, "utf8"));
+  const inputPaths = options.inputs.map((input) => resolve(input));
+  const events: TraceEvent[] = [];
+  const parseErrors: Array<{ file: string; line: number; message: string }> = [];
+  for (const inputPath of inputPaths) {
+    const parsed = parseTraceJsonl(readFileSync(inputPath, "utf8"));
+    events.push(...parsed.events);
+    for (const error of parsed.errors) {
+      parseErrors.push({ file: basename(inputPath), ...error });
+    }
+  }
 
   // A trace with unreadable lines is not evidence. Refuse by default; --allow-errors writes a
   // report that says so instead of quietly averaging over whatever parsed.
-  if (parsed.errors.length > 0 && !options.allowErrors) {
+  if (parseErrors.length > 0 && !options.allowErrors) {
     console.error(
-      `${basename(inputPath)}: ${parsed.errors.length} unreadable line(s); refusing to report on incomplete input.`,
+      `${parseErrors.length} unreadable line(s) across ${inputPaths.length} file(s); refusing to report on incomplete input.`,
     );
-    for (const error of parsed.errors.slice(0, 10)) {
-      console.error(`  line ${error.line}: ${error.message}`);
+    for (const error of parseErrors.slice(0, 10)) {
+      console.error(`  ${error.file} line ${error.line}: ${error.message}`);
     }
-    if (parsed.errors.length > 10) {
-      console.error(`  ... and ${parsed.errors.length - 10} more`);
+    if (parseErrors.length > 10) {
+      console.error(`  ... and ${parseErrors.length - 10} more`);
     }
     console.error("pass --allow-errors to get a report marked as not usable for calibration.");
     process.exitCode = 1;
     return;
   }
 
-  const analysis = analyzeTraceEvents(parsed.events, {
+  const analysis = analyzeTraceEvents(events, {
     nearEndCalls: options.nearEndCalls,
     holdoutModulo: options.holdoutModulo,
   });
-  analysis.files = [basename(inputPath)];
-  analysis.parseErrors = parsed.errors;
-  if (parsed.errors.length > 0) {
+  analysis.files = inputPaths.map((inputPath) => basename(inputPath)).sort();
+  analysis.parseErrors = parseErrors;
+  if (parseErrors.length > 0) {
     analysis.usableForCalibration = false;
     analysis.calibrationBlockers.push(
-      `${parsed.errors.length} line(s) could not be parsed (line ${parsed.errors[0]?.line ?? "?"} first); the events that did parse are not a complete session record.`,
+      `${parseErrors.length} line(s) could not be parsed (${parseErrors[0]?.file ?? "?"} line ${parseErrors[0]?.line ?? "?"} first); the events that did parse are not a complete session record.`,
     );
   }
 
   const outPrefix =
     options.out !== undefined
       ? resolve(options.out)
-      : join(dirname(inputPath), `${basename(inputPath).replace(/\.jsonl$/i, "")}-report`);
+      : join(
+          dirname(inputPaths[0] ?? "."),
+          `${basename(inputPaths[0] ?? "trace").replace(/\.jsonl$/i, "")}-report`,
+        );
 
   writeFileSync(`${outPrefix}.json`, `${JSON.stringify(analysis, null, 2)}\n`, "utf8");
   writeFileSync(`${outPrefix}.md`, `${renderTraceReport(analysis)}\n`, "utf8");

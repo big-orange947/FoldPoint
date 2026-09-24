@@ -747,6 +747,36 @@ describe("trace analysis CLI", () => {
     ];
   }
 
+  /** One file holding two complete sessions, so a batch can be checked session by session. */
+  function twoSessionLines(id: string): string[] {
+    const trace = recorder();
+    const lines: string[] = [JSON.stringify(trace.header())];
+    for (const suffix of ["a", "b"]) {
+      const input = makeInput({
+        sessionId: `${id}-${suffix}`,
+        contextTokens: 10_000,
+        timestamp: BASE_TIMESTAMP,
+      });
+      const decision = decideFoldPoint(input, makeLearning(), makeSession());
+      lines.push(JSON.stringify(trace.decision(input, decision, { callId: `${id}-${suffix}#1` })));
+      lines.push(
+        JSON.stringify(
+          trace.request(`${id}-${suffix}`, `${id}-${suffix}#1`, {
+            timestamp: BASE_TIMESTAMP,
+            promptTokens: 10_000,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 10,
+          }),
+        ),
+      );
+      lines.push(
+        JSON.stringify(trace.sessionEnd(`${id}-${suffix}`, { timestamp: BASE_TIMESTAMP + 1_000 })),
+      );
+    }
+    return lines;
+  }
+
   it("refuses to report on a trace with unreadable lines", () => {
     const path = writeTempTrace("broken", brokenTraceLines());
     const outPrefix = path.replace(/\.jsonl$/, "-out");
@@ -774,6 +804,28 @@ describe("trace analysis CLI", () => {
     expect(analysis.usableForCalibration).toBe(false);
     expect(analysis.calibrationBlockers[0]).toContain("could not be parsed");
     expect(readFileSync(`${outPrefix}.md`, "utf8")).toContain("not usable for calibration");
+  });
+
+  it("analyses every file it is given, not only the last one", () => {
+    // A batch is collected as one file per session, so a CLI that silently kept the last
+    // positional path would report on one session and call it the batch.
+    const first = writeTempTrace("batch-a", twoSessionLines("batch-a"));
+    const second = writeTempTrace("batch-b", twoSessionLines("batch-b"));
+    const outPrefix = `${first.replace(/\.jsonl$/, "")}-batch`;
+
+    main([first, second, "--out", outPrefix]);
+
+    const analysis = JSON.parse(readFileSync(`${outPrefix}.json`, "utf8")) as {
+      sessions: number;
+      decisions: number;
+      files: string[];
+    };
+    expect(analysis.sessions).toBe(4);
+    expect(analysis.decisions).toBe(4);
+    expect(analysis.files).toHaveLength(2);
+    expect(analysis.files[0]).toContain("batch-a");
+    expect(analysis.files[1]).toContain("batch-b");
+    expect(readFileSync(`${outPrefix}.md`, "utf8")).toContain("batch-b");
   });
 });
 
