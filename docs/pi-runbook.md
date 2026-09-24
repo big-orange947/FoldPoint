@@ -401,7 +401,7 @@ leaves Pi's accounting intact, which the observer's post-compaction call does no
 
 ### 5.2 What Pi would have to expose for the rest
 
-The extension API cannot do everything FoldPoint needs. Three gaps, all of them "Pi already
+The extension API cannot do everything FoldPoint needs. Two gaps, both of them "Pi already
 knows this and does not say it", which is the shape of change worth proposing upstream:
 
 1. **`session_compact` carries no `estimatedTokensAfter`.** Pi computes it
@@ -410,14 +410,17 @@ knows this and does not say it", which is the shape of change worth proposing up
    `reason` and `willRetry`. An observer therefore cannot decide the first call after a
    compaction — 7 of 16 calls in the first real session — and has to wait for the next
    `context` event to learn the size at all.
-2. **`CompactionEntry.usage` is `undefined` on the automatic path.** In seven real compactions
-   it was never set, so the summarisation call's own cost has no ground truth in a trace: the
-   `C_compact` half of the model cannot be validated on Pi.
-3. **No awaitable compaction trigger.** `compact()` returns `void`; only `onComplete`/
+2. **No awaitable compaction trigger.** `compact()` returns `void`; only `onComplete`/
    `onError` callbacks report the outcome. Awaiting a callback inside a `context` handler
    would block the request path for the duration of a summarisation call *and* race the
    request being built, so an extension can delay a compaction but cannot bring one forward.
 
-Until those exist, the plugin is the only place this can live — and it is a reasonable place
-for it: the policy needs calibration that is still moving, and Pi's core should not inherit a
-third-party cost model's release cadence.
+The compaction's own cost is *not* a gap: Pi records it. `CompactionEntry.usage` is set on the
+automatic path and reaches the extension event, and the trace records it as the compaction
+event's `usage` (`promptTokens`, `outputTokens`, …). Measured across the collected sessions,
+compactions were 16–35% of a session's total cost — which is the cost a timing decision is
+trying to move, and it is fully visible in the data.
+
+Until those two exist, the plugin is the only place this can live — and it is a reasonable
+place for it: the policy needs calibration that is still moving, and Pi's core should not
+inherit a third-party cost model's release cadence.
