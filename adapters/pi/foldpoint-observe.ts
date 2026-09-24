@@ -590,7 +590,12 @@ export function createFoldPointObserver(
                 }),
           };
           foldPoint.recordCompaction(sessionKey, profile, observation);
-          write(trace.compaction(sessionKey, observation, { action: "COMPACT" }));
+          write(
+            trace.compaction(sessionKey, observation, {
+              action: "COMPACT",
+              reason: pending.reason,
+            }),
+          );
         }
       }
 

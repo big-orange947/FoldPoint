@@ -34,7 +34,7 @@ export interface Task {
 
 export interface RunResult {
   task: string;
-  condition: "default" | "act";
+  condition: ConditionId;
   rep: number;
   exitCode: number;
   ok: boolean;
@@ -42,6 +42,25 @@ export interface RunResult {
   cost: SessionCost | null;
   trace: string;
 }
+
+export type ConditionId = "default" | "ask" | "veto";
+
+/**
+ * The three arms. Moving Pi's threshold earlier is part of how FoldPoint gets control, so it
+ * cannot also be a difference between the arms being compared: `ask` isolates the threshold
+ * move alone (same low threshold, observe-only), and `veto` adds FoldPoint's answers on top.
+ */
+export const CONDITIONS: ReadonlyArray<{
+  id: ConditionId;
+  mode: "observe" | "act";
+  /** Pi's `compaction.reserveTokens` for this arm; the threshold is window minus this. */
+  reserveTokens: number;
+  label: string;
+}> = [
+  { id: "default", mode: "observe", reserveTokens: 16384, label: "Pi's own threshold, no policy" },
+  { id: "ask", mode: "observe", reserveTokens: 24000, label: "low threshold, no policy" },
+  { id: "veto", mode: "act", reserveTokens: 24000, label: "low threshold, FoldPoint answers" },
+];
 
 /** The line numbers an 8-step read of 60-line chunks must report. */
 const STEP_LINES = [1, 61, 121, 181, 241, 301, 361, 421];
@@ -84,7 +103,7 @@ export const TASKS: readonly Task[] = [
 
 interface RunSpec {
   task: Task;
-  condition: "default" | "act";
+  condition: ConditionId;
   rep: number;
 }
 
@@ -193,6 +212,30 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
   }
   const extension = extensionPath();
+  const condition = CONDITIONS.find((entry) => entry.id === spec.condition);
+  if (condition === undefined) {
+    throw new Error(`unknown condition ${spec.condition}`);
+  }
+
+  // Pi reads its settings at startup, so writing them here is enough to give each arm its own
+  // threshold without touching the user's own agent directory.
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  if (agentDir !== undefined) {
+    const settingsPath = join(agentDir, "settings.json");
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+    } catch {
+      settings = {};
+    }
+    settings.compaction = {
+      enabled: true,
+      reserveTokens: condition.reserveTokens,
+      keepRecentTokens: 4000,
+    };
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  }
 
   resetScratch(scratch);
   rmSync(tracePath, { force: true });
@@ -216,7 +259,7 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
       env: {
         ...process.env,
         FOLDPOINT_TRACE: tracePath,
-        FOLDPOINT_MODE: spec.condition === "act" ? "act" : "observe",
+        FOLDPOINT_MODE: condition.mode,
       },
     },
   );
@@ -253,42 +296,39 @@ export function renderComparison(results: readonly RunResult[], tasks: readonly 
 
   for (const task of tasks) {
     const runs = results.filter((result) => result.task === task.id);
-    const byCondition = (condition: "default" | "act"): RunResult[] =>
+    const byCondition = (condition: ConditionId): RunResult[] =>
       runs.filter((result) => result.condition === condition);
-    const totals = (condition: "default" | "act"): number =>
+    const totals = (condition: ConditionId): number =>
       byCondition(condition).reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
-    const quality = (condition: "default" | "act"): number =>
+    const quality = (condition: ConditionId): number =>
       byCondition(condition).filter((result) => result.artifactOk).length;
-    const def = totals("default");
-    const act = totals("act");
-    lines.push(
-      "",
-      `**${task.id}** (${task.expectation}): default ${def.toFixed(6)} vs act ${act.toFixed(6)} — ` +
-        `${def === 0 ? "n/a" : `${(((act - def) / def) * 100).toFixed(0)}%`}, ` +
-        `quality ${quality("default")}/${byCondition("default").length} vs ${quality("act")}/${byCondition("act").length}`,
-    );
+    const summary = CONDITIONS.map(
+      (condition) =>
+        `${condition.id} ${totals(condition.id).toFixed(6)} (${quality(condition.id)}/${byCondition(condition.id).length} ok)`,
+    ).join(" vs ");
+    lines.push("", `**${task.id}** (${task.expectation}): ${summary}`);
 
     // The comparison that answers "what does it save when the outcome is the same": only runs
     // that produced the expected artifact, so a failed run cannot make an arm look cheap.
     const passing = runs.filter((result) => result.artifactOk && result.cost !== null);
-    const passingCost = (condition: "default" | "act"): { total: number; runs: number } => {
+    const passingCost = (condition: ConditionId): { total: number; runs: number } => {
       const selected = passing.filter((result) => result.condition === condition);
       return {
         total: selected.reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0),
         runs: selected.length,
       };
     };
-    const defPassing = passingCost("default");
-    const actPassing = passingCost("act");
-    if (defPassing.runs > 0 && actPassing.runs > 0) {
-      lines.push(
-        `  - same outcome only (${defPassing.runs} vs ${actPassing.runs} runs): ` +
-          `${defPassing.total.toFixed(6)} vs ${actPassing.total.toFixed(6)} — ` +
-          `**${(((actPassing.total - defPassing.total) / defPassing.total) * 100).toFixed(0)}%**`,
-      );
-    } else {
-      lines.push("  - same outcome only: not enough passing runs in both arms to compare");
-    }
+    const passingSummary = CONDITIONS.map((condition) => {
+      const arm = passingCost(condition.id);
+      return `${condition.id} ${arm.runs === 0 ? "n/a" : arm.total.toFixed(6)} (${arm.runs} runs)`;
+    }).join(" vs ");
+    const baseline = passingCost("default");
+    const vetoed = passingCost("veto");
+    const delta =
+      baseline.runs > 0 && vetoed.runs > 0
+        ? ` — veto ${(((vetoed.total - baseline.total) / baseline.total) * 100).toFixed(0)}% vs default`
+        : "";
+    lines.push(`  - same outcome only: ${passingSummary}${delta}`);
   }
   return lines.join("\n");
 }
@@ -300,13 +340,15 @@ function main(): void {
 
   const selected = TASKS.filter((task) => options.tasks.includes(task.id));
   const specs: RunSpec[] = [];
+  const armOrder = CONDITIONS.map((condition) => condition.id);
   for (const task of selected) {
     for (let rep = 1; rep <= options.reps; rep += 1) {
-      // Alternate which arm goes first: if the model or the provider drifts over the session,
-      // running all of one arm and then all of the other would turn that drift into an effect.
-      const conditions =
-        rep % 2 === 1 ? (["default", "act"] as const) : (["act", "default"] as const);
-      for (const condition of conditions) {
+      // Rotate which arm goes first: if the model or the provider drifts over a session, running
+      // one arm and then another would turn that drift into an effect.
+      const rotated = armOrder.map(
+        (_, index) => armOrder[(index + rep - 1) % armOrder.length] as ConditionId,
+      );
+      for (const condition of rotated) {
         specs.push({ task, condition, rep });
       }
     }
