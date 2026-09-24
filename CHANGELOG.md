@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed-late Pi control and Chinese README
+
+- Added a fourth Pi paired-trial arm: a fixed late threshold (6K reserve under the controlled
+  26K window), keeping task, model, compactor, and cache-warming mode matched.
+- The 16-run real-provider control is reported without claiming that the dynamic policy beats
+  this tuned fixed baseline: their estimated costs and compaction counts are close.
+- Rewrote the root README in Chinese around the current product scope, integration contract,
+  experiment limitations, and next evidence needed before an upstream Pi proposal.
+
 ### First real-provider Pi paired trial
 
 - The paired runner supports a separate Pi Node executable and a sum-only run without a large

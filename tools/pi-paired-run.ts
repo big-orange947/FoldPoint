@@ -1,11 +1,10 @@
 /**
  * Paired real-task trial: Pi's own compaction timing against FoldPoint's.
  *
- * The same tasks, model, compactor (Pi's), adapter and cache-warming mode across three arms:
- * Pi default threshold, low threshold alone, and low threshold plus FoldPoint veto. All are
- * measured from the traces, including what the compactions
- * themselves cost, and every task has a machine-checkable artifact: a cheaper run that got the
- * answer wrong is not a win.
+ * The same tasks, model, compactor (Pi's), adapter and cache-warming mode across four arms:
+ * Pi default threshold, low threshold alone, low threshold plus FoldPoint veto, and a fixed
+ * late threshold. All costs, including compactions, come from traces. Every task has a
+ * machine-checkable artifact: a cheaper run that got the answer wrong is not a win.
  *
  *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--cache-warming off|streaming|idle] [--out <prefix>]
  *
@@ -53,13 +52,16 @@ export interface RunResult {
   trace: string;
 }
 
-export type ConditionId = "default" | "ask" | "veto";
+export type ConditionId = "default" | "ask" | "veto" | "late";
 export type CacheWarmingMode = "off" | "streaming" | "idle";
 
 /**
- * The three arms. Moving Pi's threshold earlier is part of how FoldPoint gets control, so it
+ * Four arms. Moving Pi's threshold earlier is part of how FoldPoint gets control, so it
  * cannot also be a difference between the arms being compared: `ask` isolates the threshold
  * move alone (same low threshold, observe-only), and `veto` adds FoldPoint's answers on top.
+ * `late` asks whether a cheap fixed late threshold can do just as well as the dynamic veto.
+ * It uses a 6K reserve, greater than the 4K recent-message budget used in this trial. This
+ * arm is intended for the controlled 26K-window experiment, not as a universal Pi setting.
  */
 export const CONDITIONS: ReadonlyArray<{
   id: ConditionId;
@@ -71,6 +73,7 @@ export const CONDITIONS: ReadonlyArray<{
   { id: "default", mode: "observe", reserveTokens: 16384, label: "Pi's own threshold, no policy" },
   { id: "ask", mode: "observe", reserveTokens: 24000, label: "low threshold, no policy" },
   { id: "veto", mode: "act", reserveTokens: 24000, label: "low threshold, FoldPoint answers" },
+  { id: "late", mode: "observe", reserveTokens: 6000, label: "fixed late threshold, no policy" },
 ];
 
 /** The line numbers an 8-step read of 60-line chunks must report. */
@@ -243,7 +246,7 @@ export function prepareAgentDir(
     modelOverrides: {},
   };
   // Pi 0.87's one-token warming is a separate paid intervention. Keep its configured mode
-  // identical across all three arms; default off isolates compaction timing alone.
+  // identical across all four arms; default off isolates compaction timing alone.
   settings.cacheWarming = cacheWarming;
   settings.sessionDir = join(agentDir, "sessions");
   writeFileSync(join(agentDir, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`, "utf8");
@@ -416,10 +419,15 @@ export function renderComparison(
       return `${condition.id} ${arm.runs === 0 ? "n/a" : arm.total.toFixed(6)} (${arm.runs} runs)`;
     }).join(" vs ");
     lines.push(`  - passing runs (not directly comparable if counts differ): ${passingSummary}`);
-    for (const condition of ["ask", "veto"] as const) {
+    for (const [condition, baseline] of [
+      ["ask", "default"],
+      ["veto", "default"],
+      ["late", "default"],
+      ["veto", "late"],
+    ] as const) {
       const paired = passing.filter(
         (result) =>
-          result.condition === "default" &&
+          result.condition === baseline &&
           passing.some((other) => other.condition === condition && other.rep === result.rep),
       );
       const baselineTotal = paired.reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
@@ -435,7 +443,7 @@ export function renderComparison(
           ? `${(((candidateTotal - baselineTotal) / baselineTotal) * 100).toFixed(1)}%`
           : "n/a";
       lines.push(
-        `  - paired ${condition} vs default: ${paired.length} matched passing rep(s), ${delta} cost change`,
+        `  - paired ${condition} vs ${baseline}: ${paired.length} matched passing rep(s), ${delta} cost change`,
       );
     }
   }

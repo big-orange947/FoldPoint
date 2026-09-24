@@ -244,7 +244,7 @@ Read that honestly:
 - The guarded baselines isolate the effect of the guards: guarded 70% compacts 66 times instead
   of 81 and cuts unnecessary compactions from 44 to 7 at the same cost, so most of the raw
   baselines' churn was the missing cooldown, not the threshold.
-- FoldPoint's 6 unnecessary compactions out of 82 judged (7%) compare with 29–89 out of 53–109
+- FoldPoint's 7 unnecessary compactions out of 80 judged (9%) compare with 29–89 out of 53–109
   (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
 - Scenario `F` (a compactor that reclaims 5%) is the honest counter-example for the cold-start
   prior: FoldPoint still compacts while its learned retention ratio is walking from the 0.40

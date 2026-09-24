@@ -56,6 +56,7 @@ describe("paired Pi trial isolation", () => {
     writeFileSync(join(root, "models.json"), "{}");
     const defaultDir = prepareAgentDir(root, "default");
     const vetoDir = prepareAgentDir(root, "veto");
+    const lateDir = prepareAgentDir(root, "late");
     const warmDir = prepareAgentDir(root, "veto", "streaming");
     const read = (dir: string) =>
       JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")) as Record<string, unknown>;
@@ -67,6 +68,7 @@ describe("paired Pi trial isolation", () => {
     expect((read(defaultDir).compaction as { reserveTokens: number }).reserveTokens).toBe(16_384);
     expect((read(vetoDir).compaction as { reserveTokens: number }).reserveTokens).toBe(24_000);
     expect((read(vetoDir).compaction as { modelOverrides: object }).modelOverrides).toEqual({});
+    expect((read(lateDir).compaction as { reserveTokens: number }).reserveTokens).toBe(6_000);
     expect(readFileSync(join(root, "settings.json"), "utf8")).toBe(JSON.stringify(original));
     expect(readFileSync(join(vetoDir, "models.json"), "utf8")).toBe("{}");
   });
@@ -105,6 +107,7 @@ describe("paired Pi trial isolation", () => {
       [
         result("default", 1, 10),
         result("veto", 1, 8),
+        result("late", 1, 9),
         result("default", 2, 100),
         result("veto", 2, 1, false),
       ],
@@ -113,6 +116,10 @@ describe("paired Pi trial isolation", () => {
     expect(report).toContain(
       "paired veto vs default: 1 matched passing rep(s), -20.0% cost change",
     );
+    expect(report).toContain(
+      "paired late vs default: 1 matched passing rep(s), -10.0% cost change",
+    );
+    expect(report).toContain("paired veto vs late: 1 matched passing rep(s), -11.1% cost change");
     expect(() =>
       renderComparison(
         [

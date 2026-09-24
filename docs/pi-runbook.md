@@ -414,21 +414,24 @@ decision event: a session where Pi asks forty times must not look like a session
 decisions. The checks between two model calls are counted on the decision that follows them
 (`compactionChecks`), and the report sums them separately under `## Compaction policy checks`.
 
-### 5.3 The three arms a fair trial needs
+### 5.3 The four arms a fair trial needs
 
 Moving the threshold is part of the mechanism, not a side condition, so comparing "Pi as
 configured" against "low threshold plus veto" compares two things at once. The clean design is
-three arms, all with the same tasks, model and compactor:
+four arms, all with the same tasks, model and compactor:
 
 | arm | threshold | mode | isolates |
 | --- | --- | --- | --- |
 | `default` | Pi's own | observe | the baseline |
 | `ask` | low | observe | what asking more often alone does |
 | `veto` | low | act | what FoldPoint's answers add on top |
+| `late` | fixed late | observe | whether a simple delayed threshold matches the dynamic policy |
 
-`tools/pi-paired-run.ts` runs all three arms. It pairs costs by task and repetition only when
-both runs exit successfully and pass the artifact check; unmatched successful runs are reported
-but never used in the percentage delta.
+`tools/pi-paired-run.ts` runs all four arms. The `late` arm uses a 6K reserve, intended for
+the controlled 26K-window trial (threshold at 20K), not as a universal Pi default. It compares
+each arm with the default and FoldPoint with the fixed-late arm. Costs are paired by task and
+repetition only when both runs exit successfully and pass the artifact check; unmatched
+successful runs are reported but never used in the percentage delta.
 
 The first real-provider, artificially capped 26K-window result is documented in
 [`benchmarks/pi-real-paired-2026-09-24.md`](../benchmarks/pi-real-paired-2026-09-24.md).
@@ -449,9 +452,9 @@ assumed to survive those transitions. The adapter follows `PI_CACHE_RETENTION=lo
 selecting Pi's declared TTL; a per-request retention override is not exposed by its current
 hook and remains a prediction limitation.
 
-The three-arm paired **compaction-timing** trial defaults to `cacheWarming: "off"` in each
+The four-arm paired **compaction-timing** trial defaults to `cacheWarming: "off"` in each
 fresh experiment agent directory. This isolates the timing policy; it does not claim FoldPoint
-is better with Pi warming enabled. Run the same three arms with
+is better with Pi warming enabled. Run the same four arms with
 `--cache-warming streaming` (or `idle`) as a separate factorial stratum, comparing total
 call + compaction + warm cost, quality and task completion. Never mix `off` and `streaming`
 results in one percentage comparison.

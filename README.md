@@ -1,49 +1,93 @@
 # FoldPoint
 
-**Compact at the right moment.**
+**在合适的时候压缩 Agent 上下文。**
 
-A lightweight, cache-aware break-even trigger for agent context compaction.
+FoldPoint 是一个轻量级、感知提示词缓存与调用价格的**压缩时机决策器**。它不生成摘要，不删改消息，也不接管 Agent 的上下文；它只根据 token 数、缓存状态、价格和历史压缩效果，回答当前该 `KEEP`、`COMPACT` 还是 `FORCE`。
 
-> **FoldPoint does not compact context.** It decides when compaction is economically
-> justified or operationally required.
->
-> **FoldPoint 不执行上下文压缩。** 它只判断压缩在经济上是否值得，或者在窗口安全上是否已经必要。
+> 项目仍处于早期验证阶段。合成 benchmark 展示了潜力；真实 Pi 配对实验也证明“避免过早压缩”可能省钱，但**尚未证明动态算法明显优于调得合适的固定晚阈值**。任务质量和跨模型收益仍需验证。
 
-FoldPoint answers exactly one question:
+## 它解决什么问题
 
-> Should this agent session compact its context right now?
+固定在窗口的 70% 或 80% 压缩，无法回答一个更关键的问题：**现在花钱压缩，能否在接下来几次调用里回本？**
 
-and answers it with one of three actions: `KEEP`, `COMPACT`, `FORCE`.
+同样是长上下文，成本可能完全不同：
 
-It reads metadata only — token counts, timestamps, cache statistics, prices and past
-compaction results. It never sees message content, never calls a model, never touches the
-network, never reads a file and never allocates unbounded memory.
+- 前缀仍在缓存中、缓存读取很便宜时，继续使用长上下文可能比重新写入摘要更省。
+- 缓存已经失效、每轮都要重放完整输入时，提前压缩可能更划算。
+- 压缩器本身要调用模型；如果压不掉多少内容，或者任务快结束了，这笔费用可能收不回来。
+- 无论经济计算怎样，接近窗口上限时都必须保留安全余量。
+
+FoldPoint 用短期盈亏平衡估计和安全门限作判断。它只处理**何时压缩**；如何摘要、保留哪些事实、是否最终执行，始终由宿主 Agent 决定。
+
+| 决策 | 含义 |
+| --- | --- |
+| `KEEP` | 现在保留上下文更合适。 |
+| `COMPACT` | 预计后续调用能抵消压缩及缓存重建成本，建议压缩。 |
+| `FORCE` | 已触及窗口安全边界，建议宿主尽快在安全时机压缩。 |
+
+`FORCE` 也不是对宿主的强制命令。如果当前处于工具执行中等不安全边界，宿主仍需自行处理。每次决策都附带原因码、置信度和成本指标，便于审计。
+
+## 当前能做什么
+
+- **本地、常数时间决策**：核心零运行时依赖，不调用 LLM，不联网，不读取对话正文或工具输出。
+- **按会话隔离、按配置学习**：每个会话有独立运行状态；同一模型、窗口和压缩器共享压缩保留率、缓存覆盖率等统计经验。
+- **区分本次与未来调用**：本次缓存是否失效、写入要花多少钱，与未来调用可复用多少前缀分别估计；不会把一次缓存过期当成之后每次都必然过期。
+- **接收真实反馈**：宿主在模型调用后上报 token 用量，在压缩后上报压缩前后长度与费用，FoldPoint 才能逐渐替换冷启动估计。
+- **安全保护**：冷却期、最小回收量、置信度折扣、窗口预留和失败尝试处理，避免为了很小的预计收益反复压缩。
+- **可观测轨迹**：`TraceRecorder` 将决策前估计与请求后的真实用量分开记录；离线分析可以检查预测误差和会话成本。
+
+核心只接收数字和标识符，不包含正文。**轨迹仍可能暴露模型、时间和使用频率**，应按日志保护，不能视为完全匿名数据。
+
+## 快速体验
+
+目前建议从源码运行，不把“可运行示例”等同于已发布、开箱即用的宿主插件：
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run example:basic
+```
+
+完整的最小接入代码在 [`examples/basic.ts`](examples/basic.ts)。接入宿主需要四个时机：
+
+1. **调用模型前**：传入当前上下文长度、缓存线索、窗口大小和价格，调用 `decide()`。
+2. **模型返回后**：把实际 prompt、缓存读取、缓存写入和输出 token 通过 `observeRequest()` 反馈。
+3. **压缩结束后**：由宿主执行压缩，再通过 `recordCompaction()` 上报成功、前后长度及用量；失败也应上报。
+4. **会话结束时**：调用 `endSession()`，让学习器获得实际剩余调用数，并清理会话状态。
+
+简化示意（`hostAgent` 由接入方实现）：
 
 ```ts
-import { FoldPoint, tokenOnlyPricing } from "foldpoint";
+import { FoldPoint } from "foldpoint";
 
 const foldPoint = new FoldPoint();
-const sessionId = crypto.randomUUID(); // stable, unique, non-sensitive
-
+const sessionId = crypto.randomUUID();
 const profile = {
   provider: "example",
   model: "example-model",
   contextWindowTokens: 200_000,
   compactorId: "native-summary-v1",
-  pricing: tokenOnlyPricing(),
+  pricing: {
+    currency: "USD",
+    inputPerMillion: 3,
+    outputPerMillion: 15,
+    cacheReadPerMillion: 0.3,
+    cacheWritePerMillion: 3.75,
+  },
+  cachePolicy: { ttlMs: 300_000 },
 };
 
 const decision = foldPoint.decide({
   sessionId,
   profile,
   timestamp: Date.now(),
-  contextTokens: 84_000,
-  cachedTokens: 70_000,
+  contextTokens: estimatedNextPromptTokens,
   safeBoundary: true,
   compactionAllowed: true,
 });
 
-if (decision.action === "COMPACT" || decision.action === "FORCE") {
+if (decision.action !== "KEEP") {
   const result = await hostAgent.compact();
   foldPoint.recordCompaction(sessionId, profile, {
     timestamp: Date.now(),
@@ -55,480 +99,73 @@ if (decision.action === "COMPACT" || decision.action === "FORCE") {
   });
 }
 
-foldPoint.endSession(sessionId, profile, { timestamp: Date.now() });
-```
-
-The host agent always keeps the last word. FoldPoint never calls the compactor itself.
-
-- [What FoldPoint is not](#what-foldpoint-is-not)
-- [Two kinds of state](#two-kinds-of-state)
-- [Why a fixed percentage threshold is not enough](#why-a-fixed-percentage-threshold-is-not-enough)
-- [Why the cache changes the right moment](#why-the-cache-changes-the-right-moment)
-- [Why the first run can only use default estimates](#why-the-first-run-can-only-use-default-estimates)
-- [How online learning works](#how-online-learning-works)
-- [KEEP, COMPACT, FORCE](#keep-compact-force)
-- [Saving and restoring state](#saving-and-restoring-state)
-- [Profiles](#profiles)
-- [Unknown prices: normalized token cost](#unknown-prices-normalized-token-cost)
-- [Cache TTL](#cache-ttl)
-- [Integrating with an existing agent](#integrating-with-an-existing-agent)
-- [Quality protection](#quality-protection)
-- [Benchmark](#benchmark)
-- [Current limitations](#current-limitations)
-- [Future plugins](#future-plugins)
-- [Public API](#public-api)
-- [Development](#development)
-
-## What FoldPoint is not
-
-FoldPoint is not a compactor and not a context-management framework. It does not:
-
-- summarize anything, or write compaction prompts;
-- decide which messages, tool calls or files to keep;
-- prune tool output, rewrite prompts, or store/restore raw context;
-- manage long-term memory, embeddings, vector search or RAG;
-- classify content, tasks or phases;
-- ship a UI, an HTTP server, a database or cloud telemetry;
-- fetch model prices or read API keys;
-- call an LLM to decide whether to compact.
-
-All of that belongs to the host agent or to a specific compactor. FoldPoint only decides
-*timing*, and it says so with structured reason codes.
-
-## Two kinds of state
-
-State is split, and the split matters as soon as you have more than one conversation:
-
-| | Scope | Contents | Lifetime |
-| --- | --- | --- | --- |
-| **Profile learning** | every session of one `provider + model + contextWindowTokens + compactorId` | retention ratio, compaction usage ratios, actual-cost scale, cache coverage, reuse horizon | kept until you reset it |
-| **Session runtime** | one `sessionId` of one profile | request count, attempt counts, calls since the last attempt, timestamps, exact cache expiry | deleted by `endSession` |
-
-Everything in profile learning is a ratio or a count — never an absolute amount — so it stays
-valid when the context size changes or when prices change. Session runtime is what makes two
-conversations independent: one session's cooldown, request timing and cache expiry never
-affect another's.
-
-## Why a fixed percentage threshold is not enough
-
-Most agents compact at a fixed utilization, for example 70% of the window. That number
-ignores everything that decides whether compacting is actually a good idea:
-
-| Fixed threshold ignores | Consequence |
-| --- | --- |
-| Different window sizes | 70% of 8k is not 70% of 1M |
-| Different input / cache-read / output prices | the same token saving is worth wildly different money |
-| How much of the prompt is actually cached right now | replaying a warm context is nearly free |
-| Cache TTL and idle time | the cache may already be gone, which makes keeping expensive |
-| How well *this* compactor compresses | a weak compactor costs a call and reclaims nothing |
-| Whether the compactor even succeeds | a failed attempt costs money and reclaims nothing |
-| The cost of the compaction call itself | compaction is a model call over the whole context |
-| That compaction destroys the cache prefix | the next calls pay full price until the cache is rebuilt |
-| How many calls are still coming | saving tokens on the last call is worthless |
-| Compaction jitter | re-compacting every few calls destroys information for pennies |
-
-FoldPoint replaces the fixed percentage with a break-even computation plus a small set of
-quality guards. A percentage still appears in the model, but as a *safety* boundary
-(`hardWindowRatio`) and as a *conservatism switch* (`softWindowRatio`), never as the trigger.
-
-## Why the cache changes the right moment
-
-Compaction rewrites the prefix of the context, which invalidates the provider's prompt cache.
-So a compaction has two costs: the compaction call itself, which reads the whole context at
-the normal input price, and rebuilding the cache afterwards, which makes the following calls
-more expensive.
-
-If the cache is warm and cache reads are cheap, *keeping* the context costs almost nothing per
-call, and compaction is a bad trade even at high utilization. If the cache has expired or the
-provider gives no cache discount, every call replays the whole context at the input price, and
-compacting early pays off quickly.
-
-FoldPoint models this with two separate quantities:
-
-- **cache coverage** — how much of the context the cache *could* serve;
-- **cache alive probability** — whether that candidate prefix is still usable.
-
-They are multiplied together exactly once, in `estimatedEffectiveCachedTokens`, and never
-folded into each other.
-
-## Why the first run can only use default estimates
-
-FoldPoint cannot know how well a given compactor compresses before that compactor has run, and
-it refuses to guess from content. It also cannot invent a price it was never given.
-
-So a fresh profile starts from the cold-start defaults in
-[`src/defaults.ts`](src/defaults.ts) — a retention ratio of 0.40, compaction usage ratios of
-1.0 prompt / 0.12 output, a reuse horizon of 3 calls — and the uncertainty penalty discounts
-the estimated benefit until real samples exist. With no evidence at all, FoldPoint needs a
-large positive saving before it will say `COMPACT`; `FORCE` is never weakened by uncertainty.
-
-## How online learning works
-
-Every real event updates one exponential moving average (EMA), `new = alpha * observed +
-(1 - alpha) * previous`, with `alpha = 0.25` by default:
-
-| Quantity | Observed from | Updated when |
-| --- | --- | --- |
-| `retentionRatioEma` | `afterTokens / beforeTokens` | a **successful** compaction is recorded |
-| `compactPromptRatioEma` | compaction `promptTokens / beforeTokens` | a successful compaction reports usage |
-| `compactOutputRatioEma` | compaction `outputTokens / beforeTokens` | a successful compaction reports usage |
-| `compactCachedInputRatioEma` | compaction `cachedInputTokens / promptTokens` | a successful compaction reports it |
-| `compactCacheWriteRatioEma` | compaction `cacheWriteTokens / promptTokens` | a successful compaction reports it |
-| `compactCostScaleEma` | `actualCost / modeledCost`, dimensionless, clamped to `[0.1, 10]` | a successful compaction reports a real cost *and* a currency price snapshot |
-| `cacheCoverageRatioEma` | `cachedInputTokens / promptTokens` | a request observation has `promptTokens > 0` |
-| `reuseHorizonEma` | calls between a successful compaction and session end | the host reports `endSession` |
-
-The compaction call is priced by scaling those ratios to the current context and applying the
-*current* prices, so a ratio learned on a 10k context prices a 180k context correctly and a
-price change is picked up immediately. No absolute currency amount is stored anywhere.
-
-Failed attempts increment the attempt and failure counters, restart the cooldown, and update
-nothing in the profile: a failed attempt teaches nothing about the compactor.
-
-State is isolated per profile, because compaction quality differs per compactor.
-
-## KEEP, COMPACT, FORCE
-
-| Action | Meaning |
-| --- | --- |
-| `KEEP` | Keeping the current context is the better option right now. |
-| `COMPACT` | Given expected cost and the observed compaction behaviour, compacting has a positive expected return. |
-| `FORCE` | Even if the economics are uncertain, the window must keep a safe margin. |
-
-Every decision also carries `reasons` (stable codes), `confidence` (how much real evidence
-backs the estimate) and a full `metrics` block, including `breakEvenCalls`,
-`estimatedCacheCoverageRatio`, `estimatedCacheAliveProbability` and
-`estimatedEffectiveCachedTokens`. Nothing is hidden behind a boolean.
-
-`FORCE` is a statement about the window, not a command: it is still the host that decides
-whether it can run the compactor *here*. If the host is not at a safe boundary, the decision
-says so in `reasons` (`UNSAFE_BOUNDARY` / `COMPACTION_DISABLED`).
-
-## Saving and restoring state
-
-State is plain JSON, contains no message content and no secrets, and is versioned.
-
-```ts
-const saved = JSON.stringify(foldPoint.exportState()); // { version: 2, profiles, sessions }
-// ... later, in another process ...
-const restored = new FoldPoint({ state: JSON.parse(saved) });
-```
-
-Unknown fields are ignored and missing fields fall back to the defaults, so a snapshot can
-never break the decision path. `decide()` never mutates state — only `observeRequest`,
-`recordCompaction` and `endSession` do. A pre-release version 1 snapshot is rejected with an
-explicit error rather than reinterpreted.
-
-## Profiles
-
-A profile is the identity of "a model with a compactor":
-
-```ts
-const profile = {
-  provider: "anthropic",           // optional, part of the learning key
-  model: "claude-sonnet-4",
-  contextWindowTokens: 200_000,
-  compactorId: "summary-v3",       // different compactors learn separately
-  pricing: { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3 },
-  cachePolicy: { ttlMs: 300_000 },
-};
-```
-
-The learning key is the JSON tuple `[provider, model, contextWindowTokens, compactorId]`;
-session keys extend it with the `sessionId`. Profiles are never derived from message content.
-
-## Unknown prices: normalized token cost
-
-If you do not know the real prices, pass `tokenOnlyPricing()` (or nothing at all). Costs are
-then denominated in tokens, and the decision logic is unchanged: it still weighs reclaim
-against the compaction call and the cache.
-
-```ts
-import { tokenOnlyPricing } from "foldpoint";
-const pricing = tokenOnlyPricing(); // 1 unit per token, no cache discount
-```
-
-When a price snapshot has no `cacheReadPerMillion`, FoldPoint assumes cache reads cost the same
-as normal input and sets the alive probability to 0 — no discount, no invented savings. In
-token-only mode the actual-cost scale is never learned, so a token count can never be
-reinterpreted as money.
-
-## Cache TTL
-
-Three levels of knowledge, in priority order:
-
-1. `cacheExpiresAt` on the observation or the input — used exactly (`timestamp <
-   cacheExpiresAt`);
-2. `cachePolicy.ttlMs` — the cache counts as alive while `idleMs < ttlMs`;
-3. `cachePolicy.halfLifeMs` — `aliveProbability = 2^(-idleMs / halfLife)`.
-
-The exact expiry belongs to the session and is cleared by any request observation that does
-not report one, so a stale expiry cannot control a newer prefix. Without any of these,
-FoldPoint assumes a candidate prefix is alive — the learned coverage ratio is already an
-observed hit rate and must not be discounted twice.
-
-## Integrating with an existing agent
-
-```ts
-// after every model call
+// 每次普通模型调用结束后：
 foldPoint.observeRequest(sessionId, profile, {
   timestamp: Date.now(),
-  promptTokens: usage.inputTokens,
+  promptTokens: usage.promptTokens,
   cachedInputTokens: usage.cacheReadTokens,
+  cacheWriteTokens: usage.cacheWriteTokens,
   outputTokens: usage.outputTokens,
 });
 
-// at every step boundary where the agent could pause
-const decision = foldPoint.decide({
-  sessionId,
-  profile,
-  timestamp: Date.now(),
-  contextTokens: estimatedNextPromptTokens,
-  cachedTokens: usage.cacheReadTokens,
-  safeBoundary: true,
-  compactionAllowed: true,
-  expectedFutureCalls: remainingSteps, // only if you really know it, and let it shrink
-});
-
-// after running the compactor
-foldPoint.recordCompaction(sessionId, profile, {
-  timestamp: Date.now(),
-  beforeTokens,
-  afterTokens,
-  success,
-});
-
-// when the session ends
 foldPoint.endSession(sessionId, profile, { timestamp: Date.now() });
 ```
 
-See [docs/integration.md](docs/integration.md) for the full checklist, including session ids,
-state persistence, multi-compactor setups and failure handling.
+上面展示的是接线关系，不是可直接运行的完整程序。**调用前不能把尚未发生的缓存命中当作已知值**；`cachedTokens` 只有宿主确实拥有该线索时才传。缓存用量“未上报”也不等于“命中 0”。价格未知时可以使用 `tokenOnlyPricing()`，但此时得到的是归一化 token 成本，不能解读为美元。
 
-## Quality protection
+详细契约见[接入说明](docs/integration.md)，算法及默认参数见[算法文档](docs/algorithm.md)。状态可用 `exportState()` / `importState()` 持久化，里面没有消息正文或密钥。
 
-`KEEP` is the default. `COMPACT` has to earn its way past every one of these gates:
+## Pi 适配器
 
-- **safe boundary** — the host says the agent may pause here;
-- **host opt-out** — `compactionAllowed: false` suppresses economic compaction entirely;
-- **cooldown** — at least `minCallsBetweenCompactions` (3) calls since the last attempt,
-  successful or not;
-- **minimum reclaim** — both `minReclaimTokens` (4,096) and `minReclaimRatio` (0.20);
-- **uncertainty penalty** — `adjustedNetSaving = netSaving * confidence - penalty *
-  compactCallCost`, doubled below the soft window;
-- **quick-payback policy guard** — below 65% utilization the break-even must fit in
-  `softWindowBreakEvenCalls` (3) calls. A quality-oriented policy, not a mathematical
-  optimum;
-- **window guard** — at `hardWindowRatio` (0.90) or inside `reserveTokens` (8,192) the answer
-  is `FORCE`, whatever the economics say.
+仓库包含一个**实验性** [Pi 扩展](adapters/pi/foldpoint-observe.ts)。默认仅观察和记录；显式设置 `FOLDPOINT_MODE=act` 后，它可以否决 Pi 因阈值触发的压缩，但不会否决用户手动压缩或溢出恢复，也不会替换 Pi 的摘要器。它不是 npm 包内已打磨完成的 Pi 插件。
 
-## Benchmark
+Pi 自身的缓存预热会发送额外的付费请求。适配器把成功预热单独记账，并避免把跨预热的两次请求当成自然缓存存活证据。比较压缩时机时，预热开关必须在各组保持一致；生产环境不因 FoldPoint 自动关闭 Pi 预热。[Pi 接入与实验手册](docs/pi-runbook.md)记录了运行方式、权限边界与限制。
 
-`npm run benchmark` runs a deterministic simulation of 11 scenarios (short task, long tool
-task, warm cache, expired cache, strong compactor, weak compactor, expensive compaction,
-sudden growth, churn risk, no cache discount, flaky compactor) against eight baselines and
-FoldPoint itself. The raw report is written to
-[`benchmarks/reports/benchmark-report.json`](benchmarks/reports/benchmark-report.json) and the
-methodology is documented in [benchmarks/README.md](benchmarks/README.md).
+## 已有评测，以及不能声称什么
 
-Aggregate over all 11 scenarios. "judged" counts the successful, non-forced compactions whose
-payback was measured against an independent counterfactual branch; "unneeded" counts how many
-of those did not repay themselves:
+### 合成 benchmark
 
-| strategy | cost | attempts | ok | failed | econ | forced | judged | unneeded | overflows | avg util @ comp |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Never | 217.82 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 45 | n/a |
-| Fixed 50% raw | 170.93 | 117 | 109 | 8 | 117 | 0 | 109 | 89 | 0 | 0.558 |
-| Fixed 70% raw | 189.33 | 81 | 76 | 5 | 81 | 0 | 76 | 44 | 0 | 0.722 |
-| Fixed 80% raw | 197.73 | 66 | 64 | 2 | 66 | 0 | 64 | 35 | 0 | 0.823 |
-| Fixed 90% raw | 208.35 | 55 | 53 | 2 | 55 | 0 | 53 | 29 | 0 | 0.922 |
-| Fixed 70% guarded | 191.32 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 0.807 |
-| Fixed 80% guarded | 199.07 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 0.869 |
-| Fixed 90% guarded | 208.35 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 0.922 |
-| **FoldPoint** | **136.37** | 121 | 119 | 2 | 80 | 41 | 80 | **7** | **0** | 0.434 |
+`npm run benchmark` 运行 11 类可复现的合成场景，并与固定阈值等基线比较。它能验证计费公式、缓存分支、失败与窗口安全行为；不能证明真实 Agent 的任务质量。[方法与原始报告](benchmarks/README.md)包含场景、数字和反事实结算口径。
 
-Costs, token counts and attempt counts are deterministic and reproduce exactly; latency is
-machine- and run-dependent, so the README does not quote it — the recorded values are in the
-report. Typical magnitudes on the machine that produced this table: FoldPoint `decide`
-p50 ≈ 0.005 ms and p99 ≈ 0.06 ms inside a session (including GC), against p50 ≈ 0.0002 ms for
-a fixed threshold; the pure decision micro-benchmark runs 100,000 `decideFoldPoint` calls at
-≈ 1 µs each.
+### 真实 Pi + DeepSeek 配对试验
 
-"Unneeded" is measured, not approximated: each successful non-forced compaction opens an
-independent counterfactual branch that keeps the pre-compaction context **and its own cache
-history**, receives exactly the same growth, and prices its own calls. If that branch would
-have run past the window, the compaction is never counted as unneeded. See
-[benchmarks/README.md](benchmarks/README.md).
+最新一轮使用真实 DeepSeek 请求，四组策略、两种合成任务、每组两轮，**16/16 任务产物检查通过**。为了在短任务中触发压缩，实验把 Pi 报告给该模型的窗口从正常的 1M **人为限制为 26K**，并在四组都关闭缓存预热。因此下表只反映这一受控压力条件，费用由 provider 用量和 Pi 价格表估算，未经账单核对：
 
-Honest reading of that table:
+| 策略 | 4 次运行估算总费用 | 成功压缩 |
+| --- | ---: | ---: |
+| Pi 默认阈值 | $0.099563 | 21 |
+| 仅提前阈值 | $0.113532 | 22 |
+| 提前阈值 + FoldPoint | $0.055050 | 4 |
+| **固定晚阈值** | **$0.057297** | **4** |
 
-- FoldPoint is the cheapest strategy in aggregate and never overflows. The advantage comes from
-  the scenarios where the cache does not save the session: keeping the context small is
-  directly cheaper there (scenario `D` 9.57 against 23.67 for the cheapest baseline, `E` 5.90
-  against 18.16, `J` 7.30 against 17.09).
-- **FoldPoint also compacts more often than the 70/80/90% baselines** (121 attempts against
-  55–81). Each of those compactions repays itself, but more compactions mean more exposures to
-  potential information loss. Raise `minCallsBetweenCompactions` or `minReclaimRatio` to trade
-  cost back for fewer compactions.
-- It is not the cheapest strategy everywhere: `B` (a stable replayed prefix) costs 6.45 against
-  6.21, `F` (a compactor that reclaims 5%) 59.20 against 53.24, `G` (an expensive compaction
-  call) 21.05 against 19.10, and `K` (half of all attempts fail) 9.37 against 8.92. In `B`,
-  `C`, `G`, `H` and `K` every compaction FoldPoint runs is a window-safety `FORCE`: it decides
-  the cache makes keeping cheap enough that no economic compaction is repaid.
-- 5 of the 7 unneeded compactions happen in `F`: the cold-start prior keeps compacting while
-  the learned retention ratio walks towards the real 0.95. The other 2 are in `I`, where the
-  context regrows fast enough that a compaction that looked repaid was not.
-- The guarded baselines isolate the guards from the economics: guarded 70% cuts unnecessary
-  compactions from 44 to 7 at the same cost, so most of the raw baselines' churn was the
-  missing cooldown, not the threshold.
-- FoldPoint's 7 unnecessary compactions out of 80 judged (9%) compare with 29–89 out of 53–109
-  (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
-- Scenario `K` (half of all attempts fail) is where the failure handling shows: failures are
-  billed, teach nothing, and restart the cooldown instead of turning into a retry storm.
+FoldPoint 相比固定晚阈值只低约 **3.9%**，调用路径也有波动；在这么小的样本中，**无法证明动态算法比简单晚压缩更强**。目前能稳妥说的是：这类条件下，避免过早压缩、减少缓存失效和压缩调用，有降低费用的潜力。不能把对 Pi 默认设置的优势宣称为对最佳固定策略的优势，更不能外推到默认 1M 窗口。
 
-What may be claimed from this table: **a reproducible cost comparison over synthetic
-scenarios**. 7 of 80 judged compactions did not repay themselves *within these scenarios and
-their settlement intervals*; the counts, costs and overflows reproduce exactly from the
-committed seeds. **Task quality and real provider traces still need separate validation**, and
-fewer compactions reduce the number of exposures to potential information loss without proving
-better task quality.
+详见[固定晚阈值对照报告](benchmarks/pi-fixed-late-2026-09-24.md)和[此前三组试验](benchmarks/pi-real-paired-2026-09-24.md)。下一步需要更真实、异质的长任务、更多重复、工具行为与结果质量检查，以及在已验证缓存 TTL 的模型上分开测试预热开关。满足这些条件之前，不计划向 Pi 上游推销内置算法。
 
-Earlier revisions of this README quoted numbers that are now withdrawn:
+## 边界与限制
 
-- "5 unnecessary compactions" and "a 4% unnecessary rate" came from an approximate
-  counterfactual (the actual cache coverage applied to a counterfactual prompt). They are
-  replaced by the measured counterfactual, which is stricter.
-- A call whose cache prefix had lapsed used to be billed at the plain input price. It is now
-  billed at the cache-write price, like the first replay after a compaction, because that is
-  what the request actually costs. With no `cacheWritePerMillion` the two are identical.
-- The model used to carry one replay cost and multiply it by the whole horizon, which charged
-  every future call as if it too would find the cache gone. It now prices the current call
-  (including the write it really has to do) separately from the later calls, which are a
-  forecast. See [docs/algorithm.md](docs/algorithm.md).
-- The later-call forecast used to reuse this call's hit count as the reusable prefix, so a host
-  that followed [docs/integration.md](docs/integration.md) and reported `cachedTokens: 0` for a
-  lapsed prefix saw every future call priced as a rewrite. The reusable prefix is now a
-  separate quantity (the reported prefix, the learned coverage, or the prompt just sent).
+- FoldPoint 不知道摘要是否遗漏重要信息，只能通过较少压缩、安全边界和宿主反馈降低风险，**省钱不等于任务质量更好**。
+- 剩余调用数和后续缓存存活是预测；短期盈亏平衡不是全局最优控制器。
+- 首次使用只能依赖冷启动先验。不同模型、价格制度、缓存策略或压缩器的经验不能混用。
+- 没有缓存读取折扣或可靠用量时，成本估计会退化；缺失字段不应伪装成 0。
+- Pi 扩展目前只能控制其阈值压缩是否放行，不能保证在任意调用边界主动压缩；其他宿主需自行接线。
+- 轨迹只存元数据，但时间戳和模型使用模式仍具有隐私风险。
 
-## Current limitations
+更多细节见[限制说明](docs/limitations.md)与[轨迹格式](docs/traces.md)。
 
-The full list is in [docs/limitations.md](docs/limitations.md). The short version:
+## 开发与项目结构
 
-- FoldPoint cannot judge whether a compaction dropped something important; it reduces that
-  risk with cooldowns, minimum reclaim, safe boundaries and a window reserve.
-- The future-call horizon is a guess unless the host provides one, and an overstated horizon
-  makes it compact more often.
-- The cost model is a short-horizon approximation, not an optimal controller.
-- Provider cache behaviour is modelled as a probability, not known state. The forecast for
-  later calls does not extrapolate a lapsed TTL: a host whose gaps reliably exceed its TTL
-  should describe that regime with a half-life policy, or accept that FoldPoint may compact
-  less than an omniscient model would.
-- The cold-start prior (retention 0.40) can allow a few economically wrong compactions before
-  the first real results arrive — visible in scenario `F`.
-- In cold-cache sessions FoldPoint compacts more often than the conservative fixed thresholds
-  (cheaper, but more exposures to information loss).
-- "Cheaper" is not "better quality": FoldPoint only optimises *when* to compact.
-
-## Real-trajectory validation (v0.2)
-
-The synthetic benchmark above is reproducible, but it is still synthetic. v0.2 asks the
-question the benchmark cannot: does a **real** agent's cache behaviour, session length and
-compaction result match what the model predicts? Three steps, in order:
-
-1. **record** — a versioned JSONL trace format and a pure recorder (`TraceRecorder`), wired into
-   a host with three hooks: decide, after the request, after a compaction. Metadata only: no
-   prompt text, no tool output, no chat content, no credentials. The estimate made *before* a
-   call and the usage the provider reports *after* it are separate events, because a host cannot
-   know the actual cache read/write tokens at decision time.
-2. **calibrate** — `npm run trace:analyze` pairs each decision with its outcome and reports
-   prediction error for call cost, cache aliveness (this call and the next), retention and the
-   remaining-call horizon, broken down by scenario class (cold cache, one-off expiry, near end
-   of session, steady) and split into a development and a holdout set. Changes that follow are
-   driven by that error, not by a new scenario, and never by a special case for one trace.
-3. **pair** — only then, paired experiments on real tasks: the same tasks, model and compactor
-   under FoldPoint and under a guarded fixed threshold, comparing total cost *and* task
-   completion, tool correctness, overflows, compaction count and extra latency.
+`src/` 是独立决策核心；`adapters/pi/` 是实验性宿主适配；`benchmarks/` 保存合成与真实试验方法；`tools/` 提供轨迹分析和配对运行器；`docs/` 存放算法、接入及限制说明。
 
 ```bash
-npm run trace:capture                      # writes traces/example.jsonl (wiring example)
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run benchmark
+npm run trace:capture
 npm run trace:analyze -- traces/example.jsonl
 ```
 
-The recorder is I/O-free, the analysis is offline, and neither touches the decision path: the
-core still runs locally, makes no network calls and answers in O(1). See
-[docs/traces.md](docs/traces.md) for the format, the wiring contract, the privacy rules and —
-importantly — what a trace *cannot* prove: replaying a trace with a different compaction time is
-not a counterfactual, and a cheaper session that dropped something important is not a win.
-
-There is a Pi extension in
-[`adapters/pi/foldpoint-observe.ts`](adapters/pi/foldpoint-observe.ts): by default it observes
-decisions; opt-in `act` mode can veto Pi's threshold compaction but does not replace its
-summarizer. It never reads a provider request payload. Pi 0.87's paid cache-refresh calls are
-recorded separately from agent requests, and paired timing trials disable warming by default
-to isolate the timing policy. [docs/pi-runbook.md](docs/pi-runbook.md) has the exact
-recipe, including how to produce compaction events for about a tenth of the token cost by
-declaring a smaller context window for the model in `~/.pi/agent/models.json`.
-
-## Future plugins
-
-The v0.1 package scope is the core only. The Pi adapter is an in-repository experimental extension, not
-part of the npm package; dsh and MemoEcho adapters remain future work. The first
-packaged plugin should follow paired evidence that FoldPoint helps on that agent, and it
-will reuse the same `TraceRecorder` interface.
-
-## Public API
-
-```ts
-class FoldPoint {
-  constructor(options?: { defaults?: Partial<FoldPointDefaults>; state?: FoldPointState });
-  observeRequest(sessionId, profile, observation): void;
-  decide(input): FoldPointDecision;
-  recordCompaction(sessionId, profile, observation): void;
-  endSession(sessionId, profile, observation): void;
-  exportState(): FoldPointState;
-  importState(state): void;
-  getProfileState(profile): FoldPointProfileLearningState;
-  getSessionState(sessionId, profile): FoldPointSessionState;
-  resetProfile(profile): void;
-  resetSession(sessionId, profile): void;
-  getDefaults(): FoldPointDefaults;
-}
-
-function decideFoldPoint(input, learning, session, options?): FoldPointDecision; // pure
-function computeBreakEvenCalls(input): number | null;                           // pure
-function profileKey(profile): string;
-function sessionKey(sessionId, profile): string;
-function tokenOnlyPricing(): PricingSnapshot;
-function resolveDefaults(overrides?): FoldPointDefaults;
-```
-
-Plus the building blocks used by the estimator (`resolveUnitPrices`, `costOfUsage`,
-`isTokenOnlyPricing`, `estimateCacheModel`, `resolveCacheCoverageRatio`, `resolveIdleMs`,
-`resolveCacheExpiresAt`, `computeConfidence`, `emaUpdate`, `clamp`, `safeDivide`,
-`sampleConfidence`, `percentile`), the state helpers (`createProfileLearningState`,
-`createSessionState`, `normalizeProfileLearningState`, `normalizeSessionState`,
-`applyRequestObservation`, `applyCompactionObservation`, `applySessionEnd`), the validators
-(`validateFoldPointInput`, `validateRequestObservation`, `validateCompactionObservation`,
-`validateDefaults`) and the reason catalog (`ALL_REASONS`, `REASON_DESCRIPTIONS`).
-
-The core has **zero runtime dependencies** and no Node-specific APIs: it runs in browsers and
-any JS runtime.
-
-## Development
-
-```bash
-npm install
-npm run typecheck   # tsc --noEmit
-npm run lint        # biome check .
-npm test            # vitest run
-npm run build       # tsup + tsc declarations -> dist/
-npm run benchmark   # simulation benchmark + JSON report
-npm run example:basic
-npm run example:online-learning
-npm run example:cache-expiration
-```
-
-Documentation: [algorithm](docs/algorithm.md) · [integration](docs/integration.md) ·
-[limitations](docs/limitations.md) · [benchmark](benchmarks/README.md).
-
-MIT licensed.
+核心没有运行时依赖，不要求 Node 专属 API。许可证为 [MIT](LICENSE)。

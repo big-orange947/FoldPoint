@@ -359,7 +359,7 @@ describe("9. growth fairness", () => {
   });
 });
 
-describe("10. the README aggregate table matches the report", () => {
+describe("10. the benchmark README aggregate table matches the report", () => {
   it("quotes exactly the committed JSON values", () => {
     const report = JSON.parse(
       readFileSync(join(REPO_ROOT, "benchmarks", "reports", "benchmark-report.json"), "utf8"),
@@ -377,7 +377,9 @@ describe("10. the README aggregate table matches the report", () => {
         overflowCount: number;
       }>;
     };
-    const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+    // The root README is a concise Chinese introduction. The complete reproducible
+    // aggregate table belongs in the benchmark methodology document.
+    const readme = readFileSync(join(REPO_ROOT, "benchmarks", "README.md"), "utf8");
 
     const labels: Record<string, string> = {
       never: "Never",
