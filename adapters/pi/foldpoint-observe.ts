@@ -38,7 +38,11 @@ import {
   TraceRecorder,
 } from "../../src/index";
 
-export const ADAPTER_VERSION = "0.1.0";
+/**
+ * Bumped to 0.2.0 when the prompt accounting changed: 0.1.0 recorded Pi's uncached input as the
+ * whole prompt, so a 0.1.0 trace under-counts every call by its cache hits.
+ */
+export const ADAPTER_VERSION = "0.2.0";
 
 // ============================================================================
 // The slice of Pi's extension API this adapter uses (structural, not imported)
@@ -168,6 +172,19 @@ interface ObserverState {
   failedCalls: number;
   /** Diagnostics that must not repeat on every call. */
   warned: Set<string>;
+}
+
+/**
+ * The whole prompt of a call, in the units the trace records.
+ *
+ * Pi reports `Usage.input` as the *uncached* part of the prompt, with `cacheRead` and
+ * `cacheWrite` beside it. A FoldPoint prediction is expressed over the whole prompt, with the
+ * cached part as a subset of it, so the two must be added back together here - otherwise every
+ * cached token would look like a prompt token that does not exist, and the cost of a call would
+ * be under-counted by exactly its cache hits.
+ */
+function totalPromptTokens(usage: PiUsage): number {
+  return usage.input + usage.cacheRead + usage.cacheWrite;
 }
 
 function pricingFromModel(model: PiModel): PricingSnapshot | undefined {
@@ -318,13 +335,16 @@ export function createFoldPointObserver(
       }
 
       // A compaction that Pi finished since the last call: only now is the new context size
-      // known, so the compaction record is written here.
+      // known, so the compaction record is written here. Pi reports `tokens: null` until the
+      // first response after a compaction, so the record waits for the first event that does
+      // know the size - that prompt is the post-compaction context, which is what the
+      // retention comparison needs.
       const pending = state.pendingCompaction;
       if (pending !== null) {
-        state.pendingCompaction = null;
         const afterTokens = ctx.getContextUsage()?.tokens ?? null;
-        const profile = profileFromModel(model);
         if (afterTokens !== null) {
+          state.pendingCompaction = null;
+          const profile = profileFromModel(model);
           const observation = {
             timestamp: pending.at,
             beforeTokens: pending.tokensBefore,
@@ -333,7 +353,7 @@ export function createFoldPointObserver(
             ...(pending.usage === undefined
               ? {}
               : {
-                  promptTokens: pending.usage.input,
+                  promptTokens: totalPromptTokens(pending.usage),
                   cachedInputTokens: pending.usage.cacheRead,
                   cacheWriteTokens: pending.usage.cacheWrite,
                   outputTokens: pending.usage.output,
@@ -403,20 +423,33 @@ export function createFoldPointObserver(
 
       const pending = state.decisions.shift();
       state.lastCallAt = now();
-      if (pending === undefined) {
-        state.unpairedRequests += 1;
-        log("[foldpoint] a model call finished with no decision recorded before it");
-        return;
-      }
-
       const observation = {
-        timestamp: pending.at,
-        promptTokens: usage.input,
+        timestamp: pending?.at ?? now(),
+        promptTokens: totalPromptTokens(usage),
         cachedInputTokens: usage.cacheRead,
         cacheWriteTokens: usage.cacheWrite,
         outputTokens: usage.output,
       };
       const outcome = outcomeFromStopReason(event.message.stopReason);
+      if (pending === undefined) {
+        // The decision for this call was skipped (Pi does not know the context size right
+        // after a compaction). The usage is still measured data, so it goes into the trace
+        // under a label that cannot collide with a callId; nothing can be compared against it,
+        // and the analyzer counts it instead of guessing.
+        state.unpairedRequests += 1;
+        log("[foldpoint] a model call finished with no decision recorded before it");
+        write(
+          trace.request(
+            sessionKey,
+            `${sessionKey}#unpaired-${state.unpairedRequests}`,
+            observation,
+            {
+              outcome,
+            },
+          ),
+        );
+        return;
+      }
       if (outcome === "ok") {
         // Learning state is per profile: without a model there is no profile to learn into, so
         // the trace still gets the usage but FoldPoint is left alone.

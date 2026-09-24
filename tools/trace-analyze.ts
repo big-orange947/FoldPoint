@@ -502,6 +502,19 @@ export function analyzeTraceEvents(
       `${unpairedCompactions} compaction(s) have no decision to compare against (a compaction before the first call, or one the host attached to a callId that has no decision); they are excluded from the retention error.`,
     );
   }
+  const requestsWithoutDecision = [...sessions.values()].reduce(
+    (total, session) =>
+      total +
+      session.requests.filter(
+        (request) => !session.decisions.some((decision) => decision.callId === request.callId),
+      ).length,
+    0,
+  );
+  if (requestsWithoutDecision > 0) {
+    notes.push(
+      `${requestsWithoutDecision} request(s) have no decision: the host recorded the call but could not decide before it (a context size it did not know). Their usage is in the trace and in the next-call cache comparison, but they carry no prediction of their own.`,
+    );
+  }
   const skippedNextCallTotal =
     skippedNextCall.compaction +
     skippedNextCall.profileChange +

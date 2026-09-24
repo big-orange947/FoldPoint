@@ -167,7 +167,42 @@ describe("Pi observer adapter", () => {
     expect(messages.some((message) => message.includes("decision(s) without a request"))).toBe(
       true,
     );
-    expect(readTrace(path).filter((event) => event.type === "request")).toHaveLength(0);
+    // The usage is still real data, so it is recorded - under a label that no decision can
+    // claim, so nothing downstream can pair it with the wrong prediction.
+    const requests = readTrace(path).filter((event) => event.type === "request");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.callId).toContain("#unpaired-");
+    expect(requests[0]?.usage.promptTokens).toBe(20);
+    expect(requests[0]?.usage.cachedInputTokens).toBe(0);
+    expect(requests[0]?.usage.cacheWriteTokens).toBe(10);
+  });
+
+  it("records the whole prompt, not Pi's uncached part of it", () => {
+    const path = newTracePath("prompt-total");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    // Pi reports the uncached part in `input` and the cached part beside it.
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 233, output: 371, cacheRead: 1_408, cacheWrite: 0 },
+      },
+    });
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const request = readTrace(path).find((event) => event.type === "request");
+    expect(request?.type).toBe("request");
+    if (request?.type !== "request") {
+      throw new Error("missing request");
+    }
+    expect(request.usage.promptTokens).toBe(1_641);
+    expect(request.usage.cachedInputTokens).toBe(1_408);
   });
 
   it("records a compaction with the size Pi reports after it", () => {
@@ -226,6 +261,48 @@ describe("Pi observer adapter", () => {
 
     expect(readTrace(path).filter((event) => event.type === "decision")).toHaveLength(0);
     expect(messages.some((message) => message.includes("skipped"))).toBe(true);
+  });
+
+  it("waits for a known context size before recording a compaction", () => {
+    // Pi reports `tokens: null` until the first response after a compaction, so the record
+    // cannot be written at the call right after it: the size is only known one call later,
+    // and that prompt is the post-compaction context.
+    const path = newTracePath("compaction-unknown");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(120_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 120_000, output: 300, cacheRead: 0, cacheWrite: 120_000 },
+      },
+    });
+    fake.emit("session_before_compact", {
+      type: "session_before_compact",
+      reason: "threshold",
+      preparation: { tokensBefore: 120_000 },
+    });
+    fake.emit("session_compact", {
+      type: "session_compact",
+      reason: "threshold",
+      compactionEntry: { tokensBefore: 120_000, usage: undefined },
+    });
+    // The call right after the compaction: Pi does not know the size yet.
+    fake.emit("context", { type: "context" }, fake.ctxWith(null));
+    expect(readTrace(path).filter((event) => event.type === "compaction")).toHaveLength(0);
+    // The next one knows it, and that is the size the compaction is recorded with.
+    fake.emit("context", { type: "context" }, fake.ctxWith(35_000));
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const compactions = readTrace(path).filter((event) => event.type === "compaction");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.beforeTokens).toBe(120_000);
+    expect(compactions[0]?.afterTokens).toBe(35_000);
   });
 
   it("explains a call that arrives without a session, once", () => {
