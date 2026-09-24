@@ -41,7 +41,7 @@ function recorder(): TraceRecorder {
 
 describe("trace format", () => {
   it("is versioned, and the library version matches package.json", () => {
-    expect(TRACE_FORMAT_VERSION).toBe(1);
+    expect(TRACE_FORMAT_VERSION).toBe(2);
     expect(FOLDPOINT_VERSION).toBe(PACKAGE_JSON.version);
   });
 
@@ -55,6 +55,23 @@ describe("trace format", () => {
     expect(header.producer).toBe("test-host");
     expect(header.defaults.expectedFutureCalls).toBeGreaterThan(0);
     expect(header.defaults.softWindowBreakEvenCalls).toBeGreaterThan(0);
+  });
+
+  it("reads legacy v1 traces and rejects an unpriced cache refresh", () => {
+    const legacy = { ...recorder().header(), v: 1 };
+    expect(parseTraceJsonl(JSON.stringify(legacy)).errors).toEqual([]);
+    const warm = recorder().cacheWarm("s-1", 100, {
+      promptTokens: 1000,
+      cachedInputTokens: 999,
+      cacheWriteTokens: 0,
+      outputTokens: 1,
+      actualCost: 0.001,
+    });
+    expect(parseTraceJsonl(JSON.stringify(warm)).errors).toEqual([]);
+    expect(
+      parseTraceJsonl(JSON.stringify({ ...warm, usage: { ...warm.usage, actualCost: null } }))
+        .errors,
+    ).toHaveLength(1);
   });
 
   it("keeps the decision-time estimate apart from the post-request actual", () => {
@@ -852,6 +869,27 @@ describe("trace analysis: path continuity", () => {
 
     expect(analysis.skippedNextCall.profileChange).toBe(1);
     expect(analysis.overall.cacheAliveNextCall.reduce((n, bucket) => n + bucket.count, 0)).toBe(0);
+  });
+
+  it("does not credit a warmed next-call cache hit to the prior decision", () => {
+    const events = twoCallSession("warmed", undefined, false);
+    events.splice(
+      3,
+      0,
+      recorder().cacheWarm("warmed", BASE_TIMESTAMP + 500, {
+        promptTokens: 100_000,
+        cachedInputTokens: 100_000,
+        cacheWriteTokens: 0,
+        outputTokens: 1,
+        actualCost: 0.04,
+      }),
+    );
+    const analysis = analyzeTraceEvents(events);
+    expect(analysis.skippedNextCall.cacheWarm).toBe(1);
+    expect(analysis.overall.cacheAliveNextCall.reduce((n, bucket) => n + bucket.count, 0)).toBe(0);
+    expect(analysis.sessionCosts[0]?.totalCost).toBeCloseTo(
+      (analysis.sessionCosts[0]?.callCost ?? 0) + 0.04,
+    );
   });
 
   it("compares the next call when the path is unchanged", () => {

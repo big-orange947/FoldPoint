@@ -9,7 +9,8 @@
  * ```
  *
  * What it does: it runs FoldPoint before every model call, records what FoldPoint *would* have
- * decided, records the usage Pi reports after the call, and records compactions Pi performed.
+ * decided, records the usage Pi reports after the call, records successful cache refresh
+ * usage from Pi's session metadata, and records compactions Pi performed.
  * It never compacts, never cancels, never modifies context, and never reads a request payload —
  * it does not subscribe to `before_provider_request` at all. FoldPoint is not wired into Pi's
  * compaction here on purpose: the first job is to find out whether the model's predictions
@@ -43,7 +44,7 @@ import {
  * Bumped to 0.2.0 when the prompt accounting changed: 0.1.0 recorded Pi's uncached input as the
  * whole prompt, so a 0.1.0 trace under-counts every call by its cache hits.
  */
-export const ADAPTER_VERSION = "0.2.0";
+export const ADAPTER_VERSION = "0.3.0";
 
 // ============================================================================
 // The slice of Pi's extension API this adapter uses (structural, not imported)
@@ -92,6 +93,18 @@ export interface PiExtensionContext {
   getContextUsage(): PiContextUsage | undefined;
   /** The effective system prompt, including tool descriptions and context files. */
   getSystemPrompt?(): string;
+  /** Pi 0.87 persists successful refreshes as usage entries, outside message_end. */
+  sessionManager?: {
+    getEntries(): Array<{
+      id: string;
+      type: string;
+      kind?: string;
+      timestamp: string;
+      provider?: string;
+      model?: string;
+      usage?: PiUsage & { cost?: { total: number } };
+    }>;
+  };
 }
 
 export type PiCompactionReason = "manual" | "threshold" | "overflow";
@@ -209,6 +222,9 @@ interface ObserverState {
   skippedDecisions: number;
   pendingCompaction: PendingCompaction | null;
   lastCallAt: number | undefined;
+  lastCacheRefreshAt: number | undefined;
+  lastCacheRefreshModel: string | undefined;
+  seenWarmIds: Set<string>;
   lastProfile: FoldPointProfile | undefined;
   failedCalls: number;
   /** Threshold compactions this adapter vetoed, in `act` mode. */
@@ -438,9 +454,12 @@ function profileFromModel(model: PiModel, prefixId: string | undefined): FoldPoi
   if (pricing !== undefined) {
     profile.pricing = pricing;
   }
-  const shortTtlSeconds = model.promptCache?.short;
-  if (shortTtlSeconds !== undefined && shortTtlSeconds > 0) {
-    profile.cachePolicy = { ttlMs: shortTtlSeconds * 1_000 };
+  // Match Pi's default retention selection. A per-request cacheRetention override is not
+  // exposed at this hook; in that case the trace's TTL remains an estimate.
+  const retention = process.env.PI_CACHE_RETENTION === "long" ? "long" : "short";
+  const ttlSeconds = model.promptCache?.[retention];
+  if (ttlSeconds !== undefined && ttlSeconds > 0) {
+    profile.cachePolicy = { ttlMs: ttlSeconds * 1_000 };
   }
   return profile;
 }
@@ -503,6 +522,9 @@ export function createFoldPointObserver(
       skippedDecisions: 0,
       pendingCompaction: null,
       lastCallAt: undefined,
+      lastCacheRefreshAt: undefined,
+      lastCacheRefreshModel: undefined,
+      seenWarmIds: new Set<string>(),
       lastProfile: undefined,
       failedCalls: 0,
       vetoes: 0,
@@ -533,15 +555,86 @@ export function createFoldPointObserver(
 
     write(trace.header());
 
-    pi.on("session_start", () => {
+    const collectCacheWarms = (ctx: PiExtensionContext): void => {
+      const sessionKey = state.sessionKey;
+      if (sessionKey === null || ctx.sessionManager === undefined) return;
+      // Pi's warmer bypasses context/message_end. Only the persisted usage entries prove that
+      // a refresh actually succeeded; cache_warming_decision merely predicts one may run.
+      for (const entry of ctx.sessionManager.getEntries()) {
+        if (
+          entry.type !== "usage" ||
+          entry.kind !== "cache_warm" ||
+          state.seenWarmIds.has(entry.id)
+        )
+          continue;
+        state.seenWarmIds.add(entry.id);
+        const usage = entry.usage;
+        if (usage === undefined || !Number.isFinite(usage.cost?.total)) {
+          warnOnce(
+            "unpriced-cache-warm",
+            "Pi recorded a cache warm without usable cost; it cannot be included in this trace",
+          );
+          continue;
+        }
+        const timestamp = Date.parse(entry.timestamp);
+        const at = Number.isFinite(timestamp) ? timestamp : now();
+        write(
+          trace.cacheWarm(sessionKey, at, {
+            promptTokens: totalPromptTokens(usage),
+            cachedInputTokens: usage.cacheRead,
+            cacheWriteTokens: usage.cacheWrite,
+            outputTokens: usage.output,
+            actualCost: usage.cost?.total ?? 0,
+          }),
+        );
+        if (entry.provider === ctx.model?.provider && entry.model === ctx.model?.id) {
+          state.lastCacheRefreshAt = Math.max(state.lastCacheRefreshAt ?? 0, at);
+          state.lastCacheRefreshModel = `${entry.provider}/${entry.model}`;
+        }
+      }
+    };
+
+    const idleSinceCacheRefresh = (timestamp: number, model: PiModel): number | undefined => {
+      const key = `${model.provider}/${model.id}`;
+      const lastCall =
+        state.lastProfile?.provider === model.provider && state.lastProfile.model === model.id
+          ? (state.lastCallAt ?? 0)
+          : 0;
+      const lastWarm = state.lastCacheRefreshModel === key ? (state.lastCacheRefreshAt ?? 0) : 0;
+      const last = Math.max(lastCall, lastWarm);
+      return last === 0 ? undefined : Math.max(0, timestamp - last);
+    };
+
+    pi.on("session_start", (_event, ctx) => {
       sessionCount += 1;
       // A runtime-scoped key: unique per session of this Pi process, and not Pi's own session
       // id or file path, so the trace cannot be joined back to a conversation.
       state.sessionKey = `pi-${runtimeStartSeconds}-${sessionCount}`;
       state.decisions = [];
+      state.unpairedRequests = 0;
+      state.unpairedDecisions = 0;
+      state.skippedDecisions = 0;
+      state.failedCalls = 0;
+      state.vetoes = 0;
       state.pendingCompaction = null;
       state.lastCallAt = undefined;
+      state.lastCacheRefreshAt = undefined;
+      state.lastCacheRefreshModel = undefined;
+      // A resumed Pi session may already contain old usage entries. They belong to an earlier
+      // run, not to this trace, and must not be charged or treated as a fresh cache refresh.
+      state.seenWarmIds = new Set(
+        ctx.sessionManager
+          ?.getEntries()
+          .filter((entry) => entry.type === "usage" && entry.kind === "cache_warm")
+          .map((entry) => entry.id) ?? [],
+      );
+      state.pendingPolicyCheck = null;
+      state.checksSinceDecision = { count: 0, vetoed: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
       state.lastProfile = undefined;
+      state.prefixId = undefined;
+      state.fixedPrefixTokens = undefined;
+      state.callsObserved = 0;
+      state.warned.clear();
       log(`[foldpoint] observing session ${state.sessionKey} -> ${tracePath}`);
     });
 
@@ -550,6 +643,7 @@ export function createFoldPointObserver(
     // does — `cachedTokens` is deliberately omitted and the model falls back to what it has
     // learned, which is what makes the later comparison meaningful.
     pi.on("context", (_event, ctx) => {
+      collectCacheWarms(ctx);
       const sessionKey = state.sessionKey;
       const model = ctx.model;
       if (sessionKey === null) {
@@ -615,12 +709,7 @@ export function createFoldPointObserver(
         // A prefix measured in an earlier process is still this prefix: use it for the first
         // call instead of pricing the system prompt as uncached input again.
         const remembered = state.prefixStore[prefixId];
-        state.fixedPrefixTokens =
-          remembered === undefined
-            ? undefined
-            : state.fixedPrefixTokens === undefined
-              ? remembered
-              : Math.min(remembered, state.fixedPrefixTokens);
+        state.fixedPrefixTokens = remembered;
       }
       // A prefix is a *part* of the prompt. One that does not fit inside the context it is
       // being declared for came from a different measurement of it, and declaring it would
@@ -629,8 +718,7 @@ export function createFoldPointObserver(
         state.fixedPrefixTokens !== undefined && state.fixedPrefixTokens < usage.tokens;
       const profile = profileFromModel(model, state.prefixId);
       const timestamp = now();
-      const idleMs =
-        state.lastCallAt === undefined ? undefined : Math.max(0, timestamp - state.lastCallAt);
+      const idleMs = idleSinceCacheRefresh(timestamp, model);
       const input = {
         sessionId: sessionKey,
         profile,
@@ -691,7 +779,6 @@ export function createFoldPointObserver(
       }
 
       const pending = state.decisions.shift();
-      state.lastCallAt = now();
       const observation = {
         timestamp: pending?.at ?? now(),
         promptTokens: totalPromptTokens(usage),
@@ -706,6 +793,10 @@ export function createFoldPointObserver(
         // under a label that cannot collide with a callId; nothing can be compared against it,
         // and the analyzer counts it instead of guessing.
         state.unpairedRequests += 1;
+        if (outcome === "ok" && ctx.model !== undefined) {
+          state.lastProfile = profileFromModel(ctx.model, state.prefixId);
+          state.lastCallAt = now();
+        }
         log("[foldpoint] a model call finished with no decision recorded before it");
         write(
           trace.request(
@@ -730,6 +821,7 @@ export function createFoldPointObserver(
           );
         } else {
           state.lastProfile = profileFromModel(model, state.prefixId);
+          state.lastCallAt = now();
           foldPoint.observeRequest(sessionKey, state.lastProfile, observation);
         }
       } else {
@@ -748,6 +840,7 @@ export function createFoldPointObserver(
     // request boundary would race the request it is meant to precede. Pi's own summary is
     // never replaced - `{ compaction }` is the one result this adapter will not return.
     pi.on("session_before_compact", (event, ctx) => {
+      collectCacheWarms(ctx);
       const sessionKey = state.sessionKey;
       if (sessionKey === null) {
         return;
@@ -772,13 +865,16 @@ export function createFoldPointObserver(
         return;
       }
       const profile = profileFromModel(model, state.prefixId);
+      const vetoAt = now();
+      const idleMs = idleSinceCacheRefresh(vetoAt, model);
       const vetoInput = {
         sessionId: sessionKey,
         profile,
-        timestamp: now(),
+        timestamp: vetoAt,
         contextTokens: tokensBefore,
         safeBoundary: true,
         compactionAllowed: true,
+        ...(idleMs === undefined ? {} : { idleMs }),
         ...(state.fixedPrefixTokens === undefined
           ? {}
           : { fixedPrefixTokens: state.fixedPrefixTokens }),
@@ -824,6 +920,12 @@ export function createFoldPointObserver(
         usage: event.compactionEntry.usage,
         at: now(),
       };
+      // The warmed request described the old conversation prefix. Its TTL must not be
+      // transferred to Pi's new post-compaction prefix.
+      state.lastCallAt = undefined;
+      state.lastCacheRefreshAt = undefined;
+      state.lastCacheRefreshModel = undefined;
+      state.pendingPolicyCheck = null;
     });
 
     pi.on("session_compact_failed", (event) => {
@@ -868,7 +970,8 @@ export function createFoldPointObserver(
       );
     });
 
-    pi.on("session_shutdown", () => {
+    pi.on("session_shutdown", (_event, ctx) => {
+      collectCacheWarms(ctx);
       const sessionKey = state.sessionKey;
       if (sessionKey === null) {
         return;
@@ -894,6 +997,8 @@ export function createFoldPointObserver(
       state.decisions = [];
       state.lastProfile = undefined;
       state.failedCalls = 0;
+      state.pendingPolicyCheck = null;
+      state.checksSinceDecision = { count: 0, vetoed: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
     });
   };
 }

@@ -27,6 +27,7 @@ import {
   parseTraceJsonl,
   resolveUnitPrices,
   safeDivide,
+  type TraceCacheWarmEvent,
   type TraceCompactionEvent,
   type TraceDecisionEvent,
   type TraceEvent,
@@ -97,7 +98,10 @@ export interface SessionCost {
   compactionCost: number;
   /** Compaction attempts that did not run: vetoed by a host, or aborted. */
   compactionsNotRun: number;
-  /** `callCost + compactionCost`. */
+  /** Successful paid refreshes Pi sent outside the ordinary agent request path. */
+  cacheWarms: number;
+  cacheWarmCost: number;
+  /** `callCost + compactionCost + cacheWarmCost`. */
   totalCost: number;
   /** `compactionCost / totalCost`, in [0, 1]. */
   compactionShare: number;
@@ -119,11 +123,17 @@ export interface TraceAnalysis {
   decisions: number;
   requests: number;
   compactions: number;
+  cacheWarms: number;
   unpriceable: number;
   unpairedDecisions: number;
   /** Requests whose cache read/write tokens the host did not report: unknown, not a miss. */
   unknownCacheUsage: number;
-  skippedNextCall: { compaction: number; profileChange: number; unknownNextDecision: number };
+  skippedNextCall: {
+    compaction: number;
+    cacheWarm: number;
+    profileChange: number;
+    unknownNextDecision: number;
+  };
   /**
    * Compaction-policy checks a host ran between model calls. Not decisions: a host with a low
    * threshold asks before nearly every call, and those answers are counted here instead of
@@ -148,6 +158,7 @@ interface SessionIndex {
   decisions: TraceDecisionEvent[];
   requests: TraceRequestEvent[];
   compactions: TraceCompactionEvent[];
+  cacheWarms: TraceCacheWarmEvent[];
   endedAt: number | null;
   /** Known cache-read state per request: `true` served, `false` not served, `undefined` unknown. */
   servedFromCache: Array<boolean | undefined>;
@@ -324,7 +335,7 @@ export function analyzeTraceEvents(
   let unpairedDecisions = 0;
   let unknownCacheUsage = 0;
   let unpairedCompactions = 0;
-  const skippedNextCall = { compaction: 0, profileChange: 0, unknownNextDecision: 0 };
+  const skippedNextCall = { compaction: 0, cacheWarm: 0, profileChange: 0, unknownNextDecision: 0 };
 
   for (const session of sessions.values()) {
     const sessionClasses = classifySession(session);
@@ -557,11 +568,12 @@ export function analyzeTraceEvents(
   }
   const skippedNextCallTotal =
     skippedNextCall.compaction +
+    skippedNextCall.cacheWarm +
     skippedNextCall.profileChange +
     skippedNextCall.unknownNextDecision;
   if (skippedNextCallTotal > 0) {
     notes.push(
-      `${skippedNextCallTotal} next-call cache comparison(s) were skipped because the two calls are not the same path: ${skippedNextCall.compaction} after a compaction, ${skippedNextCall.profileChange} after a model or compactor change, ${skippedNextCall.unknownNextDecision} with no decision for the next call.`,
+      `${skippedNextCallTotal} next-call cache comparison(s) were skipped because the two calls are not the same path: ${skippedNextCall.compaction} after a compaction, ${skippedNextCall.cacheWarm} after a paid cache refresh, ${skippedNextCall.profileChange} after a model or compactor change, ${skippedNextCall.unknownNextDecision} with no decision for the next call.`,
     );
   }
   if (sessions.size === 0) {
@@ -599,6 +611,10 @@ export function analyzeTraceEvents(
     requests: [...sessions.values()].reduce((total, session) => total + session.requests.length, 0),
     compactions: [...sessions.values()].reduce(
       (total, session) => total + session.compactions.length,
+      0,
+    ),
+    cacheWarms: [...sessions.values()].reduce(
+      (total, session) => total + session.cacheWarms.length,
       0,
     ),
     unpriceable,
@@ -710,7 +726,11 @@ function collectSessionCosts(sessions: Map<string, SessionIndex>): SessionCost[]
       });
     }
 
-    const totalCost = callCost + compactionCost;
+    const cacheWarmCost = session.cacheWarms.reduce(
+      (sum, event) => sum + event.usage.actualCost,
+      0,
+    );
+    const totalCost = callCost + compactionCost + cacheWarmCost;
     costs.push({
       sessionId: session.sessionId,
       calls,
@@ -718,6 +738,8 @@ function collectSessionCosts(sessions: Map<string, SessionIndex>): SessionCost[]
       compactions,
       compactionCost,
       compactionsNotRun,
+      cacheWarms: session.cacheWarms.length,
+      cacheWarmCost,
       totalCost,
       compactionShare: safeDivide(compactionCost, totalCost, 0),
       currency: pricing.currency ?? "USD",
@@ -796,6 +818,7 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
       decisions: [],
       requests: [],
       compactions: [],
+      cacheWarms: [],
       endedAt: null,
       servedFromCache: [],
     };
@@ -824,6 +847,9 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
       }
       case "compaction":
         ensure(event.sessionId).compactions.push(event);
+        break;
+      case "cache_warm":
+        ensure(event.sessionId).cacheWarms.push(event);
         break;
       case "session_end":
         ensure(event.sessionId).endedAt = event.timestamp;
@@ -885,7 +911,7 @@ function nextCallBlocker(
   next: TraceRequestEvent,
   decision: TraceDecisionEvent,
   nextDecision: TraceDecisionEvent | undefined,
-): "compaction" | "profileChange" | "unknownNextDecision" | null {
+): "compaction" | "cacheWarm" | "profileChange" | "unknownNextDecision" | null {
   const compactedBetween = session.compactions.some(
     (compaction) =>
       compaction.callId === decision.callId ||
@@ -893,6 +919,13 @@ function nextCallBlocker(
   );
   if (compactedBetween) {
     return "compaction";
+  }
+  if (
+    session.cacheWarms.some(
+      (warm) => warm.timestamp > request.timestamp && warm.timestamp <= next.timestamp,
+    )
+  ) {
+    return "cacheWarm";
   }
   if (nextDecision === undefined) {
     return "unknownNextDecision";
@@ -978,16 +1011,16 @@ function renderSessionCosts(costs: readonly SessionCost[]): string[] {
   const lines = [
     "## Session cost",
     "",
-    "Every call that ran, output included, plus the compactions themselves. Not comparable",
+    "Every call that ran, output included, plus compactions and observed cache refreshes. Not comparable",
     "across window sizes, and not the same number as the prediction metrics above (which price",
     "the prompt only, and only for calls with a decision).",
     "",
-    "| session | calls | calls cost | compactions | compaction cost | not run | total | compaction share |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| session | calls | calls cost | compactions | compaction cost | cache warms | warm cost | not run | total | compaction share |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const cost of costs) {
     lines.push(
-      `| ${cost.sessionId} | ${cost.calls} | ${formatMoney(cost.callCost, cost.currency)} | ${cost.compactions} | ${formatMoney(cost.compactionCost, cost.currency)} | ${cost.compactionsNotRun} | ${formatMoney(cost.totalCost, cost.currency)} | ${(cost.compactionShare * 100).toFixed(0)}% |`,
+      `| ${cost.sessionId} | ${cost.calls} | ${formatMoney(cost.callCost, cost.currency)} | ${cost.compactions} | ${formatMoney(cost.compactionCost, cost.currency)} | ${cost.cacheWarms} | ${formatMoney(cost.cacheWarmCost, cost.currency)} | ${cost.compactionsNotRun} | ${formatMoney(cost.totalCost, cost.currency)} | ${(cost.compactionShare * 100).toFixed(0)}% |`,
     );
   }
 
@@ -997,8 +1030,9 @@ function renderSessionCosts(costs: readonly SessionCost[]): string[] {
     const currency = costs[0]?.currency ?? "";
     const total = costs.reduce((sum, cost) => sum + cost.totalCost, 0);
     const compactionCost = costs.reduce((sum, cost) => sum + cost.compactionCost, 0);
+    const cacheWarmCost = costs.reduce((sum, cost) => sum + cost.cacheWarmCost, 0);
     lines.push(
-      `| **all** | ${costs.reduce((sum, cost) => sum + cost.calls, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactions, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactionsNotRun, 0)} | **${formatMoney(total, currency)}** | **${(safeDivide(compactionCost, total, 0) * 100).toFixed(0)}%** |`,
+      `| **all** | ${costs.reduce((sum, cost) => sum + cost.calls, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactions, 0)} | | ${costs.reduce((sum, cost) => sum + cost.cacheWarms, 0)} | ${formatMoney(cacheWarmCost, currency)} | ${costs.reduce((sum, cost) => sum + cost.compactionsNotRun, 0)} | **${formatMoney(total, currency)}** | **${(safeDivide(compactionCost, total, 0) * 100).toFixed(0)}%** |`,
     );
   } else {
     lines.push(
@@ -1023,7 +1057,7 @@ export function renderTraceReport(analysis: TraceAnalysis): string {
     "",
     `- trace format: v${String(analysis.format.version ?? "?")}, produced by foldpoint ${analysis.format.libraryVersion ?? "?"}${analysis.format.producer ? ` (${analysis.format.producer})` : ""}`,
     `- files: ${analysis.files.length > 0 ? analysis.files.join(", ") : "n/a"}`,
-    `- events: ${analysis.events} (${analysis.sessions} sessions: ${analysis.completeSessions} complete, ${analysis.censoredSessions} censored; ${analysis.decisions} decisions, ${analysis.requests} requests, ${analysis.compactions} compactions)`,
+    `- events: ${analysis.events} (${analysis.sessions} sessions: ${analysis.completeSessions} complete, ${analysis.censoredSessions} censored; ${analysis.decisions} decisions, ${analysis.requests} requests, ${analysis.compactions} compactions, ${analysis.cacheWarms} cache warms)`,
     `- usable for calibration: ${analysis.usableForCalibration ? "yes" : "**no**"}`,
     "",
     "A positive signed error means the model **under-predicted**; a negative one means it",

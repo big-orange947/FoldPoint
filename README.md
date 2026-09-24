@@ -460,19 +460,20 @@ core still runs locally, makes no network calls and answers in O(1). See
 importantly — what a trace *cannot* prove: replaying a trace with a different compaction time is
 not a counterfactual, and a cheaper session that dropped something important is not a win.
 
-For the first real data there is an observe-only Pi extension in
-[`adapters/pi/foldpoint-observe.ts`](adapters/pi/foldpoint-observe.ts): it records what FoldPoint
-would have decided, never compacts, and never reads a request payload. Acting on the decisions
-comes after the data says it should. [docs/pi-runbook.md](docs/pi-runbook.md) has the exact
+There is a Pi extension in
+[`adapters/pi/foldpoint-observe.ts`](adapters/pi/foldpoint-observe.ts): by default it observes
+decisions; opt-in `act` mode can veto Pi's threshold compaction but does not replace its
+summarizer. It never reads a provider request payload. Pi 0.87's paid cache-refresh calls are
+recorded separately from agent requests, and paired timing trials disable warming by default
+to isolate the timing policy. [docs/pi-runbook.md](docs/pi-runbook.md) has the exact
 recipe, including how to produce compaction events for about a tenth of the token cost by
 declaring a smaller context window for the model in `~/.pi/agent/models.json`.
 
 ## Future plugins
 
-v0.1 is the core only. Thin adapters for Pi, dsh and MemoEcho are planned as separate packages
-once the core has been reviewed; they will translate host events into `observeRequest` /
-`recordCompaction` / `decide` calls and nothing more. No plugin is implemented here. The first
-adapter should be chosen after the trace data above says FoldPoint helps on that agent, and it
+The v0.1 package scope is the core only. The Pi adapter is an in-repository experimental extension, not
+part of the npm package; dsh and MemoEcho adapters remain future work. The first
+packaged plugin should follow paired evidence that FoldPoint helps on that agent, and it
 will reuse the same `TraceRecorder` interface.
 
 ## Public API

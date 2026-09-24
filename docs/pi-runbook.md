@@ -426,9 +426,32 @@ three arms, all with the same tasks, model and compactor:
 | `ask` | low | observe | what asking more often alone does |
 | `veto` | low | act | what FoldPoint's answers add on top |
 
-`tools/pi-paired-run.ts` currently runs `default` and `act`; the `ask` arm is the same run with
-`FOLDPOINT_MODE=observe` and the low-threshold config, and it is what turns a difference into an
-explanation.
+`tools/pi-paired-run.ts` runs all three arms. It pairs costs by task and repetition only when
+both runs exit successfully and pass the artifact check; unmatched successful runs are reported
+but never used in the percentage delta.
+
+### Pi 0.87 cache warming and experimental control
+
+Pi's `cacheWarming` (default `streaming`) may replay a cached request with a one-token output
+cap before the provider TTL expires. It is a separate, paid intervention: Pi persists a
+`usage` entry with `kind: "cache_warm"`, but it does **not** emit a normal model-call
+`context`/`message_end` pair. The FoldPoint adapter reads only those usage entries (no message
+payload), records `cache_warm` trace events, adds their actual priced cost to the session, and
+uses the most recent successful refresh when estimating idle time against the TTL. A mere
+`cache_warming_decision` does not prove a refresh occurred and is not treated as one. Pi's
+warmer can stop after a compaction or model switch, so an attempted warm must never be
+assumed to survive those transitions. The adapter follows `PI_CACHE_RETENTION=long` when
+selecting Pi's declared TTL; a per-request retention override is not exposed by its current
+hook and remains a prediction limitation.
+
+The three-arm paired **compaction-timing** trial defaults to `cacheWarming: "off"` in each
+fresh experiment agent directory. This isolates the timing policy; it does not claim FoldPoint
+is better with Pi warming enabled. Run the same three arms with
+`--cache-warming streaming` (or `idle`) as a separate factorial stratum, comparing total
+call + compaction + warm cost, quality and task completion. Never mix `off` and `streaming`
+results in one percentage comparison.
+Production use does not disable Pi's warming. On a model without a declared `promptCache`
+lifetime, Pi cannot schedule this warmer; DeepSeek's current Pi model entry is in that class.
 
 ### 5.2 What Pi would have to expose for the rest
 
@@ -471,18 +494,26 @@ npx tsx tools/pi-paired-run.ts --reps 3
 The protocol is fixed before the first run, because a task chosen after seeing the numbers is
 not evidence:
 
-- **One variable**: `FOLDPOINT_MODE`. `observe` leaves Pi's threshold compaction alone, `act`
-  lets FoldPoint veto it. Same model, same compactor (Pi's), same adapter, same prompts.
-- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships two tasks: one appends the
+- **Controlled arms**: `default` uses Pi's standard threshold; `ask` moves only the threshold;
+  `veto` adds FoldPoint's answer on top of `ask`. Model, compactor, prompts and
+  `cacheWarming: "off"` are fixed across arms.
+- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships three tasks: two append the
   first line number of each 60-line chunk to `notes.md` (8 exact values), one writes the sum of
   1..1000 to `out-sum.md` (500500). A run that is cheaper and wrong is not a win, so the check
   is printed next to the cost and a missing artifact is visible in the table.
 - **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
-  every call that ran, output included, plus the compactions themselves. `trace:analyze` prints
+  every call that ran, output included, plus compactions and any observed cache refreshes. `trace:analyze` prints
   the same table under `## Session cost`.
 - **Both directions matter**. A task that never reaches the threshold cannot show a difference
   (the `sum` task is a control); the one that does (`steps`) is where the veto has something to
   decide.
+
+`PI_SCRATCH` must be an existing seed directory containing `big.txt`, and
+`PI_CODING_AGENT_DIR` must be an existing experiment configuration directory. The runner
+copies the seed into a new per-run workspace and copies `settings.json`/`models.json` into a
+new per-run agent directory; it never clears the seed, edits the base settings, or copies
+`auth.json`. Supply provider credentials through the environment. Existing trace paths are
+refused rather than overwritten, so use a fresh `--out` prefix when repeating a trial.
 
 What the trial still cannot do: a handful of runs on one model is a signal, not a result. The
 model is not deterministic, so per-run cost varies with how much new text each call carried, and

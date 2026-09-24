@@ -40,7 +40,7 @@ import type {
 import { FOLDPOINT_VERSION } from "./version";
 
 /** Bumped whenever the event shape changes in a way a reader has to know about. */
-export const TRACE_FORMAT_VERSION = 1;
+export const TRACE_FORMAT_VERSION = 2;
 
 /** What happened to the call a decision was about. */
 export type TraceOutcome = "ok" | "error" | "overflow" | "aborted";
@@ -101,7 +101,7 @@ export interface TraceInput {
 }
 
 export interface TraceHeaderEvent {
-  v: typeof TRACE_FORMAT_VERSION;
+  v: 1 | typeof TRACE_FORMAT_VERSION;
   type: "header";
   seq: 0;
   timestamp: number;
@@ -113,7 +113,7 @@ export interface TraceHeaderEvent {
 }
 
 export interface TraceDecisionEvent {
-  v: typeof TRACE_FORMAT_VERSION;
+  v: 1 | typeof TRACE_FORMAT_VERSION;
   type: "decision";
   seq: number;
   timestamp: number;
@@ -143,7 +143,7 @@ export interface TraceDecisionEvent {
 }
 
 export interface TraceRequestEvent {
-  v: typeof TRACE_FORMAT_VERSION;
+  v: 1 | typeof TRACE_FORMAT_VERSION;
   type: "request";
   seq: number;
   timestamp: number;
@@ -155,8 +155,25 @@ export interface TraceRequestEvent {
   outcome?: TraceOutcome;
 }
 
-export interface TraceCompactionEvent {
+/** A host-side cache refresh is a paid call, but not an agent turn or a decision/request pair. */
+export interface TraceCacheWarmEvent {
   v: typeof TRACE_FORMAT_VERSION;
+  type: "cache_warm";
+  seq: number;
+  timestamp: number;
+  sessionId: string;
+  usage: {
+    promptTokens: number;
+    cachedInputTokens: number;
+    cacheWriteTokens: number;
+    outputTokens: number;
+    /** Pi's priced usage for the refresh; no request payload is recorded. */
+    actualCost: number;
+  };
+}
+
+export interface TraceCompactionEvent {
+  v: 1 | typeof TRACE_FORMAT_VERSION;
   type: "compaction";
   seq: number;
   timestamp: number;
@@ -193,7 +210,7 @@ export interface TraceCompactionEvent {
 }
 
 export interface TraceSessionEndEvent {
-  v: typeof TRACE_FORMAT_VERSION;
+  v: 1 | typeof TRACE_FORMAT_VERSION;
   type: "session_end";
   seq: number;
   timestamp: number;
@@ -206,6 +223,7 @@ export type TraceEvent =
   | TraceHeaderEvent
   | TraceDecisionEvent
   | TraceRequestEvent
+  | TraceCacheWarmEvent
   | TraceCompactionEvent
   | TraceSessionEndEvent;
 
@@ -338,6 +356,25 @@ export class TraceRecorder {
     if (options.outcome !== undefined) {
       event.outcome = options.outcome;
     }
+    return event;
+  }
+
+  /** Records a successful cache refresh without pretending it was a normal model call. */
+  cacheWarm(
+    sessionId: string,
+    timestamp: number,
+    usage: TraceCacheWarmEvent["usage"],
+  ): TraceCacheWarmEvent {
+    assertTraceLabel("sessionId", sessionId);
+    const event: TraceCacheWarmEvent = {
+      v: TRACE_FORMAT_VERSION,
+      type: "cache_warm",
+      seq: this.#nextSeq(),
+      timestamp,
+      sessionId,
+      usage: { ...usage },
+    };
+    validateTraceEvent(event);
     return event;
   }
 
@@ -526,6 +563,7 @@ const TRACE_EVENT_TYPES: readonly TraceEventType[] = [
   "header",
   "decision",
   "request",
+  "cache_warm",
   "compaction",
   "session_end",
 ];
@@ -565,9 +603,10 @@ export function isTraceEvent(value: unknown): value is TraceEvent {
   }
   const event = value as { v?: unknown; type?: unknown };
   return (
-    event.v === TRACE_FORMAT_VERSION &&
+    (event.v === 1 || event.v === TRACE_FORMAT_VERSION) &&
     typeof event.type === "string" &&
-    (TRACE_EVENT_TYPES as readonly string[]).includes(event.type)
+    (TRACE_EVENT_TYPES as readonly string[]).includes(event.type) &&
+    (event.v !== 1 || event.type !== "cache_warm")
   );
 }
 
@@ -580,9 +619,9 @@ export function isTraceEvent(value: unknown): value is TraceEvent {
 export function validateTraceEvent(value: unknown): TraceEvent {
   if (!isTraceEvent(value)) {
     const version = (value as { v?: unknown } | null)?.v;
-    if (version !== undefined && version !== TRACE_FORMAT_VERSION) {
+    if (version !== undefined && version !== 1 && version !== TRACE_FORMAT_VERSION) {
       throw new RangeError(
-        `Trace event version ${String(version)} is not supported (expected ${TRACE_FORMAT_VERSION})`,
+        `Trace event version ${String(version)} is not supported (expected 1 or ${TRACE_FORMAT_VERSION})`,
       );
     }
     throw new RangeError("Trace event must carry a supported `v` and a known `type`");
@@ -635,6 +674,17 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       }
       if (event.usage.outputTokens !== undefined) {
         assertFinite("usage.outputTokens", event.usage.outputTokens, 0);
+      }
+      return event;
+    }
+    case "cache_warm": {
+      assertFinite("usage.promptTokens", event.usage?.promptTokens, 0);
+      assertFinite("usage.cachedInputTokens", event.usage?.cachedInputTokens, 0);
+      assertFinite("usage.cacheWriteTokens", event.usage?.cacheWriteTokens, 0);
+      assertFinite("usage.outputTokens", event.usage?.outputTokens, 0);
+      assertFinite("usage.actualCost", event.usage?.actualCost, 0);
+      if (event.usage.cachedInputTokens + event.usage.cacheWriteTokens > event.usage.promptTokens) {
+        throw new RangeError("Trace cache_warm usage cannot exceed promptTokens");
       }
       return event;
     }

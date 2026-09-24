@@ -58,6 +58,7 @@ export {
 } from "./pricing";
 export { ALL_REASONS, REASON_DESCRIPTIONS } from "./reasons";
 export type {
+  TraceCacheWarmEvent,
   TraceCompactionEvent,
   TraceDecisionEvent,
   TraceEvent,

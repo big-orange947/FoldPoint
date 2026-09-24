@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi 0.87 cache warming compatibility and safer paired trials
+
+- Trace v2 records successful, paid `cache_warm` usage separately from agent requests; the
+  analyzer includes refresh cost and excludes cache-survival comparisons crossed by warming.
+  Existing v1 traces remain readable but cannot reconstruct unrecorded warming costs.
+- The Pi adapter uses persisted `cache_warm` usage entries to refresh its TTL clock, without
+  treating a proposed warm as successful or subscribing to provider request payloads.
+- Paired runs use fresh seed workspaces and per-run Pi settings. They no longer recursively
+  clear `PI_SCRATCH` or edit the base agent settings. Warming is fixed across arms (off by
+  default, optionally streaming/idle), and percentage deltas use matched successful reps.
+
 ### Pi runbook
 
 `docs/pi-runbook.md`: how to collect the first real traces, checked against a local Pi checkout.

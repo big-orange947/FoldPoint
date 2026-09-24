@@ -41,7 +41,7 @@ cannot calibrate anything, so they are separate events with separate fields.
 defaults** in force, so a trace can be tied back to the model that produced its predictions.
 
 ```json
-{"v":1,"type":"header","seq":0,"timestamp":1700000000000,
+{"v":2,"type":"header","seq":0,"timestamp":1700000000000,
  "library":{"name":"foldpoint","version":"0.1.0"},
  "defaults":{"retentionRatio":0.4,"...":"..."},"producer":"my-agent@1.2.3"}
 ```
@@ -51,7 +51,7 @@ defaults** in force, so a trace can be tied back to the model that produced its 
 policy), the decision input, the action with its reason codes, and the full prediction block.
 
 ```json
-{"v":1,"type":"decision","seq":1,"timestamp":1700000010000,"sessionId":"s-1","callId":"s-1#1",
+{"v":2,"type":"decision","seq":1,"timestamp":1700000010000,"sessionId":"s-1","callId":"s-1#1",
  "profile":{"model":"claude-...","contextWindowTokens":200000,"compactorId":"summary-v2",
             "pricing":{"inputPerMillion":3,"outputPerMillion":15,"cacheReadPerMillion":0.3,
                        "cacheWritePerMillion":3.75},"cachePolicy":{"ttlMs":300000}},
@@ -66,11 +66,19 @@ policy), the decision input, the action with its reason codes, and the full pred
 actual `promptTokens`, `cachedInputTokens`, `cacheWriteTokens`, `outputTokens` and (when
 reported) `actualCost` go, plus latency and an outcome.
 
+`cache_warm` (v2) — a successful, paid host cache refresh that is **not** an agent turn. It
+has its own provider usage and cost and is not paired to a `decision` or counted as a normal
+`request`. Pi 0.87 emits these refreshes outside `context`/`message_end`; the adapter reads
+Pi's persisted `usage.kind = "cache_warm"` entries. The analyzer includes them in session
+cost and excludes a next-call cache comparison crossed by one, since that cache hit was not
+caused solely by the previous decision. Legacy v1 traces remain readable, but cannot recover
+refreshes they never recorded.
+
 `compaction` — one per compaction attempt: `beforeTokens`, `afterTokens`, `success`, the
 compaction call's own usage and cost, its duration, and an optional short `errorCode`.
 
-`session_end` — closes a session. The horizon is still measurable without it, but it is what
-tells the analysis that a session is complete.
+`session_end` — closes a session. Without it, the session is right-censored and its remaining
+call horizon cannot be measured reliably.
 
 ## 2. Wiring a host
 

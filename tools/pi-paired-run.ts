@@ -1,20 +1,28 @@
 /**
  * Paired real-task trial: Pi's own compaction timing against FoldPoint's.
  *
- * The same tasks, the same model, the same compactor (Pi's), the same adapter - only
- * `FOLDPOINT_MODE` differs. `observe` leaves Pi's threshold compaction alone; `act` lets
- * FoldPoint veto it. Both are measured from the traces, including what the compactions
+ * The same tasks, model, compactor (Pi's), adapter and cache-warming mode across three arms:
+ * Pi default threshold, low threshold alone, and low threshold plus FoldPoint veto. All are
+ * measured from the traces, including what the compactions
  * themselves cost, and every task has a machine-checkable artifact: a cheaper run that got the
  * answer wrong is not a win.
  *
- *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--out <prefix>]
+ *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--cache-warming off|streaming|idle] [--out <prefix>]
  *
- * Environment: `PI_CLI` (path to Pi's cli.js), `PI_AGENT_DIR`, `PI_MODEL` (default
+ * Environment: `PI_CLI` (path to Pi's cli.js), `PI_CODING_AGENT_DIR`, `PI_MODEL` (default
  * `deepseek-flash`), `PI_EXTENSION` (default `adapters/pi/foldpoint-observe.ts`).
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +43,7 @@ export interface Task {
 export interface RunResult {
   task: string;
   condition: ConditionId;
+  cacheWarming: CacheWarmingMode;
   rep: number;
   exitCode: number;
   ok: boolean;
@@ -44,6 +53,7 @@ export interface RunResult {
 }
 
 export type ConditionId = "default" | "ask" | "veto";
+export type CacheWarmingMode = "off" | "streaming" | "idle";
 
 /**
  * The three arms. Moving Pi's threshold earlier is part of how FoldPoint gets control, so it
@@ -111,11 +121,13 @@ function parseArgs(argv: readonly string[]): {
   reps: number;
   tasks: string[];
   outPrefix: string;
+  cacheWarming: CacheWarmingMode;
 } {
   const options = {
     reps: 3,
     tasks: TASKS.map((task) => task.id),
-    outPrefix: join(homedir(), ".foldpoint", "paired", "run"),
+    outPrefix: join(homedir(), ".foldpoint", "paired", `run-${Date.now()}`),
+    cacheWarming: "off" as CacheWarmingMode,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -127,6 +139,13 @@ function parseArgs(argv: readonly string[]): {
       index += 1;
     } else if (arg === "--out") {
       options.outPrefix = resolve(argv[index + 1] ?? options.outPrefix);
+      index += 1;
+    } else if (arg === "--cache-warming") {
+      const mode = argv[index + 1];
+      if (mode !== "off" && mode !== "streaming" && mode !== "idle") {
+        throw new Error("--cache-warming must be off, streaming or idle");
+      }
+      options.cacheWarming = mode;
       index += 1;
     }
   }
@@ -142,22 +161,68 @@ function sessionCostOf(tracePath: string): SessionCost | null {
   return analysis.sessionCosts[0] ?? null;
 }
 
-/** Files the tasks need; everything else in the scratch directory is reset before each run. */
+/** Read-only seed files. A run gets a fresh directory; nothing in PI_SCRATCH is deleted. */
 const SCRATCH_INPUTS = ["big.txt", "notes-a.txt", "data-01.txt", "data-02.txt", "data-03.txt"];
 
-/**
- * A run must not inherit the previous run's workspace, or a later run gets a head start.
- *
- * Only the seeded inputs survive: every artifact a task can produce is removed, so both arms
- * start from the same state whatever the previous run left behind.
- */
-function resetScratch(scratch: string): void {
-  mkdirSync(scratch, { recursive: true });
-  for (const entry of readdirSync(scratch)) {
-    if (!SCRATCH_INPUTS.includes(entry)) {
-      rmSync(join(scratch, entry), { recursive: true, force: true });
+export function prepareScratch(seedRoot: string): string {
+  if (!existsSync(seedRoot) || !lstatSync(seedRoot).isDirectory()) {
+    throw new Error(`PI_SCRATCH must be an existing seed directory: ${seedRoot}`);
+  }
+  const seeded = SCRATCH_INPUTS.filter((name) => existsSync(join(seedRoot, name)));
+  if (!seeded.includes("big.txt")) {
+    throw new Error(`PI_SCRATCH is missing required seed file big.txt: ${seedRoot}`);
+  }
+  for (const name of seeded) {
+    if (!lstatSync(join(seedRoot, name)).isFile()) {
+      throw new Error(`PI_SCRATCH seed must be a regular file: ${name}`);
     }
   }
+  const scratch = mkdtempSync(join(seedRoot, "foldpoint-run-"));
+  for (const name of seeded) {
+    copyFileSync(join(seedRoot, name), join(scratch, name));
+  }
+  return scratch;
+}
+
+/** Use a fresh Pi configuration per run, leaving the user's settings and credentials intact. */
+export function prepareAgentDir(
+  base: string,
+  condition: ConditionId,
+  cacheWarming: CacheWarmingMode = "off",
+): string {
+  if (!existsSync(base) || !lstatSync(base).isDirectory()) {
+    throw new Error(`PI_CODING_AGENT_DIR must be an existing experiment directory: ${base}`);
+  }
+  const selected = CONDITIONS.find((entry) => entry.id === condition);
+  if (selected === undefined) throw new Error(`unknown condition ${condition}`);
+  const settingsPath = join(base, "settings.json");
+  const settings = existsSync(settingsPath)
+    ? (JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>)
+    : {};
+  if (settings === null || Array.isArray(settings) || typeof settings !== "object") {
+    throw new Error(`Invalid Pi settings object: ${settingsPath}`);
+  }
+  const agentDir = mkdtempSync(join(base, "foldpoint-agent-"));
+  const modelsPath = join(base, "models.json");
+  if (existsSync(modelsPath)) copyFileSync(modelsPath, join(agentDir, "models.json"));
+  const previousCompaction = settings.compaction;
+  settings.compaction = {
+    ...(previousCompaction !== null &&
+    typeof previousCompaction === "object" &&
+    !Array.isArray(previousCompaction)
+      ? previousCompaction
+      : {}),
+    enabled: true,
+    reserveTokens: selected.reserveTokens,
+    keepRecentTokens: 4000,
+    modelOverrides: {},
+  };
+  // Pi 0.87's one-token warming is a separate paid intervention. Keep its configured mode
+  // identical across all three arms; default off isolates compaction timing alone.
+  settings.cacheWarming = cacheWarming;
+  settings.sessionDir = join(agentDir, "sessions");
+  writeFileSync(join(agentDir, "settings.json"), `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  return agentDir;
 }
 
 /**
@@ -168,19 +233,25 @@ function resetScratch(scratch: string): void {
  * shows whether the adapter is in the process - the difference between "FoldPoint vetoed" and
  * "FoldPoint was never there" is otherwise invisible in the results.
  */
-function preflight(scratch: string, tracePath: string): void {
+function preflight(scratch: string, tracePath: string, agentDir: string): void {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
   }
-  rmSync(tracePath, { force: true });
+  if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
+  mkdirSync(dirname(tracePath), { recursive: true });
   const result = spawnSync(
     process.execPath,
     [piCli, "--list-models", "--extension", extensionPath()],
     {
       cwd: scratch,
       encoding: "utf8",
-      env: { ...process.env, FOLDPOINT_TRACE: tracePath },
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
+        FOLDPOINT_TRACE: tracePath,
+      },
     },
   );
   if ((result.status ?? -1) !== 0) {
@@ -206,7 +277,13 @@ function extensionPath(): string {
   );
 }
 
-function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
+function runOnce(
+  spec: RunSpec,
+  scratch: string,
+  tracePath: string,
+  agentDir: string,
+  cacheWarming: CacheWarmingMode,
+): RunResult {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
@@ -217,28 +294,7 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
     throw new Error(`unknown condition ${spec.condition}`);
   }
 
-  // Pi reads its settings at startup, so writing them here is enough to give each arm its own
-  // threshold without touching the user's own agent directory.
-  const agentDir = process.env.PI_CODING_AGENT_DIR;
-  if (agentDir !== undefined) {
-    const settingsPath = join(agentDir, "settings.json");
-    let settings: Record<string, unknown> = {};
-    try {
-      settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      settings = {};
-    }
-    settings.compaction = {
-      enabled: true,
-      reserveTokens: condition.reserveTokens,
-      keepRecentTokens: 4000,
-    };
-    mkdirSync(agentDir, { recursive: true });
-    writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
-  }
-
-  resetScratch(scratch);
-  rmSync(tracePath, { force: true });
+  if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   mkdirSync(dirname(tracePath), { recursive: true });
 
   const result = spawnSync(
@@ -258,6 +314,8 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
       encoding: "utf8",
       env: {
         ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
         FOLDPOINT_TRACE: tracePath,
         FOLDPOINT_MODE: condition.mode,
       },
@@ -274,6 +332,7 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
   return {
     task: spec.task.id,
     condition: spec.condition,
+    cacheWarming,
     rep: spec.rep,
     exitCode: result.status ?? -1,
     ok: (result.status ?? -1) === 0,
@@ -283,14 +342,23 @@ function runOnce(spec: RunSpec, scratch: string, tracePath: string): RunResult {
   };
 }
 
-export function renderComparison(results: readonly RunResult[], tasks: readonly Task[]): string {
+export function renderComparison(
+  results: readonly RunResult[],
+  tasks: readonly Task[],
+  cacheWarming: CacheWarmingMode = "off",
+): string {
+  if (results.some((result) => result.cacheWarming !== cacheWarming)) {
+    throw new Error("Cannot compare runs with different Pi cache-warming modes");
+  }
   const lines = [
-    "| task | condition | rep | exit | artifact | calls | compactions | total cost |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    `Cache warming: ${cacheWarming} (fixed across all arms)`,
+    "",
+    "| task | condition | rep | exit | artifact | calls | compactions | cache warms | warm cost | total cost |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const result of results) {
     lines.push(
-      `| ${result.task} | ${result.condition} | ${result.rep} | ${result.exitCode} | ${result.artifactOk ? "ok" : "MISSING"} | ${result.cost?.calls ?? "?"} | ${result.cost?.compactions ?? "?"} | ${result.cost ? `${result.cost.totalCost.toFixed(6)} ${result.cost.currency}` : "?"} |`,
+      `| ${result.task} | ${result.condition} | ${result.rep} | ${result.exitCode} | ${result.artifactOk ? "ok" : "MISSING"} | ${result.cost?.calls ?? "?"} | ${result.cost?.compactions ?? "?"} | ${result.cost?.cacheWarms ?? "?"} | ${result.cost ? `${result.cost.cacheWarmCost.toFixed(6)} ${result.cost.currency}` : "?"} | ${result.cost ? `${result.cost.totalCost.toFixed(6)} ${result.cost.currency}` : "?"} |`,
     );
   }
 
@@ -301,16 +369,16 @@ export function renderComparison(results: readonly RunResult[], tasks: readonly 
     const totals = (condition: ConditionId): number =>
       byCondition(condition).reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
     const quality = (condition: ConditionId): number =>
-      byCondition(condition).filter((result) => result.artifactOk).length;
+      byCondition(condition).filter((result) => result.ok && result.artifactOk).length;
     const summary = CONDITIONS.map(
       (condition) =>
         `${condition.id} ${totals(condition.id).toFixed(6)} (${quality(condition.id)}/${byCondition(condition.id).length} ok)`,
     ).join(" vs ");
-    lines.push("", `**${task.id}** (${task.expectation}): ${summary}`);
+    lines.push("", `**${task.id}** (${task.expectation}), all-run incurred costs: ${summary}`);
 
-    // The comparison that answers "what does it save when the outcome is the same": only runs
-    // that produced the expected artifact, so a failed run cannot make an arm look cheap.
-    const passing = runs.filter((result) => result.artifactOk && result.cost !== null);
+    // A missing artifact or a non-zero exit is not a successful run. Report each arm's passing
+    // totals, but only compare costs within the same repetition when both arms succeeded.
+    const passing = runs.filter((result) => result.ok && result.artifactOk && result.cost !== null);
     const passingCost = (condition: ConditionId): { total: number; runs: number } => {
       const selected = passing.filter((result) => result.condition === condition);
       return {
@@ -322,21 +390,46 @@ export function renderComparison(results: readonly RunResult[], tasks: readonly 
       const arm = passingCost(condition.id);
       return `${condition.id} ${arm.runs === 0 ? "n/a" : arm.total.toFixed(6)} (${arm.runs} runs)`;
     }).join(" vs ");
-    const baseline = passingCost("default");
-    const vetoed = passingCost("veto");
-    const delta =
-      baseline.runs > 0 && vetoed.runs > 0
-        ? ` — veto ${(((vetoed.total - baseline.total) / baseline.total) * 100).toFixed(0)}% vs default`
-        : "";
-    lines.push(`  - same outcome only: ${passingSummary}${delta}`);
+    lines.push(`  - passing runs (not directly comparable if counts differ): ${passingSummary}`);
+    for (const condition of ["ask", "veto"] as const) {
+      const paired = passing.filter(
+        (result) =>
+          result.condition === "default" &&
+          passing.some((other) => other.condition === condition && other.rep === result.rep),
+      );
+      const baselineTotal = paired.reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
+      const candidateTotal = paired.reduce(
+        (sum, result) =>
+          sum +
+          (passing.find((other) => other.condition === condition && other.rep === result.rep)?.cost
+            ?.totalCost ?? 0),
+        0,
+      );
+      const delta =
+        paired.length > 0 && baselineTotal > 0
+          ? `${(((candidateTotal - baselineTotal) / baselineTotal) * 100).toFixed(1)}%`
+          : "n/a";
+      lines.push(
+        `  - paired ${condition} vs default: ${paired.length} matched passing rep(s), ${delta} cost change`,
+      );
+    }
   }
   return lines.join("\n");
 }
 
 function main(): void {
   const options = parseArgs(process.argv.slice(2));
+  if (!Number.isSafeInteger(options.reps) || options.reps <= 0) {
+    throw new Error("--reps must be a positive integer");
+  }
+  const unknownTasks = options.tasks.filter((id) => !TASKS.some((task) => task.id === id));
+  if (unknownTasks.length > 0 || options.tasks.length === 0) {
+    throw new Error(`Unknown or empty task selection: ${options.tasks.join(",")}`);
+  }
   const scratch = process.env.PI_SCRATCH ?? join(homedir(), ".foldpoint", "paired", "scratch");
-  mkdirSync(scratch, { recursive: true });
+  const agentBase = process.env.PI_CODING_AGENT_DIR;
+  if (agentBase === undefined)
+    throw new Error("PI_CODING_AGENT_DIR is required for a controlled trial");
 
   const selected = TASKS.filter((task) => options.tasks.includes(task.id));
   const specs: RunSpec[] = [];
@@ -354,13 +447,34 @@ function main(): void {
     }
   }
 
-  preflight(scratch, `${options.outPrefix}-preflight.jsonl`);
+  const outputPaths = [
+    `${options.outPrefix}-preflight.jsonl`,
+    `${options.outPrefix}-results.json`,
+    `${options.outPrefix}-comparison.md`,
+    ...specs.map(
+      (spec) => `${options.outPrefix}-${spec.task.id}-${spec.condition}-${spec.rep}.jsonl`,
+    ),
+  ];
+  const occupied = outputPaths.find((path) => existsSync(path));
+  if (occupied !== undefined) throw new Error(`Refusing to overwrite existing output: ${occupied}`);
+
+  preflight(
+    prepareScratch(scratch),
+    `${options.outPrefix}-preflight.jsonl`,
+    prepareAgentDir(agentBase, "default", options.cacheWarming),
+  );
   console.log("preflight: the extension loaded and wrote a trace header");
 
   const results: RunResult[] = [];
   for (const spec of specs) {
     const tracePath = `${options.outPrefix}-${spec.task.id}-${spec.condition}-${spec.rep}.jsonl`;
-    const result = runOnce(spec, scratch, tracePath);
+    const result = runOnce(
+      spec,
+      prepareScratch(scratch),
+      tracePath,
+      prepareAgentDir(agentBase, spec.condition, options.cacheWarming),
+      options.cacheWarming,
+    );
     results.push(result);
     console.log(
       `${spec.task.id} ${spec.condition} #${spec.rep}: exit=${result.exitCode} artifact=${result.artifactOk ? "ok" : "MISSING"} cost=${result.cost?.totalCost.toFixed(6) ?? "?"}`,
@@ -374,10 +488,10 @@ function main(): void {
   );
   writeFileSync(
     `${options.outPrefix}-comparison.md`,
-    `${renderComparison(results, selected)}\n`,
+    `${renderComparison(results, selected, options.cacheWarming)}\n`,
     "utf8",
   );
-  console.log(`\n${renderComparison(results, selected)}`);
+  console.log(`\n${renderComparison(results, selected, options.cacheWarming)}`);
 }
 
 if (process.argv[1]?.replace(/\\/g, "/").endsWith("/pi-paired-run.ts") === true) {

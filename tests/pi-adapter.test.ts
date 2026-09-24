@@ -10,6 +10,7 @@ import {
   type PiModel,
 } from "../adapters/pi/foldpoint-observe";
 import { parseTraceJsonl, type TraceEvent } from "../src/index";
+import { analyzeTraceEvents } from "../tools/trace-analyze";
 
 const MODEL: PiModel = {
   id: "claude-sonnet-4-5",
@@ -98,6 +99,57 @@ function newPrefixStorePath(name: string): string {
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
 describe("Pi observer adapter", () => {
+  it("prices successful Pi cache warming separately and uses its refresh time for TTL", () => {
+    const path = newTracePath("cache-warming");
+    const fake = fakePi();
+    let clock = 1_000_000;
+    const entries: ReturnType<NonNullable<PiExtensionContext["sessionManager"]>["getEntries"]> = [];
+    const ctx = { ...fake.ctxWith(50_000), sessionManager: { getEntries: () => entries } };
+    createFoldPointObserver({ tracePath: path, now: () => clock, log: () => undefined })(fake.pi);
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    fake.emit(
+      "message_end",
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 50_000, output: 10, cacheRead: 0, cacheWrite: 0 },
+        },
+      },
+      ctx,
+    );
+    clock += 290_000;
+    entries.push({
+      id: "warm-1",
+      type: "usage",
+      kind: "cache_warm",
+      provider: MODEL.provider,
+      model: MODEL.id,
+      timestamp: new Date(clock).toISOString(),
+      usage: { input: 0, output: 1, cacheRead: 50_000, cacheWrite: 0, cost: { total: 0.02 } },
+    });
+    clock += 20_000; // 310s after the real call, but only 20s after the refresh (TTL=300s).
+    fake.emit("context", { type: "context" }, ctx);
+    fake.emit("context", { type: "context" }, ctx); // same persisted entry is not billed twice
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+
+    const events = readTrace(path);
+    const warms = events.filter((event) => event.type === "cache_warm");
+    const decisions = events.filter((event) => event.type === "decision");
+    expect(warms).toHaveLength(1);
+    expect(decisions[1]?.input.idleMs).toBe(20_000);
+    expect(decisions[1]?.prediction.estimatedCacheAliveProbability).toBe(1);
+    const analysis = analyzeTraceEvents(events);
+    expect(analysis.sessionCosts[0]?.cacheWarms).toBe(1);
+    expect(analysis.sessionCosts[0]?.cacheWarmCost).toBe(0.02);
+    expect(analysis.sessionCosts[0]?.totalCost).toBeCloseTo(
+      (analysis.sessionCosts[0]?.callCost ?? 0) + 0.02,
+    );
+    expect(analysis.sessionCosts[0]?.calls).toBe(1);
+  });
+
   it("subscribes only to the events it needs, and never to the request payload", () => {
     const fake = fakePi();
     createFoldPointObserver({ tracePath: newTracePath("events"), now: () => 1_000_000 })(fake.pi);
