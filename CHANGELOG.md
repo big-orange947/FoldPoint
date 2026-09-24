@@ -16,6 +16,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Paired runs use fresh seed workspaces and per-run Pi settings. They no longer recursively
   clear `PI_SCRATCH` or edit the base agent settings. Warming is fixed across arms (off by
   default, optionally streaming/idle), and percentage deltas use matched successful reps.
+- A zero-paid smoke runner exercises the actual Pi CLI against a loopback fake provider,
+  checking warm-event accounting and cache-calibration boundaries without implying real
+  provider savings.
 
 ### Pi runbook
 

@@ -453,6 +453,24 @@ results in one percentage comparison.
 Production use does not disable Pi's warming. On a model without a declared `promptCache`
 lifetime, Pi cannot schedule this warmer; DeepSeek's current Pi model entry is in that class.
 
+For a zero-paid integration check against a local Pi checkout, point the smoke runner at
+Pi's built CLI bundle. It starts a loopback OpenAI-compatible fake provider, runs the same
+two-call task with warming `off` and `streaming`, and keeps each Pi agent/session/trace in
+its own temporary directory. If the shell's Node is older than Pi requires, set `PI_NODE`
+to a suitable Node executable:
+
+```powershell
+$env:PI_CLI = 'D:\pi\packages\coding-agent\dist\bundle\cli.js'
+$env:PI_NODE = 'C:\path\to\node.exe' # Node >= 22.19; omit if your PATH Node qualifies
+npx tsx tools/pi-cache-warming-smoke.ts
+```
+
+The assertions require a cold second call with warming off, a cache-hit second call with
+warming on, separate `cache_warm` usage/cost, and no next-call cache-survival calibration
+across a warm. The exact count of one-token refreshes depends on timing. The fake provider
+chooses its own token counts, prices and TTL, so a pass proves the Pi/FoldPoint integration
+and accounting path, **not** a cost or quality improvement for DeepSeek or another provider.
+
 ### 5.2 What Pi would have to expose for the rest
 
 The extension API cannot do everything FoldPoint needs. Two gaps, both of them "Pi already
