@@ -471,7 +471,11 @@ export function createFoldPointObserver(
       write(trace.request(sessionKey, pending.callId, observation, { outcome }));
     });
 
-    // Pi is about to compact. This handler returns nothing: it cannot cancel or change it.
+    // Pi is about to compact. This handler returns nothing, so the compaction runs as Pi
+    // planned: FoldPoint is observing the timing, not deciding it. Pi does let a handler
+    // return `{ cancel: true }` to veto the compaction or `{ compaction }` to supply the
+    // summary; the acting adapter will use the first (and never the second, which would mean
+    // taking over the compaction strategy rather than its timing).
     pi.on("session_before_compact", (event) => {
       if (state.sessionKey === null) {
         return;

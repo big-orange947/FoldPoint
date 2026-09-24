@@ -360,3 +360,25 @@ right-censored and excluded from the horizon metric — export complete sessions
 - **A trace does not prove savings.** Only a paired experiment on the same tasks (FoldPoint
   against a guarded fixed threshold, same model and compactor) can compare total cost — and it
   must check task completion and tool correctness too, not only tokens.
+
+## 5. The acting adapter decides *when*, never *how*
+
+Worth stating precisely, because it is easy to mis-describe: FoldPoint's whole vocabulary is
+`KEEP | COMPACT | FORCE` — a decision about the moment. It never writes a summary, never picks
+what survives a compaction and never sees the compaction prompt. The profile carries
+`compactorId` and the host reports the outcome back through `recordCompaction`, because the
+compactor belongs to the host.
+
+Verified against the Pi source (`core/extensions/types.ts`, `core/agent-session.ts`), the
+timing is genuinely available to an extension:
+
+| Pi mechanism | Effect | FoldPoint will |
+| --- | --- | --- |
+| `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | use it to veto a threshold compaction FoldPoint does not want |
+| `session_before_compact` returning `{ compaction }` | the extension supplies the summary, `fromExtension: true` | **never** — that would be taking over the strategy |
+| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | use it to compact when FoldPoint says so, with Pi's own summariser |
+| `settings.compaction.enabled = false` | Pi stops compacting on the threshold | use it when FoldPoint owns the trigger |
+
+So the acting version is the same decision code with the trigger wired to Pi: veto what Pi
+wants to do, or trigger what Pi would not have done — the summary stays Pi's either way, and
+the retention the model learns stays a property of `pi-compaction`.

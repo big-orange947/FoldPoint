@@ -124,10 +124,14 @@ observe-only adapter must not invent one, so it records that call's real usage u
 calls — and they are the calls where the compaction decision matters most, because they are the
 first replay of the new prefix.
 
-An acting integration has the same hole: whatever decides whether to compact cannot be asked
-about that call either. Anything FoldPoint does on Pi is therefore decided one call *before* the
-compaction takes effect, which is fine for a keep/compact choice at a boundary but means the
-post-compaction replay is never itself a decision point.
+An acting integration is not stuck with that hole, but only in the direction Pi offers it. Pi
+asks an extension *before* it compacts (`session_before_compact`, with `preparation.tokensBefore`
+known), so an acting adapter can decide at exactly that moment — the one place where the
+pre-compaction size is available and the decision still matters — and can veto it with
+`{ cancel: true }`, which Pi reports as `session_compact_failed` (`aborted: true`) and survives.
+The observer cannot use that moment because it never acts; it can only record what happened.
+What no adapter can do is decide *at* the post-compaction replay, because Pi does not know the
+context size until that call has already been made.
 
 ## 7. Cheap is not better
 
