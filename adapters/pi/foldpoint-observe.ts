@@ -121,9 +121,19 @@ export interface PiEventMap {
 export interface PiExtensionAPI {
   on<K extends keyof PiEventMap>(
     event: K,
-    handler: (event: PiEventMap[K], ctx: PiExtensionContext) => void,
+    handler: (event: PiEventMap[K], ctx: PiExtensionContext) => PiEventResult<K> | undefined,
   ): () => void;
 }
+
+/**
+ * What a handler may return. Pi only reads a result from `session_before_compact`, where
+ * `cancel` vetoes the compaction and `compaction` would supply the summary — the one thing
+ * this adapter will never do, because supplying the summary is taking over the compaction
+ * strategy rather than its timing.
+ */
+export type PiEventResult<K extends keyof PiEventMap> = K extends "session_before_compact"
+  ? { cancel?: boolean }
+  : undefined;
 
 /** Exactly the events this adapter subscribes to. Nothing else is read. */
 export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
@@ -145,12 +155,22 @@ export interface FoldPointObserverOptions {
   tracePath?: string;
   /** Where measured prefix sizes are remembered. Defaults to `$FOLDPOINT_PREFIX_STORE`. */
   prefixStorePath?: string;
+  /**
+   * `observe` (default) only records what FoldPoint would have done. `act` additionally vetoes
+   * Pi's *threshold* compaction when FoldPoint says the context should be kept, which is the
+   * only part of the timing an extension can own safely. Defaults to `$FOLDPOINT_MODE`.
+   */
+  mode?: "observe" | "act";
   /** FoldPoint defaults to run with. Defaults to `$FOLDPOINT_DEFAULTS` (JSON) or the library's. */
   defaults?: Partial<FoldPointDefaults>;
   /** Clock, for tests. */
   now?: () => number;
   /** Sink for the pairing diagnostics this adapter prints. */
   log?: (message: string) => void;
+}
+
+function modeFromEnv(): "observe" | "act" {
+  return process.env.FOLDPOINT_MODE === "act" ? "act" : "observe";
 }
 
 interface PendingDecision {
@@ -177,6 +197,8 @@ interface ObserverState {
   lastCallAt: number | undefined;
   lastProfile: FoldPointProfile | undefined;
   failedCalls: number;
+  /** Threshold compactions this adapter vetoed, in `act` mode. */
+  vetoes: number;
   /** Fingerprint of Pi's system prompt, when Pi exposes it. Part of the profile identity. */
   prefixId: string | undefined;
   /** Tokens of Pi's stable prefix, measured from the provider's own cache read. */
@@ -443,6 +465,7 @@ export function createFoldPointObserver(
   return function foldPointObserver(pi: PiExtensionAPI): void {
     const tracePath = options.tracePath ?? defaultTracePath(now);
     const prefixStorePath = options.prefixStorePath ?? defaultPrefixStorePath();
+    const mode = options.mode ?? modeFromEnv();
     const defaults = options.defaults ?? readDefaultsFromEnv();
     const trace = new TraceRecorder({ producer: `pi-observer@${ADAPTER_VERSION}`, now });
     const foldPoint = new FoldPoint(defaults === undefined ? undefined : { defaults });
@@ -459,6 +482,7 @@ export function createFoldPointObserver(
       lastCallAt: undefined,
       lastProfile: undefined,
       failedCalls: 0,
+      vetoes: 0,
       prefixId: undefined,
       fixedPrefixTokens: undefined,
       callsObserved: 0,
@@ -684,21 +708,61 @@ export function createFoldPointObserver(
       write(trace.request(sessionKey, pending.callId, observation, { outcome }));
     });
 
-    // Pi is about to compact. This handler returns nothing, so the compaction runs as Pi
-    // planned: FoldPoint is observing the timing, not deciding it. Pi does let a handler
-    // return `{ cancel: true }` to veto the compaction or `{ compaction }` to supply the
-    // summary; the acting adapter will use the first (and never the second, which would mean
-    // taking over the compaction strategy rather than its timing).
-    pi.on("session_before_compact", (event) => {
-      if (state.sessionKey === null) {
+    // Pi is about to compact. In `observe` mode this handler returns nothing, so the compaction
+    // runs as Pi planned. In `act` mode it can veto a *threshold* compaction when FoldPoint
+    // says the context should be kept: that is the only part of the timing an extension can
+    // own safely, because `ctx.compact()` cannot be awaited and a compaction started from a
+    // request boundary would race the request it is meant to precede. Pi's own summary is
+    // never replaced - `{ compaction }` is the one result this adapter will not return.
+    pi.on("session_before_compact", (event, ctx) => {
+      const sessionKey = state.sessionKey;
+      if (sessionKey === null) {
         return;
       }
+      const tokensBefore = event.preparation.tokensBefore ?? 0;
       state.pendingCompaction = {
         reason: event.reason,
-        tokensBefore: event.preparation.tokensBefore ?? 0,
+        tokensBefore,
         usage: undefined,
         at: now(),
       };
+
+      // Only a `threshold` compaction is ever questioned. `overflow` is Pi's last defence
+      // against a request that no longer fits and `manual` is the user asking for it.
+      const model = ctx.model;
+      if (
+        mode !== "act" ||
+        event.reason !== "threshold" ||
+        tokensBefore <= 0 ||
+        model === undefined
+      ) {
+        return;
+      }
+      const profile = profileFromModel(model, state.prefixId);
+      const vetoInput = {
+        sessionId: sessionKey,
+        profile,
+        timestamp: now(),
+        contextTokens: tokensBefore,
+        safeBoundary: true,
+        compactionAllowed: true,
+        ...(state.fixedPrefixTokens === undefined
+          ? {}
+          : { fixedPrefixTokens: state.fixedPrefixTokens }),
+      };
+      const vetoDecision = foldPoint.decide(vetoInput);
+      if (vetoDecision.action !== "KEEP") {
+        // FoldPoint agrees with Pi, or wants it sooner than Pi does; either way the compaction
+        // Pi already prepared is the right one to run.
+        return;
+      }
+      const vetoCallId = `${sessionKey}#veto-${state.vetoes + 1}`;
+      state.vetoes += 1;
+      write(trace.decision(vetoInput, vetoDecision, { callId: vetoCallId }));
+      log(
+        `[foldpoint] vetoed Pi's threshold compaction (${vetoDecision.reasons.join(",")}) at ${tokensBefore} tokens`,
+      );
+      return { cancel: true };
     });
 
     pi.on("session_compact", (event) => {

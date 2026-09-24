@@ -26,7 +26,7 @@ interface FakePi {
     event: K,
     payload: PiEventMap[K],
     ctx?: PiExtensionContext,
-  ): void;
+  ): unknown;
   /** A context whose reported usage changes between calls. */
   ctxWith(
     tokens: number | null,
@@ -36,7 +36,7 @@ interface FakePi {
 }
 
 function fakePi(): FakePi {
-  const handlers = new Map<string, Array<(event: never, ctx: PiExtensionContext) => void>>();
+  const handlers = new Map<string, Array<(event: never, ctx: PiExtensionContext) => unknown>>();
   const registered: string[] = [];
   const pi: PiExtensionAPI = {
     on(event, handler) {
@@ -57,9 +57,14 @@ function fakePi(): FakePi {
     pi,
     registered,
     emit(event, payload, ctx = defaultCtx) {
+      let result: unknown;
       for (const handler of handlers.get(event) ?? []) {
-        (handler as unknown as (event: unknown, ctx: PiExtensionContext) => void)(payload, ctx);
+        result = (handler as unknown as (event: unknown, ctx: PiExtensionContext) => unknown)(
+          payload,
+          ctx,
+        );
       }
+      return result;
     },
     ctxWith(tokens, model = MODEL, systemPrompt = SYSTEM_PROMPT) {
       return {
@@ -359,6 +364,89 @@ describe("Pi observer adapter", () => {
 
     expect(messages.some((message) => message.includes("no usage"))).toBe(true);
     expect(readTrace(path).filter((event) => event.type === "request")).toHaveLength(0);
+  });
+
+  it("vetoes a threshold compaction only when FoldPoint says keep", () => {
+    const path = newTracePath("act-veto");
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("act-veto"),
+      mode: "act",
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fake.pi);
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    // 20k of a 200k window: nowhere near compacting, so FoldPoint keeps.
+    const result = fake.emit("session_before_compact", {
+      type: "session_before_compact",
+      reason: "threshold",
+      preparation: { tokensBefore: 20_000 },
+    });
+
+    expect(result).toEqual({ cancel: true });
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.decision.action).toBe("KEEP");
+    expect(decisions[0]?.callId).toContain("#veto-");
+  });
+
+  it("never vetoes an overflow or a manual compaction, and never in observe mode", () => {
+    // `overflow` is Pi's last defence against a request that no longer fits, and `manual` is
+    // the user asking for it. FoldPoint does not argue with either.
+    for (const [mode, reason] of [
+      ["act", "overflow"],
+      ["act", "manual"],
+      ["observe", "threshold"],
+    ] as const) {
+      const fake = fakePi();
+      createFoldPointObserver({
+        tracePath: newTracePath(`act-${mode}-${reason}`),
+        prefixStorePath: newPrefixStorePath(`act-${mode}-${reason}`),
+        mode,
+        now: () => 1_000_000,
+        log: () => undefined,
+      })(fake.pi);
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+
+      const result = fake.emit("session_before_compact", {
+        type: "session_before_compact",
+        reason,
+        preparation: { tokensBefore: 20_000 },
+      });
+
+      expect(result).toBeUndefined();
+    }
+  });
+
+  it("does not veto when FoldPoint wants the compaction to happen", () => {
+    // A context near the top of the window: FoldPoint's own FORCE is the safety net on its
+    // side, and it agrees with Pi here.
+    const path = newTracePath("act-agree");
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("act-agree"),
+      mode: "act",
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+
+    const result = fake.emit(
+      "session_before_compact",
+      {
+        type: "session_before_compact",
+        reason: "threshold",
+        preparation: { tokensBefore: 195_000 },
+      },
+      fake.ctxWith(195_000),
+    );
+
+    expect(result).toBeUndefined();
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions[0]?.decision.action).not.toBe("KEEP");
   });
 
   it("records a failed call but never learns from it", () => {

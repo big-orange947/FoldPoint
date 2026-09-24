@@ -374,11 +374,50 @@ timing is genuinely available to an extension:
 
 | Pi mechanism | Effect | FoldPoint will |
 | --- | --- | --- |
-| `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | use it to veto a threshold compaction FoldPoint does not want |
+| `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | **does**: `FOLDPOINT_MODE=act` vetoes a threshold compaction FoldPoint does not want |
 | `session_before_compact` returning `{ compaction }` | the extension supplies the summary, `fromExtension: true` | **never** — that would be taking over the strategy |
-| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | use it to compact when FoldPoint says so, with Pi's own summariser |
-| `settings.compaction.enabled = false` | Pi stops compacting on the threshold | use it when FoldPoint owns the trigger |
+| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **not yet**: it returns `void` (fire and forget), so a compaction started at a request boundary races the request it is meant to precede |
+| `settings.compaction.enabled = false` | Pi stops compacting on the threshold | not used; the veto achieves the same without touching Pi's settings |
 
-So the acting version is the same decision code with the trigger wired to Pi: veto what Pi
-wants to do, or trigger what Pi would not have done — the summary stays Pi's either way, and
-the retention the model learns stays a property of `pi-compaction`.
+### 5.1 What `FOLDPOINT_MODE=act` actually does
+
+Observe-only is the default and stays the default. In `act` mode the adapter answers Pi's
+`session_before_compact`:
+
+- `reason: "overflow"` — never vetoed. That is Pi's last defence against a request that no
+  longer fits, and FoldPoint's own `FORCE` is the same kind of net on its side.
+- `reason: "manual"` — never vetoed. The user asked for it.
+- `reason: "threshold"` — FoldPoint decides at that moment, with `preparation.tokensBefore`
+  known, and vetoes only when it says `KEEP`. The veto decision goes into the trace with a
+  `#veto-N` callId, and Pi reports the cancellation as `success: false, errorCode: "aborted"`.
+
+Because only *threshold* compactions are questioned, `act` mode replaces Pi's threshold with
+FoldPoint's own hard window ratio: the context is allowed to grow past
+`contextWindow - reserveTokens` and Pi compacts at the first threshold check after FoldPoint
+stops saying `KEEP` (its `FORCE`, at `hardWindowRatio` = 90% of the window). A real session
+(32k window, 8 steps): six vetoes between 17.7k and 23.0k tokens, the session finished
+normally, and every call after a veto still had a known context size — a vetoed compaction
+leaves Pi's accounting intact, which the observer's post-compaction call does not.
+
+### 5.2 What Pi would have to expose for the rest
+
+The extension API cannot do everything FoldPoint needs. Three gaps, all of them "Pi already
+knows this and does not say it", which is the shape of change worth proposing upstream:
+
+1. **`session_compact` carries no `estimatedTokensAfter`.** Pi computes it
+   (`agent-session.ts`, `estimateMessagesTokens(...)`) and passes it to `CompactionResult` for
+   its own caller, but the extension event carries only `compactionEntry`, `fromExtension`,
+   `reason` and `willRetry`. An observer therefore cannot decide the first call after a
+   compaction — 7 of 16 calls in the first real session — and has to wait for the next
+   `context` event to learn the size at all.
+2. **`CompactionEntry.usage` is `undefined` on the automatic path.** In seven real compactions
+   it was never set, so the summarisation call's own cost has no ground truth in a trace: the
+   `C_compact` half of the model cannot be validated on Pi.
+3. **No awaitable compaction trigger.** `compact()` returns `void`; only `onComplete`/
+   `onError` callbacks report the outcome. Awaiting a callback inside a `context` handler
+   would block the request path for the duration of a summarisation call *and* race the
+   request being built, so an extension can delay a compaction but cannot bring one forward.
+
+Until those exist, the plugin is the only place this can live — and it is a reasonable place
+for it: the policy needs calibration that is still moving, and Pi's core should not inherit a
+third-party cost model's release cadence.
