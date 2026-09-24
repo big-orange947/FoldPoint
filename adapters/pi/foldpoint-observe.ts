@@ -164,6 +164,8 @@ interface ObserverState {
   pendingCompaction: PendingCompaction | null;
   lastCallAt: number | undefined;
   lastProfile: FoldPointProfile | undefined;
+  /** Diagnostics that must not repeat on every call. */
+  warned: Set<string>;
 }
 
 function pricingFromModel(model: PiModel): PricingSnapshot | undefined {
@@ -247,6 +249,17 @@ export function createFoldPointObserver(
       pendingCompaction: null,
       lastCallAt: undefined,
       lastProfile: undefined,
+      warned: new Set<string>(),
+    };
+
+    // A silent early return is the hardest failure to diagnose from a trace that only has its
+    // header, so every one of them says why, once per session.
+    const warnOnce = (key: string, message: string): void => {
+      if (state.warned.has(key)) {
+        return;
+      }
+      state.warned.add(key);
+      log(`[foldpoint] ${message}`);
     };
 
     const write = (event: TraceEvent): void => {
@@ -275,7 +288,15 @@ export function createFoldPointObserver(
     pi.on("context", (_event, ctx) => {
       const sessionKey = state.sessionKey;
       const model = ctx.model;
-      if (sessionKey === null || model === undefined) {
+      if (sessionKey === null) {
+        warnOnce(
+          "no-session",
+          "a model call arrived before session_start; nothing is being recorded (Pi started with --no-session?)",
+        );
+        return;
+      }
+      if (model === undefined) {
+        warnOnce("no-model", "Pi reported no model, so no decision could be made");
         return;
       }
 
@@ -344,7 +365,22 @@ export function createFoldPointObserver(
     pi.on("message_end", (event, ctx) => {
       const sessionKey = state.sessionKey;
       const usage = event.message.usage;
-      if (sessionKey === null || event.message.role !== "assistant" || usage === undefined) {
+      if (sessionKey === null) {
+        warnOnce(
+          "no-session",
+          "a model call arrived before session_start; nothing is being recorded (Pi started with --no-session?)",
+        );
+        return;
+      }
+      if (event.message.role !== "assistant") {
+        // User and tool-result messages fire this event too; they carry no model usage.
+        return;
+      }
+      if (usage === undefined) {
+        warnOnce(
+          "no-usage",
+          "an assistant message carried no usage, so its cost and cache read cannot be recorded",
+        );
         return;
       }
 
@@ -367,7 +403,7 @@ export function createFoldPointObserver(
       // the trace still gets the usage but FoldPoint is left alone.
       const model = ctx.model;
       if (model === undefined) {
-        log("[foldpoint] a call finished while Pi reported no model; learning skipped");
+        warnOnce("no-model-at-end", "a call finished while Pi reported no model; learning skipped");
       } else {
         state.lastProfile = profileFromModel(model);
         foldPoint.observeRequest(sessionKey, state.lastProfile, observation);

@@ -228,6 +228,49 @@ describe("Pi observer adapter", () => {
     expect(messages.some((message) => message.includes("skipped"))).toBe(true);
   });
 
+  it("explains a call that arrives without a session, once", () => {
+    const path = newTracePath("no-session");
+    const messages: string[] = [];
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      now: () => 1_000_000,
+      log: (message) => messages.push(message),
+    })(fake.pi);
+
+    // No session_start: Pi was started with --no-session.
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 50_000, output: 1, cacheRead: 0, cacheWrite: 50_000 },
+      },
+    });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+
+    expect(messages.filter((message) => message.includes("before session_start")).length).toBe(1);
+    expect(readTrace(path).filter((event) => event.type === "decision")).toHaveLength(0);
+  });
+
+  it("explains an assistant message that carries no usage", () => {
+    const path = newTracePath("no-usage");
+    const messages: string[] = [];
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      now: () => 1_000_000,
+      log: (message) => messages.push(message),
+    })(fake.pi);
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("message_end", { type: "message_end", message: { role: "assistant" } });
+
+    expect(messages.some((message) => message.includes("no usage"))).toBe(true);
+    expect(readTrace(path).filter((event) => event.type === "request")).toHaveLength(0);
+  });
+
   it("keeps every session in the trace", () => {
     const path = newTracePath("two-sessions");
     const fake = fakePi();
