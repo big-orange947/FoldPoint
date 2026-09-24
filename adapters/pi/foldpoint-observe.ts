@@ -26,7 +26,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -143,6 +143,8 @@ export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
 export interface FoldPointObserverOptions {
   /** Where the JSONL trace goes. Defaults to `$FOLDPOINT_TRACE` or `~/.foldpoint/traces`. */
   tracePath?: string;
+  /** Where measured prefix sizes are remembered. Defaults to `$FOLDPOINT_PREFIX_STORE`. */
+  prefixStorePath?: string;
   /** FoldPoint defaults to run with. Defaults to `$FOLDPOINT_DEFAULTS` (JSON) or the library's. */
   defaults?: Partial<FoldPointDefaults>;
   /** Clock, for tests. */
@@ -154,6 +156,8 @@ export interface FoldPointObserverOptions {
 interface PendingDecision {
   callId: string;
   at: number;
+  /** The context size Pi reported for this call, in Pi's own estimate units. */
+  contextTokens: number;
 }
 
 interface PendingCompaction {
@@ -179,6 +183,10 @@ interface ObserverState {
   fixedPrefixTokens: number | undefined;
   /** How many calls this session has made, to know which one measures the prefix. */
   callsObserved: number;
+  /** Prefix sizes remembered from earlier processes, by fingerprint. */
+  prefixStore: Record<string, number>;
+  /** Where the store lives, so a measurement can be written back. */
+  log: (message: string) => void;
   /** Diagnostics that must not repeat on every call. */
   warned: Set<string>;
 }
@@ -230,28 +238,58 @@ function readSystemPrompt(ctx: PiExtensionContext): string | undefined {
 }
 
 /**
- * Learn how many tokens Pi's stable prefix is, from the provider's own count.
+ * Learn how many tokens Pi's stable prefix is, in the units the decisions are expressed in.
  *
  * The first call of a session is the clean measurement: its prompt is the system prompt, the
  * tool schemas and the first user message, so whatever the provider served from cache can only
  * be the stable prefix — nothing else has been sent yet. Later calls mix in conversation.
  *
+ * Two units meet here. `usage` is the provider's exact count; `contextTokens` is Pi's own
+ * estimate of the same prompt, and the two differ by a few percent. A prefix declared in
+ * provider tokens but compared against an estimated context can come out *larger* than the
+ * context it is part of, which reads as "everything is cached" — so the measurement is scaled
+ * into the estimate's units on the call where both are known.
+ *
  * The smallest positive measurement wins. A zero means "not cached right now", which says
  * nothing about how big the prefix is, and a larger one would be the prefix plus history that
- * happened to be cached too.
+ * happened to be cached too. The result is remembered by fingerprint so the next process can
+ * use it from its first call.
  */
-function observePrefixFromFirstCall(state: ObserverState, usage: PiUsage): void {
+function observePrefixFromFirstCall(
+  state: ObserverState,
+  usage: PiUsage,
+  pending: PendingDecision,
+  prefixStorePath: string,
+  outcome: TraceOutcome,
+): void {
   if (state.callsObserved > 0) {
-    state.callsObserved += 1;
+    return;
+  }
+  const promptTokens = totalPromptTokens(usage);
+  // A call that failed or carried no prompt sent nothing, so it cached nothing and cannot be
+  // the measurement: the *next* call is still the first one whose cache read means the prefix.
+  if (outcome !== "ok" || promptTokens <= 0) {
     return;
   }
   state.callsObserved = 1;
+
   const served = usage.cacheRead;
   if (served <= 0) {
+    // Nothing was served, which says nothing about the prefix; the store may know it already.
     return;
   }
+  const scaled = Math.max(0, Math.round(served * (pending.contextTokens / promptTokens)));
   state.fixedPrefixTokens =
-    state.fixedPrefixTokens === undefined ? served : Math.min(state.fixedPrefixTokens, served);
+    state.fixedPrefixTokens === undefined ? scaled : Math.min(state.fixedPrefixTokens, scaled);
+  if (state.prefixId !== undefined) {
+    rememberPrefix(
+      prefixStorePath,
+      state.prefixStore,
+      state.prefixId,
+      state.fixedPrefixTokens,
+      state.log,
+    );
+  }
 }
 
 /**
@@ -266,6 +304,79 @@ function prefixIdFromSystemPrompt(systemPrompt: string | undefined): string | un
     return undefined;
   }
   return createHash("sha256").update(systemPrompt).digest("hex").slice(0, 16);
+}
+
+/**
+ * Where measured prefix sizes are remembered between processes.
+ *
+ * Every Pi run is a new process, so without this the first call of each session would be
+ * priced as if the provider had nothing cached - and the first call is exactly the one the
+ * measurement is about.
+ */
+function defaultPrefixStorePath(): string {
+  const fromEnv = process.env.FOLDPOINT_PREFIX_STORE;
+  if (fromEnv !== undefined && fromEnv.length > 0) {
+    return fromEnv;
+  }
+  return join(homedir(), ".foldpoint", "pi-prefix.json");
+}
+
+/** Prefix sizes by fingerprint, capped so the file cannot grow without bound. */
+const PREFIX_STORE_MAX = 8;
+
+function readPrefixStore(path: string): Record<string, number> {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (parsed === null || typeof parsed !== "object") {
+      return {};
+    }
+    const store: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+        store[key] = Math.floor(value);
+      }
+    }
+    return store;
+  } catch {
+    // A missing or unreadable store is not an error: the adapter measures again.
+    return {};
+  }
+}
+
+function writePrefixStore(
+  path: string,
+  store: Record<string, number>,
+  log: (message: string) => void,
+): void {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  } catch (error) {
+    // Persisting is an optimisation; failing to persist must not break observation, and it
+    // must not be silent either.
+    log(`[foldpoint] could not write the prefix store: ${String(error)}`);
+  }
+}
+
+function rememberPrefix(
+  path: string,
+  store: Record<string, number>,
+  prefixId: string,
+  tokens: number,
+  log: (message: string) => void,
+): void {
+  const existing = store[prefixId];
+  const next = existing === undefined ? tokens : Math.min(existing, tokens);
+  const keys = [prefixId, ...Object.keys(store).filter((key) => key !== prefixId)];
+  const trimmed: Record<string, number> = {};
+  for (const key of keys.slice(0, PREFIX_STORE_MAX)) {
+    trimmed[key] = key === prefixId ? next : (store[key] as number);
+  }
+  writePrefixStore(path, trimmed, log);
+  for (const key of Object.keys(store)) {
+    delete store[key];
+  }
+  Object.assign(store, trimmed);
 }
 
 function profileFromModel(model: PiModel, prefixId: string | undefined): FoldPointProfile {
@@ -331,6 +442,7 @@ export function createFoldPointObserver(
 
   return function foldPointObserver(pi: PiExtensionAPI): void {
     const tracePath = options.tracePath ?? defaultTracePath(now);
+    const prefixStorePath = options.prefixStorePath ?? defaultPrefixStorePath();
     const defaults = options.defaults ?? readDefaultsFromEnv();
     const trace = new TraceRecorder({ producer: `pi-observer@${ADAPTER_VERSION}`, now });
     const foldPoint = new FoldPoint(defaults === undefined ? undefined : { defaults });
@@ -350,6 +462,8 @@ export function createFoldPointObserver(
       prefixId: undefined,
       fixedPrefixTokens: undefined,
       callsObserved: 0,
+      prefixStore: readPrefixStore(prefixStorePath),
+      log,
       warned: new Set<string>(),
     };
 
@@ -444,7 +558,21 @@ export function createFoldPointObserver(
           log("[foldpoint] Pi's system prompt changed; the cache learning starts over for it");
         }
         state.prefixId = prefixId;
+        // A prefix measured in an earlier process is still this prefix: use it for the first
+        // call instead of pricing the system prompt as uncached input again.
+        const remembered = state.prefixStore[prefixId];
+        state.fixedPrefixTokens =
+          remembered === undefined
+            ? undefined
+            : state.fixedPrefixTokens === undefined
+              ? remembered
+              : Math.min(remembered, state.fixedPrefixTokens);
       }
+      // A prefix is a *part* of the prompt. One that does not fit inside the context it is
+      // being declared for came from a different measurement of it, and declaring it would
+      // read as "the whole context is cached" - which is worse than declaring nothing.
+      const prefixFits =
+        state.fixedPrefixTokens !== undefined && state.fixedPrefixTokens < usage.tokens;
       const profile = profileFromModel(model, state.prefixId);
       const timestamp = now();
       const idleMs =
@@ -457,14 +585,21 @@ export function createFoldPointObserver(
         safeBoundary: true,
         compactionAllowed: true,
         ...(idleMs === undefined ? {} : { idleMs }),
-        ...(state.fixedPrefixTokens === undefined
-          ? {}
-          : { fixedPrefixTokens: state.fixedPrefixTokens }),
+        ...(prefixFits && state.fixedPrefixTokens !== undefined
+          ? { fixedPrefixTokens: state.fixedPrefixTokens }
+          : {}),
       };
+
+      if (state.fixedPrefixTokens !== undefined && !prefixFits) {
+        warnOnce(
+          "prefix-too-large",
+          `the measured stable prefix (${state.fixedPrefixTokens}) does not fit the context Pi reports (${usage.tokens}); it is not being declared, because a prefix that covers the whole prompt would price the call as free`,
+        );
+      }
 
       const decision = foldPoint.decide(input);
       const event = trace.decision(input, decision);
-      state.decisions.push({ callId: event.callId, at: timestamp });
+      state.decisions.push({ callId: event.callId, at: timestamp, contextTokens: usage.tokens });
       write(event);
 
       if (decision.action !== "KEEP") {
@@ -545,7 +680,7 @@ export function createFoldPointObserver(
         // Recording it is honest; teaching FoldPoint from it would be a lie.
         state.failedCalls += 1;
       }
-      observePrefixFromFirstCall(state, usage);
+      observePrefixFromFirstCall(state, usage, pending, prefixStorePath, outcome);
       write(trace.request(sessionKey, pending.callId, observation, { outcome }));
     });
 

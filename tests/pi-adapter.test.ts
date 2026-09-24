@@ -85,6 +85,11 @@ function newTracePath(name: string): string {
   return join(mkdtempSync(join(tmpdir(), "foldpoint-pi-")), `${name}.jsonl`);
 }
 
+/** A prefix store of its own per test, so measurements cannot leak between them. */
+function newPrefixStorePath(name: string): string {
+  return join(mkdtempSync(join(tmpdir(), "foldpoint-prefix-")), `${name}.json`);
+}
+
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
 describe("Pi observer adapter", () => {
@@ -392,13 +397,17 @@ describe("Pi observer adapter", () => {
     // Nothing else has been sent yet, so whatever the provider served from cache is the stable
     // prefix - and it is a measurement, not a guess.
     const path = newTracePath("prefix");
+    const store = newPrefixStorePath("prefix");
     const fake = fakePi();
-    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
-      fake.pi,
-    );
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: store,
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fake.pi);
 
     fake.emit("session_start", { type: "session_start", reason: "startup" });
-    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("context", { type: "context" }, fake.ctxWith(1_435));
     fake.emit("message_end", {
       type: "message_end",
       message: {
@@ -412,8 +421,92 @@ describe("Pi observer adapter", () => {
 
     const decisions = readTrace(path).filter((event) => event.type === "decision");
     expect(decisions[0]?.input.fixedPrefixTokens).toBeUndefined();
-    expect(decisions[1]?.input.fixedPrefixTokens).toBe(1_408);
+    // Scaled out of the provider's units (1408 of a 1609-token prompt) into Pi's estimate of
+    // the same call (1435), so a prefix can never exceed the context it is part of.
+    expect(decisions[1]?.input.fixedPrefixTokens).toBe(1_256);
     expect(decisions[1]?.profile.prefixId).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("uses a prefix measured in an earlier process from its first call", () => {
+    // Each Pi run is a new process. The first call is the one the measurement is about, so a
+    // measurement that does not survive the process boundary never helps where it matters.
+    const store = newPrefixStorePath("carry");
+    const first = fakePi();
+    const firstPath = newTracePath("carry-a");
+    createFoldPointObserver({
+      tracePath: firstPath,
+      prefixStorePath: store,
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(first.pi);
+    first.emit("session_start", { type: "session_start", reason: "startup" });
+    first.emit("context", { type: "context" }, first.ctxWith(1_435));
+    first.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 201, output: 10, cacheRead: 1_408, cacheWrite: 0 },
+      },
+    });
+    first.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    // A new process: new observer, same store, same system prompt.
+    const second = fakePi();
+    const secondPath = newTracePath("carry-b");
+    createFoldPointObserver({
+      tracePath: secondPath,
+      prefixStorePath: store,
+      now: () => 2_000_000,
+      log: () => undefined,
+    })(second.pi);
+    second.emit("session_start", { type: "session_start", reason: "startup" });
+    second.emit("context", { type: "context" }, second.ctxWith(1_400));
+    second.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const decisions = readTrace(secondPath).filter((event) => event.type === "decision");
+    expect(decisions[0]?.input.fixedPrefixTokens).toBe(1_256);
+    expect(decisions[0]?.profile.prefixId).toBe(
+      readTrace(firstPath).find((event) => event.type === "decision")?.profile.prefixId,
+    );
+  });
+
+  it("does not let a failed first call consume the prefix measurement", () => {
+    // A call that errored sent nothing, so it cached nothing: the next call is still the first
+    // one whose cache read means "this is the stable prefix".
+    const path = newTracePath("prefix-after-failure");
+    const store = newPrefixStorePath("prefix-after-failure");
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: store,
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fake.pi);
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(1_435));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "error",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    fake.emit("context", { type: "context" }, fake.ctxWith(1_441));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 201, output: 10, cacheRead: 1_408, cacheWrite: 0 },
+      },
+    });
+    fake.emit("context", { type: "context" }, fake.ctxWith(1_500));
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    // 1408 * 1441 / 1609: the measurement comes from the second call, in its own context units.
+    expect(decisions[2]?.input.fixedPrefixTokens).toBe(1_261);
   });
 
   it("gives a changed system prompt a different profile identity", () => {
