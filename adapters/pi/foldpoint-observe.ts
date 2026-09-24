@@ -34,6 +34,7 @@ import {
   type FoldPointProfile,
   type PricingSnapshot,
   type TraceEvent,
+  type TraceOutcome,
   TraceRecorder,
 } from "../../src/index";
 
@@ -164,6 +165,7 @@ interface ObserverState {
   pendingCompaction: PendingCompaction | null;
   lastCallAt: number | undefined;
   lastProfile: FoldPointProfile | undefined;
+  failedCalls: number;
   /** Diagnostics that must not repeat on every call. */
   warned: Set<string>;
 }
@@ -214,6 +216,20 @@ function readDefaultsFromEnv(): Partial<FoldPointDefaults> | undefined {
   return JSON.parse(raw) as Partial<FoldPointDefaults>;
 }
 
+/**
+ * What Pi says happened to the call. `error` and `aborted` calls never reached the cache and
+ * report zeroed usage, so they are recorded but never used to teach FoldPoint anything.
+ */
+function outcomeFromStopReason(stopReason: string | undefined): TraceOutcome {
+  if (stopReason === "error") {
+    return "error";
+  }
+  if (stopReason === "aborted" || stopReason === "pending") {
+    return "aborted";
+  }
+  return "ok";
+}
+
 function defaultTracePath(now: () => number): string {
   const fromEnv = process.env.FOLDPOINT_TRACE;
   if (fromEnv !== undefined && fromEnv.length > 0) {
@@ -249,6 +265,7 @@ export function createFoldPointObserver(
       pendingCompaction: null,
       lastCallAt: undefined,
       lastProfile: undefined,
+      failedCalls: 0,
       warned: new Set<string>(),
     };
 
@@ -399,16 +416,26 @@ export function createFoldPointObserver(
         cacheWriteTokens: usage.cacheWrite,
         outputTokens: usage.output,
       };
-      // Learning state is per profile: without a model there is no profile to learn into, so
-      // the trace still gets the usage but FoldPoint is left alone.
-      const model = ctx.model;
-      if (model === undefined) {
-        warnOnce("no-model-at-end", "a call finished while Pi reported no model; learning skipped");
+      const outcome = outcomeFromStopReason(event.message.stopReason);
+      if (outcome === "ok") {
+        // Learning state is per profile: without a model there is no profile to learn into, so
+        // the trace still gets the usage but FoldPoint is left alone.
+        const model = ctx.model;
+        if (model === undefined) {
+          warnOnce(
+            "no-model-at-end",
+            "a call finished while Pi reported no model; learning skipped",
+          );
+        } else {
+          state.lastProfile = profileFromModel(model);
+          foldPoint.observeRequest(sessionKey, state.lastProfile, observation);
+        }
       } else {
-        state.lastProfile = profileFromModel(model);
-        foldPoint.observeRequest(sessionKey, state.lastProfile, observation);
+        // A call that errored or was aborted never reached the cache and reports zeroed usage.
+        // Recording it is honest; teaching FoldPoint from it would be a lie.
+        state.failedCalls += 1;
       }
-      write(trace.request(sessionKey, pending.callId, observation, { outcome: "ok" }));
+      write(trace.request(sessionKey, pending.callId, observation, { outcome }));
     });
 
     // Pi is about to compact. This handler returns nothing: it cannot cancel or change it.
@@ -478,14 +505,20 @@ export function createFoldPointObserver(
       }
       write(trace.sessionEnd(sessionKey, { timestamp: now() }, { reason: "shutdown" }));
 
-      if (state.unpairedDecisions > 0 || state.unpairedRequests > 0 || state.skippedDecisions > 0) {
+      if (
+        state.unpairedDecisions > 0 ||
+        state.unpairedRequests > 0 ||
+        state.skippedDecisions > 0 ||
+        state.failedCalls > 0
+      ) {
         log(
-          `[foldpoint] session ${sessionKey}: ${state.unpairedDecisions} decision(s) without a request, ${state.unpairedRequests} request(s) without a decision, ${state.skippedDecisions} decision(s) skipped for an unknown context size`,
+          `[foldpoint] session ${sessionKey}: ${state.unpairedDecisions} decision(s) without a request, ${state.unpairedRequests} request(s) without a decision, ${state.skippedDecisions} decision(s) skipped for an unknown context size, ${state.failedCalls} failed call(s) excluded from learning`,
         );
       }
       state.sessionKey = null;
       state.decisions = [];
       state.lastProfile = undefined;
+      state.failedCalls = 0;
     });
   };
 }

@@ -271,6 +271,37 @@ describe("Pi observer adapter", () => {
     expect(readTrace(path).filter((event) => event.type === "request")).toHaveLength(0);
   });
 
+  it("records a failed call but never learns from it", () => {
+    const path = newTracePath("failed-call");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "error",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const events = readTrace(path);
+    const request = events.find((event) => event.type === "request");
+    expect(request?.type).toBe("request");
+    if (request?.type !== "request") {
+      throw new Error("missing request");
+    }
+    // The call is recorded honestly, with its outcome...
+    expect(request.outcome).toBe("error");
+    // ...but a zeroed usage from a failed call must not be treated as "no cache served".
+    expect(request.usage.cachedInputTokens).toBe(0);
+  });
+
   it("keeps every session in the trace", () => {
     const path = newTracePath("two-sessions");
     const fake = fakePi();

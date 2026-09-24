@@ -329,7 +329,8 @@ export function analyzeTraceEvents(
 
       // --- cache aliveness for this call, and for the next one ---
       if (request !== undefined) {
-        const cacheStateKnown = request.usage.cachedInputTokens !== undefined;
+        const cacheStateKnown =
+          !isFailedRequest(request) && request.usage.cachedInputTokens !== undefined;
         if (!cacheStateKnown) {
           unknownCacheUsage += 1;
         } else {
@@ -344,7 +345,12 @@ export function analyzeTraceEvents(
         }
 
         const next = session.requests[requestIndex + 1];
-        if (next !== undefined && cacheStateKnown && next.usage.cachedInputTokens !== undefined) {
+        if (
+          next !== undefined &&
+          cacheStateKnown &&
+          !isFailedRequest(next) &&
+          next.usage.cachedInputTokens !== undefined
+        ) {
           const nextDecision = session.decisions.find((entry) => entry.callId === next.callId);
           const blocker = nextCallBlocker(session, request, next, decision, nextDecision);
           if (blocker === null) {
@@ -378,8 +384,10 @@ export function analyzeTraceEvents(
         unpriceable += 1;
         continue;
       }
-      // A cost can only be priced when the host reported the whole prompt breakdown.
+      // A cost can only be priced when the host reported the whole prompt breakdown, and only
+      // when the call actually ran: a failed call reports zeroed usage.
       if (
+        isFailedRequest(request) ||
         request.usage.cachedInputTokens === undefined ||
         request.usage.cacheWriteTokens === undefined
       ) {
@@ -443,7 +451,17 @@ export function analyzeTraceEvents(
   }
   if (unknownCacheUsage > 0) {
     notes.push(
-      `${unknownCacheUsage} request(s) do not report cachedInputTokens; unknown is not a miss, so they are excluded from the cache calibration and the cost error.`,
+      `${unknownCacheUsage} request(s) report no usable cache state (not reported, or the call failed); unknown is not a miss, so they are excluded from the cache calibration and the cost error.`,
+    );
+  }
+  const failedRequests = [...sessions.values()].reduce(
+    (total, session) =>
+      total + session.requests.filter((request) => isFailedRequest(request)).length,
+    0,
+  );
+  if (failedRequests > 0) {
+    notes.push(
+      `${failedRequests} request(s) failed or were aborted; they are recorded in the trace but excluded from every prediction metric, because a call that never reached the cache proves nothing about it.`,
     );
   }
   const skippedNextCallTotal =
@@ -590,9 +608,10 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
       case "request": {
         const session = ensure(event.sessionId);
         session.requests.push(event);
-        // `undefined` means the host did not report it: unknown, never "not served".
+        // `undefined` means "no usable evidence": the host did not report the cache usage, or
+        // the call itself failed and never reached the cache. Neither is a miss.
         session.servedFromCache.push(
-          event.usage.cachedInputTokens === undefined
+          isFailedRequest(event) || event.usage.cachedInputTokens === undefined
             ? undefined
             : event.usage.cachedInputTokens > 0,
         );
@@ -608,6 +627,21 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
   }
 
   return sessions;
+}
+
+/**
+ * True when the call itself failed, or when the reported usage cannot be a real call.
+ *
+ * A request with no prompt tokens and no output tokens did not happen: a model call always
+ * reads a prompt. Older traces recorded such a call with `outcome: "ok"`, so the check is on the
+ * numbers as well as on the outcome. Either way the call proves nothing about the cache, and
+ * treating its zeroes as a miss would poison the calibration.
+ */
+function isFailedRequest(request: TraceRequestEvent): boolean {
+  if (request.outcome !== undefined && request.outcome !== "ok") {
+    return true;
+  }
+  return request.usage.promptTokens === 0 && (request.usage.outputTokens ?? 0) === 0;
 }
 
 /**

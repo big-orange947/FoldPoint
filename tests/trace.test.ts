@@ -391,6 +391,85 @@ describe("trace analysis", () => {
     expect(report).toContain("Task quality is not measured here");
   });
 
+  it("excludes a failed call from the cache calibration and the cost error", () => {
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    const profile = profileWithCacheTtl(60_000);
+    const input = makeInput({
+      sessionId: "failed",
+      profile,
+      contextTokens: 100_000,
+      cachedTokens: 80_000,
+      idleMs: 0,
+      expectedFutureCalls: 1,
+    });
+    const decision = decideFoldPoint(input, makeLearning(HISTORY), makeSession(SESSION_HISTORY));
+    events.push(trace.decision(input, decision, { callId: "f-1" }));
+    // A provider refusal: Pi reports the call as errored with a zeroed usage.
+    events.push(
+      trace.request(
+        "failed",
+        "f-1",
+        {
+          timestamp: BASE_TIMESTAMP,
+          promptTokens: 0,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+        },
+        { outcome: "error" },
+      ),
+    );
+    events.push(trace.sessionEnd("failed", { timestamp: BASE_TIMESTAMP + 1_000 }));
+
+    const analysis = analyzeTraceEvents(events);
+
+    expect(analysis.unknownCacheUsage).toBe(1);
+    expect(analysis.overall.cacheAliveThisCall.reduce((n, bucket) => n + bucket.count, 0)).toBe(0);
+    expect(analysis.overall.callCost.count).toBe(0);
+    expect(analysis.notes.join(" ")).toContain("failed or were aborted");
+    // A failed call does not make the session look like a cold-cache session either.
+    expect(analysis.byClass["cold-cache"].decisions).toBe(0);
+  });
+
+  it("treats a zeroed usage as a call that did not happen", () => {
+    // A trace recorded before the adapter learned to mark failures: the outcome says "ok",
+    // but a call with no prompt tokens and no output tokens never reached the provider.
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    const input = makeInput({
+      sessionId: "zeroed",
+      profile: profileWithCacheTtl(60_000),
+      contextTokens: 100_000,
+      cachedTokens: 80_000,
+      idleMs: 0,
+      expectedFutureCalls: 1,
+    });
+    const decision = decideFoldPoint(input, makeLearning(HISTORY), makeSession(SESSION_HISTORY));
+    events.push(trace.decision(input, decision, { callId: "z-1" }));
+    events.push(
+      trace.request(
+        "zeroed",
+        "z-1",
+        {
+          timestamp: BASE_TIMESTAMP,
+          promptTokens: 0,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+        },
+        { outcome: "ok" },
+      ),
+    );
+    events.push(trace.sessionEnd("zeroed", { timestamp: BASE_TIMESTAMP + 1_000 }));
+
+    const analysis = analyzeTraceEvents(events);
+
+    expect(analysis.overall.cacheAliveThisCall.reduce((n, bucket) => n + bucket.count, 0)).toBe(0);
+    expect(analysis.overall.callCost.count).toBe(0);
+    expect(analysis.notes.join(" ")).toContain("failed or were aborted");
+  });
+
   it("notes unpaired decisions and missing pricing instead of guessing", () => {
     const trace = recorder();
     const input = makeInput({ contextTokens: 10_000, profile: makeInput().profile });
