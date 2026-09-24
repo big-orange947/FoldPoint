@@ -69,6 +69,15 @@ The coverage ratio has its own limitation: when the host does not report `cached
 FoldPoint uses the learned average coverage, which cannot know that *this* prompt is the
 first one after a long tool output.
 
+The first real trace quantifies that. On DeepSeek the cache is automatic and cheap
+(`cacheRead` 0.006 against `input` 0.30 per million), so per-call coverage swings between 0.16
+and 0.99 depending on how much new text the call carries. A `cacheCoverageRatioEma` with
+`alpha = 0.25` cannot track that: over ten decisions it walked 0 → 0.88 while the truth was
+0.95–0.99, and the predicted cost of a call stayed 8–22× above the real one, improving slowly.
+The number is honest, the shape is wrong — coverage is a property of the *last delta*, not of
+the profile. Treat the call-cost error on an automatically cached provider as a known model
+error until the estimator is given a better coverage input.
+
 The forecast for the calls *after* the current one is a belief too, and it is deliberately
 separate from the current call's verdict: a lapsed TTL says this request has to write its
 prefix, not that every later request will. The model keeps the smooth form of a half-life
@@ -100,6 +109,25 @@ uncertainty penalty, the confidence floor and the minimum reclaim gate make that
 small as possible without making FoldPoint useless on a fresh profile, but they do not
 eliminate it. Benchmark scenario `F` shows it: FoldPoint keeps compacting while its learned
 retention ratio walks from 0.40 towards the real 0.95.
+
+The first real trace (Pi + DeepSeek, 7 compactions in one session) shows the same walk in the
+other direction: the learned reclaim ratio fell from 0.60 to 0.489 over seven samples, against
+a real retention of ~0.52, so it converged within the session. Retention is learnable in a way
+the per-call cache coverage is not (see §4).
+
+## 6.1 A host may not let you decide every call
+
+Pi reports `getContextUsage().tokens = null` until an assistant message after a compaction
+reports usage, so the first call after every compaction has no known context size. An
+observe-only adapter must not invent one, so it records that call's real usage under a
+`#unpaired-N` label and makes no prediction for it. In the first real session that was 7 of 16
+calls — and they are the calls where the compaction decision matters most, because they are the
+first replay of the new prefix.
+
+An acting integration has the same hole: whatever decides whether to compact cannot be asked
+about that call either. Anything FoldPoint does on Pi is therefore decided one call *before* the
+compaction takes effect, which is fine for a keep/compact choice at a boundary but means the
+post-compaction replay is never itself a decision point.
 
 ## 7. Cheap is not better
 

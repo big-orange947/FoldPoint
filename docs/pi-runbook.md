@@ -234,6 +234,27 @@ Three properties differ from Anthropic, and each one changes what FoldPoint can 
 `4.137e-4` against `2.504e-4` actual (over-prediction, because the cold-start model expected no
 cache coverage).
 
+**What a real session then showed** (16 calls, 7 compactions, 32k override, one `--print` run
+over a 370 KB scratch file, $0.029 total). DeepSeek's cache is not a TTL cache: coverage per
+call was 0.16–0.99, and the calls that follow a compaction are the interesting ones — the first
+one replays the new prefix with `cachedInputTokens 1536` of `11764`, the next one already
+`12032` of `12184`. Two consequences for collection:
+
+- **Chunk the work, do not dump it.** Pi keeps whole entries when it compacts, so a single
+  250-line read (~11k tokens) survives compaction in one piece. With `keepRecentTokens: 4000`
+  the post-compaction context was still ~12k, which re-triggered compaction every two calls:
+  7 compactions for 8 decided calls. Read in 60–80 line chunks instead, or accept the thrash as
+  data.
+- **The first call after a compaction cannot be decided.** Pi reports
+  `getContextUsage().tokens = null` until an assistant message *after* the compaction reports
+  usage (`agent-session.ts`), and the adapter will not invent a context size. Those calls are
+  recorded as `#unpaired-N` requests with their real usage, and the analyzer counts them, but
+  they carry no prediction. On this run that was 7 of 16 calls.
+
+Pi's auto-compaction reported no `usage` on `CompactionEntry` either, so the cost of the
+summarisation call itself is not in the trace: `C_compact` has no ground truth here, only the
+decision's own call does.
+
 ### 2.3 Keep the test config out of your real one
 
 `PI_CODING_AGENT_DIR` points Pi at a different agent directory, so the experiment can have its
@@ -258,6 +279,10 @@ node <pi>/packages/coding-agent/dist/bundle/cli.js --print "<task>" `
 
 The extension prints one line to stderr when it starts observing, so `--print` output and the
 trace line do not mix: `[foldpoint] observing session <key> -> <path>`.
+
+Note that a trace says which adapter wrote it (`producer`, e.g. `pi-observer@0.2.0`). Version
+0.1.0 recorded Pi's uncached input as the whole prompt, so its cost numbers are wrong by the
+cache hits of each call — delete or ignore 0.1.0 traces rather than mixing them into a batch.
 
 ### 2.3 What shrinking the window changes, and what it does not
 
