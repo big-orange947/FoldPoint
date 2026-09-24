@@ -88,7 +88,7 @@ export interface CachePolicy {
 
 /**
  * A model + compactor combination. Learning state is isolated per profile.
- * Suggested key: provider + model + contextWindowTokens + compactorId.
+ * Suggested key: provider + model + contextWindowTokens + compactorId + prefixId.
  */
 export interface FoldPointProfile {
   provider?: string;
@@ -96,6 +96,12 @@ export interface FoldPointProfile {
   contextWindowTokens: number;
   /** The compactor implementation this profile feeds; compaction quality differs per compactor. */
   compactorId: string;
+  /**
+   * Irreversible fingerprint of the host's stable prompt prefix — its system prompt and tool
+   * schemas — when the host can name it. Part of the state key: a configuration whose prefix
+   * changed must not inherit the cache learning of the old one.
+   */
+  prefixId?: string;
   /** Optional price information. */
   pricing?: PricingSnapshot;
   /** Known provider cache behaviour. */
@@ -135,6 +141,13 @@ export interface FoldPointInput {
 
   /** Tokens the host knows are served from the provider cache for this prompt. */
   cachedTokens?: number;
+
+  /**
+   * Leading tokens of this prompt the host declares stable — its system prompt and tool
+   * schemas. They are the same on every call of a configuration, so the model treats them as
+   * cacheable instead of estimating them from the learned coverage of the whole prompt.
+   */
+  fixedPrefixTokens?: number;
 
   /** Milliseconds since the last real request of *this session*. Derived from state when omitted. */
   idleMs?: number;

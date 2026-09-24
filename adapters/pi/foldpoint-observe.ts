@@ -25,6 +25,7 @@
  * file or UUID, so a trace cannot be joined back to a conversation by its identifiers.
  */
 
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -89,6 +90,8 @@ export interface PiExtensionContext {
   model: PiModel | undefined;
   cwd: string;
   getContextUsage(): PiContextUsage | undefined;
+  /** The effective system prompt, including tool descriptions and context files. */
+  getSystemPrompt?(): string;
 }
 
 export type PiCompactionReason = "manual" | "threshold" | "overflow";
@@ -170,6 +173,12 @@ interface ObserverState {
   lastCallAt: number | undefined;
   lastProfile: FoldPointProfile | undefined;
   failedCalls: number;
+  /** Fingerprint of Pi's system prompt, when Pi exposes it. Part of the profile identity. */
+  prefixId: string | undefined;
+  /** Tokens of Pi's stable prefix, measured from the provider's own cache read. */
+  fixedPrefixTokens: number | undefined;
+  /** How many calls this session has made, to know which one measures the prefix. */
+  callsObserved: number;
   /** Diagnostics that must not repeat on every call. */
   warned: Set<string>;
 }
@@ -207,13 +216,68 @@ function pricingFromModel(model: PiModel): PricingSnapshot | undefined {
   return pricing;
 }
 
-function profileFromModel(model: PiModel): FoldPointProfile {
+/**
+ * Pi's effective system prompt, when the version of Pi exposes it. Reading it is not reading a
+ * request payload: it is the host's own configuration, and the adapter keeps only a fingerprint
+ * of it.
+ */
+function readSystemPrompt(ctx: PiExtensionContext): string | undefined {
+  if (typeof ctx.getSystemPrompt !== "function") {
+    return undefined;
+  }
+  const prompt = ctx.getSystemPrompt();
+  return typeof prompt === "string" ? prompt : undefined;
+}
+
+/**
+ * Learn how many tokens Pi's stable prefix is, from the provider's own count.
+ *
+ * The first call of a session is the clean measurement: its prompt is the system prompt, the
+ * tool schemas and the first user message, so whatever the provider served from cache can only
+ * be the stable prefix — nothing else has been sent yet. Later calls mix in conversation.
+ *
+ * The smallest positive measurement wins. A zero means "not cached right now", which says
+ * nothing about how big the prefix is, and a larger one would be the prefix plus history that
+ * happened to be cached too.
+ */
+function observePrefixFromFirstCall(state: ObserverState, usage: PiUsage): void {
+  if (state.callsObserved > 0) {
+    state.callsObserved += 1;
+    return;
+  }
+  state.callsObserved = 1;
+  const served = usage.cacheRead;
+  if (served <= 0) {
+    return;
+  }
+  state.fixedPrefixTokens =
+    state.fixedPrefixTokens === undefined ? served : Math.min(state.fixedPrefixTokens, served);
+}
+
+/**
+ * Irreversible fingerprint of Pi's stable prompt prefix: the effective system prompt, which
+ * includes the tool descriptions, the loaded context files and the working directory.
+ *
+ * A hash, never the text: it exists so a decision records *which* configuration produced it,
+ * and so a prefix that changes cannot inherit the cache learning of the old one.
+ */
+function prefixIdFromSystemPrompt(systemPrompt: string | undefined): string | undefined {
+  if (systemPrompt === undefined || systemPrompt.length === 0) {
+    return undefined;
+  }
+  return createHash("sha256").update(systemPrompt).digest("hex").slice(0, 16);
+}
+
+function profileFromModel(model: PiModel, prefixId: string | undefined): FoldPointProfile {
   const profile: FoldPointProfile = {
     provider: model.provider,
     model: model.id,
     contextWindowTokens: model.contextWindow,
     compactorId: "pi-compaction",
   };
+  if (prefixId !== undefined) {
+    profile.prefixId = prefixId;
+  }
   const pricing = pricingFromModel(model);
   if (pricing !== undefined) {
     profile.pricing = pricing;
@@ -283,6 +347,9 @@ export function createFoldPointObserver(
       lastCallAt: undefined,
       lastProfile: undefined,
       failedCalls: 0,
+      prefixId: undefined,
+      fixedPrefixTokens: undefined,
+      callsObserved: 0,
       warned: new Set<string>(),
     };
 
@@ -344,7 +411,7 @@ export function createFoldPointObserver(
         const afterTokens = ctx.getContextUsage()?.tokens ?? null;
         if (afterTokens !== null) {
           state.pendingCompaction = null;
-          const profile = profileFromModel(model);
+          const profile = profileFromModel(model, state.prefixId);
           const observation = {
             timestamp: pending.at,
             beforeTokens: pending.tokensBefore,
@@ -371,7 +438,14 @@ export function createFoldPointObserver(
         return;
       }
 
-      const profile = profileFromModel(model);
+      const prefixId = prefixIdFromSystemPrompt(readSystemPrompt(ctx));
+      if (prefixId !== undefined && prefixId !== state.prefixId) {
+        if (state.prefixId !== undefined) {
+          log("[foldpoint] Pi's system prompt changed; the cache learning starts over for it");
+        }
+        state.prefixId = prefixId;
+      }
+      const profile = profileFromModel(model, state.prefixId);
       const timestamp = now();
       const idleMs =
         state.lastCallAt === undefined ? undefined : Math.max(0, timestamp - state.lastCallAt);
@@ -383,6 +457,9 @@ export function createFoldPointObserver(
         safeBoundary: true,
         compactionAllowed: true,
         ...(idleMs === undefined ? {} : { idleMs }),
+        ...(state.fixedPrefixTokens === undefined
+          ? {}
+          : { fixedPrefixTokens: state.fixedPrefixTokens }),
       };
 
       const decision = foldPoint.decide(input);
@@ -460,7 +537,7 @@ export function createFoldPointObserver(
             "a call finished while Pi reported no model; learning skipped",
           );
         } else {
-          state.lastProfile = profileFromModel(model);
+          state.lastProfile = profileFromModel(model, state.prefixId);
           foldPoint.observeRequest(sessionKey, state.lastProfile, observation);
         }
       } else {
@@ -468,6 +545,7 @@ export function createFoldPointObserver(
         // Recording it is honest; teaching FoldPoint from it would be a lie.
         state.failedCalls += 1;
       }
+      observePrefixFromFirstCall(state, usage);
       write(trace.request(sessionKey, pending.callId, observation, { outcome }));
     });
 

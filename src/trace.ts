@@ -81,6 +81,8 @@ export interface TraceProfile {
   model: string;
   contextWindowTokens: number;
   compactorId: string;
+  /** Irreversible fingerprint of the host's stable prompt prefix. Never the prompt itself. */
+  prefixId?: string;
   pricing?: PricingSnapshot;
   cachePolicy?: CachePolicy;
 }
@@ -89,6 +91,8 @@ export interface TraceProfile {
 export interface TraceInput {
   contextTokens: number;
   cachedTokens?: number;
+  /** Leading tokens the host declared stable (system prompt and tool schemas). */
+  fixedPrefixTokens?: number;
   idleMs?: number;
   expectedFutureCalls?: number;
   safeBoundary?: boolean;
@@ -397,6 +401,9 @@ function traceProfile(profile: FoldPointProfile): TraceProfile {
   if (profile.provider !== undefined) {
     traced.provider = profile.provider;
   }
+  if (profile.prefixId !== undefined) {
+    traced.prefixId = profile.prefixId;
+  }
   if (profile.pricing !== undefined) {
     traced.pricing = { ...profile.pricing };
   }
@@ -425,6 +432,9 @@ function traceInput(input: FoldPointInput): TraceInput {
   }
   if (input.cacheExpiresAt !== undefined) {
     traced.cacheExpiresAt = input.cacheExpiresAt;
+  }
+  if (input.fixedPrefixTokens !== undefined) {
+    traced.fixedPrefixTokens = input.fixedPrefixTokens;
   }
   return traced;
 }
@@ -538,7 +548,18 @@ export function validateTraceEvent(value: unknown): TraceEvent {
     case "decision": {
       assertTraceLabel("callId", event.callId);
       assertNonEmptyString("profile.model", event.profile?.model);
+      if (event.profile?.prefixId !== undefined) {
+        assertTraceLabel("profile.prefixId", event.profile.prefixId);
+      }
       assertFinite("input.contextTokens", event.input?.contextTokens, 0);
+      if (event.input?.fixedPrefixTokens !== undefined) {
+        assertFinite("input.fixedPrefixTokens", event.input.fixedPrefixTokens, 0);
+        if (event.input.fixedPrefixTokens > event.input.contextTokens) {
+          throw new RangeError(
+            `Trace input.fixedPrefixTokens (${event.input.fixedPrefixTokens}) must not exceed input.contextTokens (${event.input.contextTokens})`,
+          );
+        }
+      }
       assertNonEmptyString("decision.action", event.decision?.action);
       assertFinite(
         "prediction.estimatedCurrentCallReplayCost",

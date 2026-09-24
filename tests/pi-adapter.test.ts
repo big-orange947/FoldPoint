@@ -28,7 +28,11 @@ interface FakePi {
     ctx?: PiExtensionContext,
   ): void;
   /** A context whose reported usage changes between calls. */
-  ctxWith(tokens: number | null, model?: PiModel | undefined): PiExtensionContext;
+  ctxWith(
+    tokens: number | null,
+    model?: PiModel | undefined,
+    systemPrompt?: string,
+  ): PiExtensionContext;
 }
 
 function fakePi(): FakePi {
@@ -47,6 +51,7 @@ function fakePi(): FakePi {
     model: MODEL,
     cwd: "/tmp/project",
     getContextUsage: () => ({ tokens: 50_000, contextWindow: 200_000, percent: 25 }),
+    getSystemPrompt: () => SYSTEM_PROMPT,
   };
   return {
     pi,
@@ -56,7 +61,7 @@ function fakePi(): FakePi {
         (handler as unknown as (event: unknown, ctx: PiExtensionContext) => void)(payload, ctx);
       }
     },
-    ctxWith(tokens, model = MODEL) {
+    ctxWith(tokens, model = MODEL, systemPrompt = SYSTEM_PROMPT) {
       return {
         model,
         cwd: "/tmp/project",
@@ -64,6 +69,7 @@ function fakePi(): FakePi {
           tokens === null
             ? { tokens: null, contextWindow: 200_000, percent: null }
             : { tokens, contextWindow: 200_000, percent: tokens / 2_000 },
+        getSystemPrompt: () => systemPrompt,
       };
     },
   };
@@ -78,6 +84,8 @@ function readTrace(path: string): TraceEvent[] {
 function newTracePath(name: string): string {
   return join(mkdtempSync(join(tmpdir(), "foldpoint-pi-")), `${name}.jsonl`);
 }
+
+const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
 describe("Pi observer adapter", () => {
   it("subscribes only to the events it needs, and never to the request payload", () => {
@@ -377,6 +385,54 @@ describe("Pi observer adapter", () => {
     expect(request.outcome).toBe("error");
     // ...but a zeroed usage from a failed call must not be treated as "no cache served".
     expect(request.usage.cachedInputTokens).toBe(0);
+  });
+
+  it("measures the stable prefix from the first call's cache read", () => {
+    // Pi's first call carries the system prompt, the tool schemas and the first user message.
+    // Nothing else has been sent yet, so whatever the provider served from cache is the stable
+    // prefix - and it is a measurement, not a guess.
+    const path = newTracePath("prefix");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 201, output: 10, cacheRead: 1_408, cacheWrite: 0 },
+      },
+    });
+    // The next decision knows the prefix, so the model stops pricing it as uncached input.
+    fake.emit("context", { type: "context" }, fake.ctxWith(51_000));
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions[0]?.input.fixedPrefixTokens).toBeUndefined();
+    expect(decisions[1]?.input.fixedPrefixTokens).toBe(1_408);
+    expect(decisions[1]?.profile.prefixId).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("gives a changed system prompt a different profile identity", () => {
+    const path = newTracePath("prefix-change");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000, MODEL, "a different prompt"));
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions[0]?.profile.prefixId).toMatch(/^[0-9a-f]{16}$/);
+    expect(decisions[1]?.profile.prefixId).not.toBe(decisions[0]?.profile.prefixId);
+    // The fingerprint is a hash: the prompt itself must never reach the trace.
+    expect(JSON.stringify(decisions[1])).not.toContain("a different prompt");
   });
 
   it("keeps every session in the trace", () => {

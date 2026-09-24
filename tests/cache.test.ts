@@ -329,6 +329,44 @@ describe("cache coverage sources", () => {
     expect(decision.metrics.estimatedCacheAliveProbability).toBe(0);
     expect(decision.metrics.estimatedKeepCost).toBeCloseTo(100_000 * INPUT_PRICE, 12);
   });
+
+  it("treats a declared stable prefix as cacheable without learning it", () => {
+    // Pi knows its system prompt and tool schemas are the same on every call. That part is not
+    // a statistic: it is cacheable whatever the conversation does, while a coverage EMA learned
+    // over the whole prompt makes the estimate swing with the last call's new text.
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        fixedPrefixTokens: 1_408,
+        expectedFutureCalls: 1,
+        profile: profileWithCacheTtl(60_000),
+      },
+      { cacheCoverageSamples: 0, cacheCoverageRatioEma: 0 },
+      {},
+    );
+
+    expect(decision.metrics.estimatedEffectiveCachedTokens).toBe(1_408);
+    expect(decision.metrics.estimatedKeepCost).toBeCloseTo(
+      1_408 * CACHE_READ_PRICE + 98_592 * INPUT_PRICE,
+      12,
+    );
+  });
+
+  it("applies the learned coverage only to the part of the prompt that changes", () => {
+    const decision = decideWith(
+      {
+        contextTokens: 100_000,
+        fixedPrefixTokens: 1_408,
+        expectedFutureCalls: 1,
+        profile: profileWithCacheTtl(60_000),
+      },
+      { ...HISTORY, cacheCoverageSamples: 3, cacheCoverageRatioEma: 0.9 },
+      SESSION_HISTORY,
+    );
+
+    // 1408 + (100000 - 1408) * 0.9, not 100000 * 0.9.
+    expect(decision.metrics.estimatedEffectiveCachedTokens).toBeCloseTo(90_140.8, 6);
+  });
 });
 
 describe("cache aliveness sources", () => {

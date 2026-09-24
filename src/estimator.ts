@@ -316,6 +316,7 @@ export function decideFoldPoint(
     idleMs,
     contextTokens,
     cachedTokens: input.cachedTokens,
+    fixedPrefixTokens: input.fixedPrefixTokens,
     cachePolicy: input.profile.cachePolicy,
     cacheExpiresAt: resolveCacheExpiresAt(input, session ?? {}),
     cacheCoverageRatioEma: readStateNumber(learning?.cacheCoverageRatioEma, 0, 0, 1),

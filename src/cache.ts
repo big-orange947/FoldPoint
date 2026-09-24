@@ -20,6 +20,15 @@ export interface CacheModelInput {
   contextTokens: number;
   /** Tokens the host reports as served from the cache for the current prompt, if any. */
   cachedTokens?: number | undefined;
+  /**
+   * Leading tokens of the prompt the host declares stable: its system prompt and tool schemas.
+   *
+   * These are the same on every call of a host configuration, so they are the part of the
+   * prompt that is cacheable whatever the conversation does. A host that can name them should,
+   * because the learned coverage ratio is a statistic over the *variable* part of the prompt
+   * and says nothing useful about a prefix that never changes.
+   */
+  fixedPrefixTokens?: number | undefined;
   cachePolicy?: { ttlMs?: number; halfLifeMs?: number; disabled?: boolean } | undefined;
   /** Exact expiry of the current prefix: input override first, else the session's value. */
   cacheExpiresAt?: number | undefined;
@@ -123,6 +132,23 @@ export function isCachingInPlay(
 }
 
 /**
+ * Tokens the cache could serve when the host reports no prefix of its own: the declared stable
+ * prefix, plus the learned coverage applied to the rest of the prompt.
+ *
+ * The prefix is not learned, because it is not a statistic. A host that declares its system
+ * prompt and tool schemas knows those leading tokens are the same on every call, so they are
+ * cacheable whatever the conversation does. Learning one coverage ratio over the whole prompt
+ * instead makes the estimate swing with how much new text the last call carried: on a real
+ * DeepSeek session the same profile produced coverage of 0.16 and 0.99 on consecutive calls.
+ */
+function learnedCandidateTokens(input: CacheModelInput, contextTokens: number): number {
+  const prefix = clamp(input.fixedPrefixTokens ?? 0, 0, contextTokens);
+  const variable = contextTokens - prefix;
+  const coverage = input.cacheCoverageSamples > 0 ? clamp(input.cacheCoverageRatioEma, 0, 1) : 0;
+  return clamp(prefix + variable * coverage, 0, contextTokens);
+}
+
+/**
  * Tokens a *later* call could reuse: the prefix the current call leaves behind.
  *
  * This is deliberately **not** `candidateCachedTokens`: a host that reports
@@ -134,13 +160,16 @@ export function isCachingInPlay(
  *
  * 1. what this call was served, when the host reports a prefix — the cache can serve at least
  *    that much again;
- * 2. the learned coverage applied to the context, when coverage was observed;
+ * 2. the declared prefix plus the learned coverage of the rest, when coverage was observed;
  * 3. the whole context, because that is what the provider was just sent. Assuming nothing is
  *    ever cached would make every future call look like a rewrite, which is a stronger claim
  *    than the model can support and the aggressive direction for compaction.
  */
 export function resolveLaterCandidateTokens(
-  input: Pick<CacheModelInput, "contextTokens" | "cacheCoverageRatioEma" | "cacheCoverageSamples">,
+  input: Pick<
+    CacheModelInput,
+    "contextTokens" | "cacheCoverageRatioEma" | "cacheCoverageSamples" | "fixedPrefixTokens"
+  >,
   candidateCachedTokens: number,
   cachingInPlay: boolean,
 ): number {
@@ -150,8 +179,19 @@ export function resolveLaterCandidateTokens(
 
   const contextTokens = clamp(input.contextTokens, 0, Number.MAX_SAFE_INTEGER);
   const learnedPrefixTokens =
-    input.cacheCoverageSamples > 0
-      ? contextTokens * clamp(input.cacheCoverageRatioEma, 0, 1)
+    input.cacheCoverageSamples > 0 || (input.fixedPrefixTokens ?? 0) > 0
+      ? learnedCandidateTokens(
+          {
+            timestamp: 0,
+            idleMs: 0,
+            contextTokens,
+            fixedPrefixTokens: input.fixedPrefixTokens,
+            cacheCoverageRatioEma: input.cacheCoverageRatioEma,
+            cacheCoverageSamples: input.cacheCoverageSamples,
+            hasCacheDiscount: true,
+          },
+          contextTokens,
+        )
       : contextTokens;
 
   return clamp(Math.max(candidateCachedTokens, learnedPrefixTokens), 0, contextTokens);
@@ -197,8 +237,8 @@ export function resolveLaterAliveProbability(
  *
  * Coverage (how much of the context the cache *could* serve):
  * 1. `input.cachedTokens` when the host reports it;
- * 2. else `contextTokens * cacheCoverageRatioEma` when coverage was observed before;
- * 3. else 0.
+ * 2. else the declared stable prefix, plus the learned coverage of the rest of the prompt;
+ * 3. with neither, 0.
  *
  * Alive probability (whether that prefix is still usable):
  * 1. no cache discount, or the policy disables caching -> 0;
@@ -214,14 +254,8 @@ export function estimateCacheModel(input: CacheModelInput): CacheModel {
   let candidateCachedTokens: number;
   if (input.cachedTokens !== undefined) {
     candidateCachedTokens = clamp(input.cachedTokens, 0, contextTokens);
-  } else if (input.cacheCoverageSamples > 0) {
-    candidateCachedTokens = clamp(
-      contextTokens * clamp(input.cacheCoverageRatioEma, 0, 1),
-      0,
-      contextTokens,
-    );
   } else {
-    candidateCachedTokens = 0;
+    candidateCachedTokens = learnedCandidateTokens(input, contextTokens);
   }
 
   const coverageRatio = safeDivide(candidateCachedTokens, contextTokens, 0);

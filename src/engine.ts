@@ -33,6 +33,7 @@ export function profileKey(profile: FoldPointProfile): string {
     profile.model,
     profile.contextWindowTokens,
     profile.compactorId,
+    profile.prefixId ?? "",
   ]);
 }
 
