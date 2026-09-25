@@ -1,5 +1,5 @@
 /**
- * FoldPoint observer for Pi — observe-only, payload-free.
+ * FoldPoint adapter for Pi — payload-free, observe-only by default.
  *
  * Copy this file into `~/.pi/agent/extensions/foldpoint-observe.ts` (Pi loads TypeScript
  * directly through jiti) and point it at a trace file:
@@ -8,14 +8,21 @@
  * FOLDPOINT_TRACE=~/.foldpoint/traces/pi.jsonl pi
  * ```
  *
- * What it does: it runs FoldPoint before every model call, records what FoldPoint *would* have
- * decided, records the usage Pi reports after the call, records successful cache refresh
- * usage from Pi's session metadata, and records compactions Pi performed.
- * It never compacts, never cancels, never modifies context, and never reads a request payload —
- * it does not subscribe to `before_provider_request` at all. FoldPoint is not wired into Pi's
- * compaction here on purpose: the first job is to find out whether the model's predictions
- * match a real Pi session, and an integration that acts on them would change the very data
- * being measured.
+ * **Two modes.** `observe` (the default) runs FoldPoint before every model call, records what it
+ * *would* have decided, records the usage Pi reports after the call, records successful cache
+ * refresh usage from Pi's session metadata, and records compactions Pi performed. It never
+ * compacts, never cancels and never modifies context.
+ *
+ * `FOLDPOINT_MODE=act` additionally answers Pi's `session_before_compact`: when FoldPoint says
+ * the context should be kept, the adapter returns `{ cancel: true }` and Pi's *threshold*
+ * compaction does not run. Overflow recovery and manual compaction are never vetoed, and the
+ * adapter never supplies a summary of its own — the compaction strategy stays Pi's. Read
+ * `docs/pi-runbook.md` §5 before turning it on.
+ *
+ * Either way it never reads a request payload: it does not subscribe to
+ * `before_provider_request` at all. It does read Pi's session *metadata* (entry ids, kinds,
+ * timestamps, models and usage) to see paid cache refreshes, which Pi does not report through
+ * extension events; no message content is read or written.
  *
  * The event names and payload fields below are the subset this adapter uses from Pi's extension
  * types (`packages/coding-agent/src/core/extensions/types.ts`) and Pi's `Usage` shape
