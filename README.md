@@ -117,7 +117,23 @@ foldPoint.endSession(sessionId, profile, { timestamp: Date.now() });
 
 ## Pi 适配器
 
-仓库包含一个**实验性** [Pi 扩展](adapters/pi/foldpoint-observe.ts)。默认仅观察和记录；显式设置 `FOLDPOINT_MODE=act` 后，它可以否决 Pi 因阈值触发的压缩，但不会否决用户手动压缩或溢出恢复，也不会替换 Pi 的摘要器。它不是 npm 包内已打磨完成的 Pi 插件。
+仓库包含一个**实验性** [Pi 扩展](adapters/pi/foldpoint-observe.ts)。它有两个互相独立的开关：
+
+**`FOLDPOINT_MODE`** 决定它如何对待 Pi **自己**的阈值压缩。默认 `observe` 只记录；`FOLDPOINT_MODE=act` 后可以否决 Pi 因阈值触发的压缩，但不会否决用户手动压缩或溢出恢复，也不会替换 Pi 的摘要器。
+
+**`FOLDPOINT_COMPACTION`** 决定 FoldPoint 说"现在该压"时怎么交付，默认 `suggest`：
+
+| 模式 | 行为 | 风险 |
+| --- | --- | --- |
+| `suggest`（默认） | 在 Pi 状态栏显示建议，并在每轮上下文增长 20% 以上时提醒一次 `/compact` | 无，完全不碰会话 |
+| `auto` | 在 agent 空闲时通过 `ctx.compact()` 主动发起压缩 | 若用户在空闲检查之后立刻发下一条消息，那一轮会被中断 |
+| `off` | 都不做，纯观察 | 无 |
+
+**两者互斥**：`auto` 会撤掉提醒，而不是叠加提醒。运行中可用 `/foldpoint auto | suggest | off` 切换，`/foldpoint status` 查看当前状态与计数。两条路都不会在 `FOLDPOINT_MIN_COMPACT_TOKENS`（默认 8192）以下动作。
+
+大窗口下这个区别很关键：窗口设成 1M 时 Pi 自己的阈值是 `1000000 - 16384`，也就是要等到上下文 98% 满才会压缩 —— 而无论是携带这么大上下文的成本，还是从中取答案的质量，都要求更早压缩。`suggest` 让用户决定，`auto` 由适配器在空闲边界执行。
+
+它不是 npm 包内已打磨完成的 Pi 插件。
 
 Pi 自身的缓存预热会发送额外的付费请求。适配器把成功预热单独记账，并避免把跨预热的两次请求当成自然缓存存活证据。比较压缩时机时，预热开关必须在各组保持一致；生产环境不因 FoldPoint 自动关闭 Pi 预热。[Pi 接入与实验手册](docs/pi-runbook.md)记录了运行方式、权限边界与限制。
 

@@ -376,7 +376,7 @@ timing is genuinely available to an extension:
 | --- | --- | --- |
 | `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | **does**: `FOLDPOINT_MODE=act` vetoes a threshold compaction FoldPoint does not want |
 | `session_before_compact` returning `{ compaction }` | the extension supplies the summary, `fromExtension: true` | **never** — that would be taking over the strategy |
-| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **never**: it returns `void`, and awaiting its `onComplete` inside a handler deadlocks — Pi waits for the handler, the manual compaction first calls `abort()` and waits for the agent to go idle, and the agent is waiting for the handler. Not awaiting it avoids the cycle but may interrupt the turn, so it cannot promise "compacted before the next request" either |
+| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **only in `FOLDPOINT_COMPACTION=auto`**, and only from an idle boundary: awaiting it inside a handler deadlocks (Pi waits for the handler, the manual compaction calls `abort()` and waits for the agent to go idle, and the agent is waiting for the handler), so the call is detached and fired once `ctx.isIdle()` is true. It still cannot promise "compacted before the next request" — see §5.1.1 |
 | `settings.compaction.enabled = false` | Pi stops compacting on the threshold | not reachable: the extension context exposes no settings (13 capabilities, no `setAutoCompactionEnabled`) |
 
 ### 5.1 High-frequency control of Pi's threshold, and what it is not
@@ -405,6 +405,36 @@ compaction*, not unconditional control:
 
 A session that never reaches the threshold cannot be steered by this at all — which is why the
 trial keeps a task that does and one that does not.
+
+### 5.1.1 Advising, or acting: two mutually exclusive delivery paths
+
+Vetoing is *delaying* a compaction Pi already wanted. The opposite question — compact **earlier**
+than Pi's threshold — cannot be answered by a veto, and it is the question that matters at large
+windows: with a 1M-token window Pi's own threshold is `1000000 - 16384`, so nothing is compacted
+until the context is 98% full, while the cost of carrying a context and the quality of the answers
+drawn from it both argue for compacting far sooner. `FOLDPOINT_COMPACTION` picks how that advice
+is delivered:
+
+| mode | what happens | risk |
+| --- | --- | --- |
+| `suggest` (default) | FoldPoint's "compact now" answer is put on Pi's status line, and the user is notified once per episode (again only after the context grows 20%) | none: the session is untouched |
+| `auto` | the adapter asks Pi to compact via `ctx.compact()`, as soon as the agent is idle | the compaction aborts the current turn if a new one starts first; see below |
+| `off` | neither | none |
+
+**The two are mutually exclusive by construction**, and `/foldpoint auto|suggest|off` switches
+between them at runtime (`/foldpoint status` prints the current state, the floor and the counters).
+A reminder for something the adapter is already doing is noise, so `auto` drops the advice instead
+of adding to it. Neither path runs below `FOLDPOINT_MIN_COMPACT_TOKENS` (default 8192): below one
+reserve's worth of context there is nothing to reclaim, and the floor is a policy choice rather
+than a measurement — the same reason the library's own window guard is a policy guard.
+
+Why `auto` waits for idle: `ctx.compact()` starts with `await abort()`, and `abort()` waits for the
+agent to go idle. Called from inside a handler the agent is blocked on, that wait never ends — the
+agent is waiting for the handler to return. This is the deadlock that makes the naive version of
+this unusable. Detaching the call and firing only once `ctx.isIdle()` is true avoids the cycle: at
+an idle boundary there is no turn to abort. The residual race is real and worth stating — if the
+user sends the next message in the moment between the idle check and the compaction starting, that
+new turn is aborted. `suggest` has no such window because it never starts anything.
 
 ### 5.2 Policy checks are not decisions
 

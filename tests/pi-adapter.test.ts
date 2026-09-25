@@ -23,6 +23,14 @@ const MODEL: PiModel = {
 interface FakePi {
   pi: PiExtensionAPI;
   registered: string[];
+  /** Messages the adapter put on the status line, in order (`undefined` clears it). */
+  statuses: Array<string | undefined>;
+  /** Messages the adapter notified the user with. */
+  notifications: string[];
+  /** Compactions the adapter asked Pi for, and whether the fake agent was idle when it did. */
+  compactions: Array<{ idle: boolean; completed: boolean; failed: boolean }>;
+  /** Run a command the adapter registered, as Pi's command handler would. */
+  runCommand(name: string, args: string, ctx?: PiExtensionContext): void;
   emit<K extends keyof PiEventMap>(
     event: K,
     payload: PiEventMap[K],
@@ -38,7 +46,14 @@ interface FakePi {
 
 function fakePi(): FakePi {
   const handlers = new Map<string, Array<(event: never, ctx: PiExtensionContext) => unknown>>();
+  const commands = new Map<
+    string,
+    (args: string, ctx: PiExtensionContext) => Promise<void> | void
+  >();
   const registered: string[] = [];
+  const statuses: Array<string | undefined> = [];
+  const notifications: string[] = [];
+  const compactions: Array<{ idle: boolean; completed: boolean; failed: boolean }> = [];
   const pi: PiExtensionAPI = {
     on(event, handler) {
       registered.push(event);
@@ -47,16 +62,51 @@ function fakePi(): FakePi {
       handlers.set(event, list);
       return () => undefined;
     },
+    registerCommand(name, options) {
+      commands.set(name, options.handler);
+    },
+  };
+  // The UI the adapter talks to, and an agent that is idle whenever a test does not say
+  // otherwise: the automatic path only ever runs against an idle agent by construction.
+  const ui = {
+    notify(message: string) {
+      notifications.push(message);
+    },
+    setStatus(_key: string, text: string | undefined) {
+      statuses.push(text);
+    },
+  };
+  const idleContext = {
+    ui,
+    hasUI: true,
+    isIdle: () => true,
+    compact: (options?: { onComplete?: (r: unknown) => void; onError?: (e: Error) => void }) => {
+      const record = { idle: true, completed: false, failed: false };
+      compactions.push(record);
+      options?.onComplete?.({});
+      record.completed = true;
+    },
   };
   const defaultCtx: PiExtensionContext = {
     model: MODEL,
     cwd: "/tmp/project",
     getContextUsage: () => ({ tokens: 50_000, contextWindow: 200_000, percent: 25 }),
     getSystemPrompt: () => SYSTEM_PROMPT,
+    ...idleContext,
   };
   return {
     pi,
     registered,
+    statuses,
+    notifications,
+    compactions,
+    runCommand(name, args, ctx = defaultCtx) {
+      const handler = commands.get(name);
+      if (handler === undefined) {
+        throw new Error(`no command registered as ${name}`);
+      }
+      void handler(args, ctx);
+    },
     emit(event, payload, ctx = defaultCtx) {
       let result: unknown;
       for (const handler of handlers.get(event) ?? []) {
@@ -76,6 +126,7 @@ function fakePi(): FakePi {
             ? { tokens: null, contextWindow: 200_000, percent: null }
             : { tokens, contextWindow: 200_000, percent: tokens / 2_000 },
         getSystemPrompt: () => systemPrompt,
+        ...idleContext,
       };
     },
   };
@@ -764,5 +815,181 @@ describe("Pi observer adapter", () => {
         .map((event) => (event as { sessionId: string }).sessionId),
     );
     expect(sessionIds.size).toBe(2);
+  });
+});
+
+describe("Pi adapter compaction advice and automatic compaction", () => {
+  const CONTEXT_WINDOW = 200_000;
+
+  it("advises /compact when FoldPoint says the context should be compacted now", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("suggest"),
+      compaction: "suggest",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+
+    expect(fake.notifications).toHaveLength(1);
+    expect(fake.notifications[0]).toContain("/compact");
+    expect(fake.statuses[fake.statuses.length - 1]).toContain("suggest /compact");
+  });
+
+  it("does not repeat the advice until the context has grown past it", () => {
+    const fake = fakePi();
+    const small = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    const grown = fake.ctxWith(CONTEXT_WINDOW * 1.15);
+    createFoldPointObserver({
+      tracePath: newTracePath("suggest-repeat"),
+      compaction: "suggest",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, small);
+
+    fake.emit("context", { type: "context" }, small);
+    fake.emit("context", { type: "context" }, small);
+    // Unchanged advice is not news: a reminder on every call is a reminder nobody reads.
+    expect(fake.notifications).toHaveLength(1);
+
+    fake.emit("context", { type: "context" }, grown);
+    expect(fake.notifications).toHaveLength(2);
+  });
+
+  it("clears the advice once FoldPoint no longer asks for a compaction", () => {
+    const fake = fakePi();
+    const full = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    const quiet = fake.ctxWith(CONTEXT_WINDOW * 0.25);
+    createFoldPointObserver({
+      tracePath: newTracePath("suggest-clear"),
+      compaction: "suggest",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, full);
+    fake.emit("context", { type: "context" }, full);
+    expect(fake.statuses[fake.statuses.length - 1]).toContain("suggest");
+
+    fake.emit("context", { type: "context" }, quiet);
+    expect(fake.statuses[fake.statuses.length - 1]).toBeUndefined();
+  });
+
+  it("never advises below the floor, however urgent the economics look", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("suggest-floor"),
+      compaction: "suggest",
+      minCompactTokens: 500_000,
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+
+    expect(fake.notifications).toHaveLength(0);
+    expect(fake.statuses).toHaveLength(0);
+  });
+
+  it("asks Pi to compact instead of advising, when automatic compaction is on", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("auto"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+
+    expect(fake.compactions).toHaveLength(1);
+    expect(fake.compactions[0]?.completed).toBe(true);
+    // The two modes are exclusive: an automatic compaction leaves nothing to remind about.
+    expect(fake.notifications).toHaveLength(0);
+  });
+
+  it("does nothing at all in off mode", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("off"),
+      compaction: "off",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+
+    expect(fake.notifications).toHaveLength(0);
+    expect(fake.statuses).toHaveLength(0);
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it("turns automatic compaction on and back off from /foldpoint", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("toggle"),
+      compaction: "suggest",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+    fake.runCommand("foldpoint", "auto", ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    expect(fake.compactions).toHaveLength(1);
+    expect(fake.notifications).toHaveLength(1); // only the confirmation from the command
+
+    fake.runCommand("foldpoint", "suggest", ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    expect(fake.compactions).toHaveLength(1);
+    expect(fake.notifications[fake.notifications.length - 1]).toContain("/compact");
+  });
+
+  it("reports its state from /foldpoint status and rejects nonsense arguments", () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("status"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+    fake.runCommand("foldpoint", "status", ctx);
+    expect(fake.notifications[0]).toContain("compaction=auto");
+
+    fake.runCommand("foldpoint", "whenever", ctx);
+    expect(fake.notifications[fake.notifications.length - 1]).toContain("usage:");
+  });
+
+  it("rejects a compaction mode it does not know", () => {
+    const previous = process.env.FOLDPOINT_COMPACTION;
+    process.env.FOLDPOINT_COMPACTION = "sometimes";
+    try {
+      // Read when Pi loads the extension, not when the factory is built: a bad setting should
+      // fail loudly at startup rather than silently fall back to a mode nobody asked for.
+      expect(() => createFoldPointObserver({})(fakePi().pi)).toThrow(/FOLDPOINT_COMPACTION/);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FOLDPOINT_COMPACTION;
+      } else {
+        process.env.FOLDPOINT_COMPACTION = previous;
+      }
+    }
+  });
+
+  it("rejects a floor that is not a non-negative integer", () => {
+    const previous = process.env.FOLDPOINT_MIN_COMPACT_TOKENS;
+    process.env.FOLDPOINT_MIN_COMPACT_TOKENS = "-1";
+    try {
+      expect(() => createFoldPointObserver({})(fakePi().pi)).toThrow(
+        /FOLDPOINT_MIN_COMPACT_TOKENS/,
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FOLDPOINT_MIN_COMPACT_TOKENS;
+      } else {
+        process.env.FOLDPOINT_MIN_COMPACT_TOKENS = previous;
+      }
+    }
   });
 });

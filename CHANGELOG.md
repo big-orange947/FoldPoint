@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Compaction advice and automatic compaction in the Pi adapter
+
+- `FOLDPOINT_COMPACTION` (default `suggest`) decides how the adapter delivers FoldPoint's
+  "compact now" answer: on Pi's status line with one notification per episode, or by asking Pi
+  to compact as soon as the agent goes idle. The two are mutually exclusive by construction -
+  `auto` replaces the advice rather than adding to it - and `/foldpoint auto|suggest|off`
+  switches between them at runtime. Neither runs below `FOLDPOINT_MIN_COMPACT_TOKENS` (8192).
+- This is the delivery path for compacting *earlier* than Pi's threshold, which a veto cannot
+  express. It matters most at large windows: with a 1M-token window Pi's own threshold is
+  `1000000 - 16384`, so nothing compacts until the context is 98% full.
+- `auto` fires only from an idle boundary, because `ctx.compact()` begins with `await abort()`
+  and a call made from inside a handler the agent is blocked on deadlocks. The residual race -
+  a turn started between the idle check and the compaction - is documented rather than hidden.
+- Verified against a fake Pi only: no real session has yet compacted through `auto`, and the
+  idle-boundary behaviour is not yet confirmed against a running Pi.
+
 ### Controlled hypothetical price ratios in Pi trials
 
 - The paired runner can override only a fresh Pi experiment directory's model cost metadata

@@ -8,21 +8,36 @@
  * FOLDPOINT_TRACE=~/.foldpoint/traces/pi.jsonl pi
  * ```
  *
- * **Two modes.** `observe` (the default) runs FoldPoint before every model call, records what it
- * *would* have decided, records the usage Pi reports after the call, records successful cache
- * refresh usage from Pi's session metadata, and records compactions Pi performed. It never
- * compacts, never cancels and never modifies context.
+ * **Two independent switches.**
  *
- * `FOLDPOINT_MODE=act` additionally answers Pi's `session_before_compact`: when FoldPoint says
- * the context should be kept, the adapter returns `{ cancel: true }` and Pi's *threshold*
- * compaction does not run. Overflow recovery and manual compaction are never vetoed, and the
- * adapter never supplies a summary of its own — the compaction strategy stays Pi's. Read
- * `docs/pi-runbook.md` §5 before turning it on.
+ * `FOLDPOINT_MODE` decides what the adapter does about Pi's *own* threshold compaction.
+ * `observe` (the default) only records what FoldPoint would have decided, plus the usage Pi
+ * reports after each call, the successful cache refreshes from Pi's session metadata, and the
+ * compactions Pi performed. `FOLDPOINT_MODE=act` additionally answers Pi's
+ * `session_before_compact`: when FoldPoint says the context should be kept, the adapter returns
+ * `{ cancel: true }` and Pi's *threshold* compaction does not run. Overflow recovery and manual
+ * compaction are never vetoed, and the adapter never supplies a summary of its own — the
+ * compaction strategy stays Pi's.
+ *
+ * `FOLDPOINT_COMPACTION` decides what the adapter does with FoldPoint's "compact now" answer at
+ * a model-call boundary. `suggest` (the default) never touches the session: it puts the advice
+ * on Pi's status line and, once per episode, notifies the user to run `/compact`. `auto` drops
+ * the advice and instead asks Pi to compact as soon as the agent goes idle — the user opted in,
+ * so a reminder for something already being done is noise. **The two are mutually exclusive by
+ * construction**, and `/foldpoint auto|suggest|off` switches between them at runtime. `off`
+ * leaves the adapter a pure observer.
+ *
+ * In `auto` mode the adapter does start compactions, but only at an idle boundary: `ctx.compact()`
+ * begins with `await abort()`, which waits for the agent to go idle, so a call made from inside a
+ * handler the agent is blocked on would wait forever. The call is detached from the handler and
+ * made only once `ctx.isIdle()` says there is nothing to interrupt. It never runs below
+ * `FOLDPOINT_MIN_COMPACT_TOKENS` (default 8192).
  *
  * Either way it never reads a request payload: it does not subscribe to
  * `before_provider_request` at all. It does read Pi's session *metadata* (entry ids, kinds,
  * timestamps, models and usage) to see paid cache refreshes, which Pi does not report through
- * extension events; no message content is read or written.
+ * extension events; no message content is read or written. Read `docs/pi-runbook.md` §5 before
+ * turning on either switch.
  *
  * The event names and payload fields below are the subset this adapter uses from Pi's extension
  * types (`packages/coding-agent/src/core/extensions/types.ts`) and Pi's `Usage` shape
@@ -94,12 +109,32 @@ export interface PiContextUsage {
   percent: number | null;
 }
 
+export interface PiExtensionUI {
+  /** Show a one-off message. */
+  notify(message: string, type?: "info" | "warning" | "error"): void;
+  /** Set or clear (with `undefined`) a status-line entry owned by this extension. */
+  setStatus(key: string, text: string | undefined): void;
+}
+
+export interface PiCompactOptions {
+  onComplete?: (result: unknown) => void;
+  onError?: (error: Error) => void;
+}
+
 export interface PiExtensionContext {
   model: PiModel | undefined;
   cwd: string;
   getContextUsage(): PiContextUsage | undefined;
   /** The effective system prompt, including tool descriptions and context files. */
   getSystemPrompt?(): string;
+  /** Present in every mode, but only *usable* where Pi has a UI (TUI and RPC). */
+  ui?: PiExtensionUI;
+  /** False in print/json modes, where there is nowhere to show a status line. */
+  hasUI?: boolean;
+  /** Whether the agent is streaming. The adapter only asks Pi to compact while idle. */
+  isIdle?(): boolean;
+  /** Trigger compaction without awaiting completion. */
+  compact?(options?: PiCompactOptions): void;
   /** Pi 0.87 persists successful refreshes as usage entries, outside message_end. */
   sessionManager?: {
     getEntries(): Array<{
@@ -143,6 +178,14 @@ export interface PiExtensionAPI {
     event: K,
     handler: (event: PiEventMap[K], ctx: PiExtensionContext) => PiEventResult<K> | undefined,
   ): () => void;
+  /** Optional so the adapter still loads on a Pi build without command registration. */
+  registerCommand?(
+    name: string,
+    options: {
+      description?: string;
+      handler: (args: string, ctx: PiExtensionContext) => Promise<void> | void;
+    },
+  ): void;
 }
 
 /**
@@ -181,6 +224,26 @@ export interface FoldPointObserverOptions {
    * only part of the timing an extension can own safely. Defaults to `$FOLDPOINT_MODE`.
    */
   mode?: "observe" | "act";
+  /**
+   * What to do when FoldPoint says this context should be compacted *now*.
+   *
+   * `suggest` (the default) never touches the session: it shows a status line and, once per
+   * episode, a message telling the user to run `/compact`. `auto` drops the message and asks Pi
+   * to compact as soon as the agent goes idle - the user opted in, so a reminder would be noise.
+   * The two are mutually exclusive by construction: `auto` replaces the suggestion, it does not
+   * accompany it. `off` does neither and leaves the adapter a pure observer.
+   *
+   * Defaults to `$FOLDPOINT_COMPACTION`.
+   */
+  compaction?: CompactionMode;
+  /**
+   * Never suggest or start a compaction below this context size.
+   *
+   * A context this small costs a summarization call and a rebuilt prefix to save very little,
+   * and the number is a policy choice rather than a measurement - the same reason the library's
+   * own window guard is a policy guard. Defaults to `$FOLDPOINT_MIN_COMPACT_TOKENS` or 8192.
+   */
+  minCompactTokens?: number;
   /** FoldPoint defaults to run with. Defaults to `$FOLDPOINT_DEFAULTS` (JSON) or the library's. */
   defaults?: Partial<FoldPointDefaults>;
   /** Clock, for tests. */
@@ -189,8 +252,55 @@ export interface FoldPointObserverOptions {
   log?: (message: string) => void;
 }
 
+export type CompactionMode = "suggest" | "auto" | "off";
+
+/**
+ * The floor for acting on a "compact now" answer, matching the library's own `reserveTokens`
+ * default: below one reserve's worth of context there is nothing to reclaim.
+ */
+const DEFAULT_MIN_COMPACT_TOKENS = 8192;
+
+/** The status-line key this adapter owns. Cleared with `undefined` when advice no longer holds. */
+const STATUS_KEY = "foldpoint";
+
+/** Raise a new message once the context has grown this much since the last one. */
+const SUGGESTION_REFRESH_RATIO = 1.2;
+
+/** How long to wait for the agent to go idle before giving up on an automatic compaction. */
+const AUTO_IDLE_POLL_MS = 250;
+const AUTO_IDLE_MAX_POLLS = 120;
+
 function modeFromEnv(): "observe" | "act" {
   return process.env.FOLDPOINT_MODE === "act" ? "act" : "observe";
+}
+
+function compactionFromEnv(): CompactionMode {
+  const raw = process.env.FOLDPOINT_COMPACTION;
+  if (raw === undefined || raw === "suggest") {
+    return "suggest";
+  }
+  if (raw === "auto" || raw === "off") {
+    return raw;
+  }
+  throw new Error("FOLDPOINT_COMPACTION must be suggest, auto or off");
+}
+
+function minCompactTokensFromEnv(): number {
+  const raw = process.env.FOLDPOINT_MIN_COMPACT_TOKENS;
+  if (raw === undefined) {
+    return DEFAULT_MIN_COMPACT_TOKENS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("FOLDPOINT_MIN_COMPACT_TOKENS must be a non-negative integer");
+  }
+  return parsed;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 interface PendingDecision {
@@ -253,6 +363,17 @@ interface ObserverState {
   callsObserved: number;
   /** Prefix sizes remembered from earlier processes, by fingerprint. */
   prefixStore: Record<string, number>;
+  /** What the adapter does with a "compact now" answer. The `/foldpoint` command can change it. */
+  compactionMode: CompactionMode;
+  /** Floor below which neither advice nor action is offered. */
+  minCompactTokens: number;
+  /** The advice currently on the status line, and the size it was raised at. */
+  suggestion: { atTokens: number } | null;
+  /** A compaction this adapter asked Pi for, until Pi reports the outcome. */
+  autoInFlight: boolean;
+  /** Advice messages raised, and compactions this adapter started. */
+  suggestions: number;
+  autoCompactions: number;
   /** Where the store lives, so a measurement can be written back. */
   log: (message: string) => void;
   /** Diagnostics that must not repeat on every call. */
@@ -526,6 +647,8 @@ export function createFoldPointObserver(
     const tracePath = options.tracePath ?? defaultTracePath(now);
     const prefixStorePath = options.prefixStorePath ?? defaultPrefixStorePath();
     const mode = options.mode ?? modeFromEnv();
+    const compactionModeFromOptions = options.compaction ?? compactionFromEnv();
+    const minCompactTokensFromOptions = options.minCompactTokens ?? minCompactTokensFromEnv();
     const defaults = options.defaults ?? readDefaultsFromEnv();
     const trace = new TraceRecorder({ producer: `pi-observer@${ADAPTER_VERSION}`, now });
     const foldPoint = new FoldPoint(defaults === undefined ? undefined : { defaults });
@@ -552,6 +675,12 @@ export function createFoldPointObserver(
       fixedPrefixTokens: undefined,
       callsObserved: 0,
       prefixStore: readPrefixStore(prefixStorePath),
+      compactionMode: compactionModeFromOptions,
+      minCompactTokens: minCompactTokensFromOptions,
+      suggestion: null,
+      autoInFlight: false,
+      suggestions: 0,
+      autoCompactions: 0,
       log,
       warned: new Set<string>(),
     };
@@ -572,6 +701,147 @@ export function createFoldPointObserver(
     };
 
     write(trace.header());
+
+    // FoldPoint's answer at a model-call boundary is the same signal Pi's threshold check gets:
+    // "this context should be compacted now". What the adapter does with that answer depends on
+    // the mode, and the two modes are exclusive - `auto` replaces the advice, it does not add to
+    // it, because a reminder for something already being done is noise.
+    const canShowUi = (ctx: PiExtensionContext): boolean =>
+      ctx.ui !== undefined && ctx.hasUI !== false;
+
+    const dropSuggestion = (ctx: PiExtensionContext): void => {
+      if (state.suggestion === null) {
+        return;
+      }
+      state.suggestion = null;
+      if (canShowUi(ctx)) {
+        ctx.ui?.setStatus(STATUS_KEY, undefined);
+      }
+    };
+
+    const suggestCompaction = (ctx: PiExtensionContext, tokens: number): void => {
+      const previous = state.suggestion;
+      // One message per episode, and a new one only once the context has grown enough for the
+      // earlier advice to be stale. A reminder on every call is noise, and noise gets ignored
+      // exactly when it matters most.
+      const stale = previous === null || tokens >= previous.atTokens * SUGGESTION_REFRESH_RATIO;
+      state.suggestion = { atTokens: tokens };
+      if (!canShowUi(ctx)) {
+        return;
+      }
+      const thousands = Math.round(tokens / 1000);
+      ctx.ui?.setStatus(STATUS_KEY, `suggest /compact - context at ${thousands}k tokens`);
+      if (stale) {
+        state.suggestions += 1;
+        ctx.ui?.notify(
+          `FoldPoint: context is at ${thousands}k tokens. Compacting now costs less than compacting later - run /compact.`,
+          "info",
+        );
+      }
+    };
+
+    const startAutoCompaction = (ctx: PiExtensionContext, tokens: number): void => {
+      if (state.autoInFlight || state.pendingCompaction !== null || ctx.compact === undefined) {
+        return;
+      }
+      state.autoInFlight = true;
+      state.autoCompactions += 1;
+      const sessionAtRequest = state.sessionKey;
+      log(`[foldpoint] asking Pi to compact at ${tokens} tokens`);
+      // `ctx.compact()` starts with `await abort()`, and `abort()` waits for the agent to go
+      // idle. Called from inside a handler the agent is blocked on, that wait cannot end: the
+      // agent is waiting for this handler to return. So the call is detached from the handler
+      // and only made once the agent really is idle, where the abort has nothing to interrupt.
+      void (async () => {
+        let polls = 0;
+        while (ctx.isIdle?.() === false && polls < AUTO_IDLE_MAX_POLLS) {
+          polls += 1;
+          await delay(AUTO_IDLE_POLL_MS);
+        }
+        if (state.sessionKey !== sessionAtRequest) {
+          state.autoInFlight = false;
+          return;
+        }
+        if (ctx.isIdle?.() === false) {
+          state.autoInFlight = false;
+          warnOnce(
+            "auto-no-idle",
+            "the agent never went idle, so the compaction this adapter asked for was skipped",
+          );
+          return;
+        }
+        ctx.compact?.({
+          onComplete: () => {
+            state.autoInFlight = false;
+          },
+          onError: (error: Error) => {
+            state.autoInFlight = false;
+            log(`[foldpoint] the compaction this adapter asked for failed: ${error.message}`);
+          },
+        });
+      })();
+    };
+
+    const applyCompactionPolicy = (
+      ctx: PiExtensionContext,
+      wantsCompaction: boolean,
+      tokens: number,
+    ): void => {
+      if (!wantsCompaction || tokens < state.minCompactTokens) {
+        // Too small to be worth a summarization call, or no longer worth compacting at all.
+        dropSuggestion(ctx);
+        return;
+      }
+      if (state.compactionMode === "off") {
+        return;
+      }
+      if (state.compactionMode === "auto") {
+        dropSuggestion(ctx);
+        startAutoCompaction(ctx, tokens);
+        return;
+      }
+      suggestCompaction(ctx, tokens);
+    };
+
+    const describeState = (): string =>
+      [
+        `mode=${mode}`,
+        `compaction=${state.compactionMode}`,
+        `floor=${state.minCompactTokens} tokens`,
+        `suggestions=${state.suggestions}`,
+        `autoCompactions=${state.autoCompactions}`,
+        `vetoes=${state.vetoes}`,
+      ].join(" ");
+
+    // The toggle the user asked for: `auto` is opt-in, and turning it off puts the reminder back.
+    pi.registerCommand?.("foldpoint", {
+      description: "Show or change what FoldPoint does: suggest (default), auto, off",
+      handler: (args, ctx) => {
+        const parts = args
+          .trim()
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((part) => part.length > 0);
+        const requested = parts[0];
+        if (requested === undefined || requested === "status") {
+          ctx.ui?.notify(describeState(), "info");
+          return;
+        }
+        let next: CompactionMode | undefined;
+        if (requested === "auto") {
+          next = parts[1] === "off" ? "suggest" : "auto";
+        } else if (requested === "suggest" || requested === "off") {
+          next = requested;
+        }
+        if (next === undefined) {
+          ctx.ui?.notify("usage: /foldpoint [status|suggest|auto [on|off]|off]", "warning");
+          return;
+        }
+        state.compactionMode = next;
+        dropSuggestion(ctx);
+        ctx.ui?.notify(`FoldPoint compaction: ${next}`, "info");
+      },
+    });
 
     const collectCacheWarms = (ctx: PiExtensionContext): void => {
       const sessionKey = state.sessionKey;
@@ -766,11 +1036,13 @@ export function createFoldPointObserver(
       write(event);
 
       if (decision.action !== "KEEP") {
-        // Observe-only: this is what FoldPoint would have done, not something Pi does.
         log(
           `[foldpoint] would ${decision.action} (${decision.reasons.join(",")}) at ${usage.tokens}/${usage.contextWindow} tokens`,
         );
       }
+      // `observe` mode stops here for Pi's own behaviour, but the advice/action half is separate:
+      // it is about telling the user, or asking Pi, to compact at the moment FoldPoint picked.
+      applyCompactionPolicy(ctx, decision.action !== "KEEP", usage.tokens);
     });
 
     // After the call: the real usage, which is what the decision above is measured against.
