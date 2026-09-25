@@ -261,17 +261,34 @@ const CORPUS_LINE_CHARS = 253;
  * lines, ~253 characters each) deterministically, and every report can cite its hash.
  */
 function writeSeedCorpus(scratch: string): void {
+  writeFileSync(join(scratch, "big.txt"), corpusText(), "utf8");
+}
+
+/**
+ * The corpus text, and its hash, so a report can say which input produced it.
+ *
+ * Line numbers are written unpadded on purpose: the task asks for "the first line number you
+ * saw", and a padded `Line 0001:` invites the model to copy `0001` while the oracle requires
+ * `1`. The first version of this generator padded them and failed four of nine runs on the
+ * artifact check alone.
+ */
+function corpusText(): string {
   const stem =
     "the foldpoint scratch corpus records one deterministic sentence per line so that a reader can summarise it without ambiguity and without needing the surrounding file. ";
   const lines: string[] = [];
   for (let index = 1; index <= CORPUS_LINES; index += 1) {
-    const prefix = `Line ${String(index).padStart(4, "0")}: `;
+    const prefix = `Line ${index}: `;
     const body = stem
       .repeat(Math.ceil(CORPUS_LINE_CHARS / stem.length))
-      .slice(0, CORPUS_LINE_CHARS - prefix.length);
+      .slice(0, Math.max(1, CORPUS_LINE_CHARS - prefix.length));
     lines.push(`${prefix}${body}`);
   }
-  writeFileSync(join(scratch, "big.txt"), `${lines.join("\n")}\n`, "utf8");
+  return `${lines.join("\n")}\n`;
+}
+
+/** SHA-256 of the generated corpus, for the report header. */
+export function corpusHash(): string {
+  return createHash("sha256").update(corpusText(), "utf8").digest("hex");
 }
 
 export const TASKS: readonly Task[] = [
@@ -755,6 +772,7 @@ export function renderComparison(
   const lines = [
     `Cache warming: ${cacheWarming} (fixed across all arms)`,
     `Price scenario: ${priceScenario}${priceScenario === "native" ? " (Pi model prices)" : ` (hypothetical units per million: ${JSON.stringify(TRIAL_PRICES[priceScenario])}; not the provider bill)`}`,
+    `Task corpus: generated, sha256 ${corpusHash()}`,
     "",
     "| task | condition | rep | exit | artifact | calls | compactions | unpriced failures | cache warms | warm cost | observed cost |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
