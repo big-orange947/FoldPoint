@@ -220,9 +220,9 @@ describe("trace format", () => {
     expect(trace.compaction("session-a", observation, { reason: "threshold" }).initiatedBy).toBe(
       undefined,
     );
-    expect(() =>
-      validateTraceEvent({ ...asked, initiatedBy: "somebody-else" }),
-    ).toThrow(RangeError);
+    expect(() => validateTraceEvent({ ...asked, initiatedBy: "somebody-else" })).toThrow(
+      RangeError,
+    );
   });
 
   it("rejects malformed events instead of repairing them", () => {

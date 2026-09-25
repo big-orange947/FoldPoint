@@ -1,0 +1,1088 @@
+/**
+ * Zero-paid loopback check for one question:
+ *
+ *   Can a Pi extension start a context compaction *without interrupting the turn in flight*
+ *   when the trigger is raised from outside the event handler — a detached task that polls
+ *   `ctx.isIdle()` and then calls `ctx.compact()`?
+ *
+ * A loopback OpenAI-compatible provider answers every request (no real provider, no API key, no
+ * cost), an isolated Pi agent directory points at it, and Pi runs in RPC mode so the session has
+ * real idle windows between turns. A generated test extension performs the trigger and writes a
+ * JSONL log; the runner reads that log, Pi's stdout event stream and the persisted session file.
+ *
+ *   $env:PI_CLI = 'D:\pi\packages\coding-agent\dist\bundle\cli.js'
+ *   $env:PI_NODE = 'C:\path\to\node.exe'   # Node >= 22.19, only if the PATH Node is older
+ *   npx tsx tools/pi-compact-trigger-smoke.ts
+ *
+ * Auto-compaction is disabled in the experiment settings, so every compaction observed here was
+ * started by the extension and nothing else.
+ *
+ * Three arms:
+ *   message_end_poll                   the hypothesis: detached poller started in `message_end`
+ *   agent_settled_direct               candidate safer point: `agent_settled` is already idle
+ *   message_end_poll_during_compaction the next prompt is sent while the compaction is running
+ */
+
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+type JsonObject = Record<string, unknown>;
+
+type TriggerMode = "message_end_poll" | "agent_settled_direct";
+type NextPromptTiming = "after_compaction" | "during_compaction";
+
+interface ArmSpec {
+  readonly name: string;
+  readonly trigger: TriggerMode;
+  readonly nextPrompt: NextPromptTiming;
+  readonly question: string;
+}
+
+const ARMS: readonly ArmSpec[] = [
+  {
+    name: "message_end_poll",
+    trigger: "message_end_poll",
+    nextPrompt: "after_compaction",
+    question:
+      "Does a detached poller started in message_end compact during the idle window without deadlocking and without interrupting any turn?",
+  },
+  {
+    name: "agent_settled_direct",
+    trigger: "agent_settled_direct",
+    nextPrompt: "after_compaction",
+    question:
+      "Is agent_settled a naturally idle trigger point where compact() can be called directly from the handler?",
+  },
+  {
+    name: "message_end_poll_during_compaction",
+    trigger: "message_end_poll",
+    nextPrompt: "during_compaction",
+    question:
+      "What happens to the next user turn when it is sent while the extension-triggered compaction is still running?",
+  },
+];
+
+const SUMMARY_DELAY_MS = Number(process.env.PI_COMPACT_TRIGGER_SUMMARY_DELAY_MS ?? "1500");
+const SUMMARY_MARKER = "You are a context summarization assistant";
+
+const SUMMARY_TEXT = [
+  "## Goal",
+  "- (loopback summary) keep the deterministic smoke conversation going.",
+  "## Constraints & Preferences",
+  "- (none)",
+  "## Progress",
+  "### Done",
+  "- [x] read the deterministic corpus of the earlier turns",
+  "## Key Decisions",
+  "- **Loopback**: the summary body is fixed, only the plumbing is measured.",
+  "## Next Steps",
+  "1. answer the next turn from the corpus",
+  "## Critical Context",
+  "- (none)",
+].join("\n");
+
+/**
+ * Deterministic body for an ordinary turn. The provider echoes the `[#id]` marker of the last
+ * user message, so a turn can be checked without depending on request ordering.
+ *
+ * The sizes matter for Pi's cut point: a long user prompt (~600 tokens) with a shorter assistant
+ * reply (~300 tokens) puts `keepRecentTokens` inside the window where Pi cuts at the turn
+ * boundary, so the compaction takes the ordinary history-summary path rather than the split-turn
+ * fallback.
+ */
+function corpusText(echo: string | undefined): string {
+  const lines: string[] = [];
+  if (echo !== undefined) lines.push(`ECHO-${echo}-OK`);
+  for (let i = 0; i < 8; i += 1) {
+    lines.push(
+      `answer line ${i}: the loopback provider keeps this text deterministic so a compaction has a stable body of conversation to summarize.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** A long deterministic user message, so each turn has a stable and meaningful size. */
+function userPrompt(id: string, label: string): string {
+  const lines: string[] = [`[#${id}] ${label}: reply with the corpus for this turn.`];
+  for (let i = 0; i < 40; i += 1) {
+    lines.push(
+      `request line ${i}: this deterministic block stands in for a pasted file and gives the turn a stable size.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+/** The generated test extension. Plain TS, no imports beyond node:fs, no template literals. */
+const EXTENSION_SOURCE = [
+  "// Generated by tools/pi-compact-trigger-smoke.ts into a temporary directory.",
+  "// It exists only to raise a compaction trigger from outside a handler and log what happened.",
+  "import { appendFileSync } from 'node:fs';",
+  "",
+  "const LOG = process.env.PI_COMPACT_TRIGGER_LOG;",
+  "const ARM = process.env.PI_COMPACT_TRIGGER_ARM || 'message_end_poll';",
+  "const POLL_MS = Number(process.env.PI_COMPACT_TRIGGER_POLL_MS || '5');",
+  "const IDLE_TIMEOUT_MS = Number(process.env.PI_COMPACT_TRIGGER_IDLE_TIMEOUT_MS || '20000');",
+  "const AFTER = Number(process.env.PI_COMPACT_TRIGGER_AFTER || '2');",
+  "",
+  "function log(record) {",
+  "  if (!LOG) return;",
+  "  const entry = Object.assign({ t: Date.now() }, record);",
+  "  try {",
+  "    appendFileSync(LOG, JSON.stringify(entry) + '\\n');",
+  "  } catch (error) {",
+  "    // A logging failure must not change what is being measured.",
+  "  }",
+  "}",
+  "",
+  "function safeIdle(ctx) {",
+  "  try {",
+  "    return ctx.isIdle();",
+  "  } catch (error) {",
+  "    return 'error: ' + String(error && error.message ? error.message : error);",
+  "  }",
+  "}",
+  "",
+  "log({ kind: 'extension_loaded', arm: ARM, pid: process.pid });",
+  "",
+  "export default function (pi) {",
+  "  let armed = true;",
+  "  let ready = false;",
+  "  let assistantMessages = 0;",
+  "  let agentRunsInFlight = 0;",
+  "  let lastTurnIndex = null;",
+  "",
+  "  function triggerCompact(ctx, where, polls, waitedMs) {",
+  "    const calledAt = Date.now();",
+  "    log({",
+  "      kind: 'compact_called',",
+  "      where: where,",
+  "      polls: polls,",
+  "      waitedForIdleMs: waitedMs,",
+  "      isIdleBeforeCall: safeIdle(ctx),",
+  "      agentRunsInFlight: agentRunsInFlight,",
+  "      lastTurnIndex: lastTurnIndex,",
+  "    });",
+  "    try {",
+  "      ctx.compact({",
+  "        onComplete: function (result) {",
+  "          log({",
+  "            kind: 'on_complete',",
+  "            where: where,",
+  "            durationMs: Date.now() - calledAt,",
+  "            tokensBefore: result ? result.tokensBefore : null,",
+  "            estimatedTokensAfter: result ? result.estimatedTokensAfter : null,",
+  "            summaryChars: result && result.summary ? result.summary.length : null,",
+  "          });",
+  "        },",
+  "        onError: function (error) {",
+  "          log({",
+  "            kind: 'on_error',",
+  "            where: where,",
+  "            durationMs: Date.now() - calledAt,",
+  "            message: String(error && error.message ? error.message : error),",
+  "          });",
+  "        },",
+  "      });",
+  "      log({",
+  "        kind: 'compact_call_returned',",
+  "        where: where,",
+  "        returnedSynchronously: true,",
+  "        isIdleRightAfterCall: safeIdle(ctx),",
+  "        agentRunsInFlight: agentRunsInFlight,",
+  "      });",
+  "    } catch (error) {",
+  "      log({ kind: 'compact_threw', where: where, message: String(error && error.message ? error.message : error) });",
+  "    }",
+  "  }",
+  "",
+  "  function startDetachedPoller(ctx, where) {",
+  "    log({ kind: 'poller_start', where: where, isIdleAtStart: safeIdle(ctx) });",
+  "    void (async function () {",
+  "      const startedAt = Date.now();",
+  "      let polls = 0;",
+  "      for (;;) {",
+  "        polls += 1;",
+  "        const idle = safeIdle(ctx);",
+  "        if (idle === true) {",
+  "          const waitedMs = Date.now() - startedAt;",
+  "          log({ kind: 'idle_observed', where: where, polls: polls, waitedForIdleMs: waitedMs, agentRunsInFlight: agentRunsInFlight });",
+  "          triggerCompact(ctx, where, polls, waitedMs);",
+  "          return;",
+  "        }",
+  "        if (idle !== false) {",
+  "          log({ kind: 'idle_check_failed', where: where, polls: polls, value: idle });",
+  "          return;",
+  "        }",
+  "        if (Date.now() - startedAt > IDLE_TIMEOUT_MS) {",
+  "          log({ kind: 'idle_timeout', where: where, polls: polls, waitedForIdleMs: Date.now() - startedAt });",
+  "          return;",
+  "        }",
+  "        await new Promise(function (resolve) { setTimeout(resolve, POLL_MS); });",
+  "      }",
+  "    })();",
+  "  }",
+  "",
+  "  pi.on('agent_start', function () {",
+  "    agentRunsInFlight += 1;",
+  "    log({ kind: 'agent_start', agentRunsInFlight: agentRunsInFlight });",
+  "  });",
+  "",
+  "  pi.on('agent_end', function () {",
+  "    agentRunsInFlight -= 1;",
+  "    log({ kind: 'agent_end', agentRunsInFlight: agentRunsInFlight });",
+  "  });",
+  "",
+  "  pi.on('turn_start', function (event) {",
+  "    lastTurnIndex = event.turnIndex;",
+  "    log({ kind: 'turn_start', turnIndex: event.turnIndex });",
+  "  });",
+  "",
+  "  pi.on('turn_end', function (event) {",
+  "    log({",
+  "      kind: 'turn_end',",
+  "      turnIndex: event.turnIndex,",
+  "      stopReason: event.message ? event.message.stopReason : null,",
+  "      agentRunsInFlight: agentRunsInFlight,",
+  "    });",
+  "  });",
+  "",
+  "  pi.on('message_end', function (event, ctx) {",
+  "    const message = event ? event.message : undefined;",
+  "    const role = message ? message.role : undefined;",
+  "    log({",
+  "      kind: 'message_end',",
+  "      role: role,",
+  "      stopReason: message ? message.stopReason : null,",
+  "      isIdle: safeIdle(ctx),",
+  "      agentRunsInFlight: agentRunsInFlight,",
+  "    });",
+  "    if (role !== 'assistant') return;",
+  "    assistantMessages += 1;",
+  "    if (assistantMessages >= AFTER) ready = true;",
+  "    if (ARM === 'message_end_poll' && armed && ready) {",
+  "      armed = false;",
+  "      startDetachedPoller(ctx, 'message_end');",
+  "    }",
+  "  });",
+  "",
+  "  pi.on('agent_settled', function (_event, ctx) {",
+  "    const idle = safeIdle(ctx);",
+  "    log({ kind: 'agent_settled', isIdle: idle, agentRunsInFlight: agentRunsInFlight, ready: ready });",
+  "    if (ARM === 'agent_settled_direct' && armed && ready && idle === true) {",
+  "      armed = false;",
+  "      triggerCompact(ctx, 'agent_settled', 0, 0);",
+  "    }",
+  "  });",
+  "",
+  "  pi.on('session_compact', function (event) {",
+  "    log({",
+  "      kind: 'session_compact',",
+  "      reason: event.reason,",
+  "      fromExtension: event.fromExtension,",
+  "      willRetry: event.willRetry,",
+  "      tokensBefore: event.compactionEntry ? event.compactionEntry.tokensBefore : null,",
+  "    });",
+  "  });",
+  "",
+  "  pi.on('session_compact_failed', function (event) {",
+  "    log({",
+  "      kind: 'session_compact_failed',",
+  "      reason: event.reason,",
+  "      aborted: event.aborted,",
+  "      errorMessage: event.errorMessage || null,",
+  "    });",
+  "  });",
+  "",
+  "  pi.on('session_shutdown', function (event) {",
+  "    log({ kind: 'session_shutdown', reason: event.reason });",
+  "  });",
+  "}",
+  "",
+].join("\n");
+
+function isRecord(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function eventType(event: unknown): string | undefined {
+  return isRecord(event) ? asString(event.type) : undefined;
+}
+
+function eventMessage(event: unknown): JsonObject | undefined {
+  if (!isRecord(event)) return undefined;
+  const message = event.message;
+  return isRecord(message) ? message : undefined;
+}
+
+function messageText(event: unknown): string {
+  const message = eventMessage(event);
+  if (!message) return "";
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (isRecord(part) && part.type === "text" && typeof part.text === "string") {
+      parts.push(part.text);
+    }
+  }
+  return parts.join("\n");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readLogEntries(logPath: string): JsonObject[] {
+  let raw: string;
+  try {
+    raw = readFileSync(logPath, "utf8");
+  } catch {
+    return [];
+  }
+  const entries: JsonObject[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (isRecord(parsed)) entries.push(parsed);
+    } catch {
+      // A partially written line is expected while Pi is still appending.
+    }
+  }
+  return entries;
+}
+
+function findLogEntry(entries: readonly JsonObject[], kind: string): JsonObject | undefined {
+  return entries.find((entry) => entry.kind === kind);
+}
+
+function listFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full));
+    else out.push(full);
+  }
+  return out;
+}
+
+/** Every `stopReason` on an assistant message persisted in the session file. */
+function collectAssistantStopReasons(value: unknown, out: string[]): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectAssistantStopReasons(item, out);
+    return;
+  }
+  if (!isRecord(value)) return;
+  if (value.role === "assistant" && typeof value.stopReason === "string") {
+    out.push(value.stopReason);
+  }
+  for (const key of Object.keys(value)) collectAssistantStopReasons(value[key], out);
+}
+
+/** Number of `compaction` entries persisted in the session file. */
+function countCompactionEntries(value: unknown): number {
+  if (Array.isArray(value)) {
+    let total = 0;
+    for (const item of value) total += countCompactionEntries(item);
+    return total;
+  }
+  if (!isRecord(value)) return 0;
+  let total = value.type === "compaction" ? 1 : 0;
+  for (const key of Object.keys(value)) total += countCompactionEntries(value[key]);
+  return total;
+}
+
+interface TurnFacts {
+  readonly id: string;
+  /** Whether this prompt is expected to run, or is deliberately submitted during a compaction. */
+  readonly expectation: "runs" | "rejected";
+  readonly promptSentAt: number;
+  readonly promptAccepted: boolean;
+  readonly settled: boolean;
+  readonly settledObservedAt: number | null;
+  readonly latencyMs: number | null;
+  readonly textHead: string;
+  readonly textLength: number;
+  readonly stopReason: string | null;
+  readonly echoedOwnId: boolean;
+  readonly note: string | null;
+}
+
+interface WaitResult {
+  readonly ok: boolean;
+  readonly index: number;
+  readonly event: unknown;
+  readonly error: string | null;
+}
+
+interface ArmResult {
+  readonly arm: string;
+  readonly question: string;
+  readonly workDir: string;
+  readonly verdict: string;
+  readonly hypothesisHolds: boolean | null;
+  readonly compact: JsonObject;
+  readonly turns: readonly TurnFacts[];
+  readonly interruption: JsonObject;
+  readonly provider: JsonObject;
+  readonly harness: JsonObject;
+  readonly extensionLog: readonly string[];
+  readonly piEventSummary: readonly string[];
+  readonly notes: readonly string[];
+  readonly stderrTail: string;
+}
+
+async function runArm(spec: ArmSpec, piCli: string, piNode: string): Promise<ArmResult> {
+  const work = mkdtempSync(join(tmpdir(), `foldpoint-pi-compact-${spec.name}-`));
+  const agentDir = join(work, "agent");
+  const sessionDir = join(work, "sessions");
+  const logPath = join(work, "trigger.jsonl");
+  const requestLogPath = join(work, "requests.jsonl");
+  const extensionPath = join(work, "compact-trigger.ts");
+  mkdirSync(agentDir);
+  mkdirSync(sessionDir);
+  writeFileSync(extensionPath, EXTENSION_SOURCE, "utf8");
+
+  let requestCount = 0;
+  let turnRequestCount = 0;
+  let summaryRequestCount = 0;
+  let abortedStreams = 0;
+
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const raw = Buffer.concat(chunks).toString("utf8");
+    let body: JsonObject = {};
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (isRecord(parsed)) body = parsed;
+    } catch {
+      // Fall through with an empty body; the loopback provider never fails a request.
+    }
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const roles: string[] = [];
+    let lastUserText = "";
+    let systemText = "";
+    for (const message of messages) {
+      if (!isRecord(message)) continue;
+      roles.push(String(message.role));
+      const content =
+        typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+      if (message.role === "user") lastUserText = content;
+      if (message.role === "system") systemText = content;
+    }
+    // The summarization prompt is the only request whose body carries this marker; a normal turn
+    // never contains it (the loopback summary text does not contain it either).
+    const isSummary = systemText.includes(SUMMARY_MARKER);
+    requestCount += 1;
+    if (isSummary) summaryRequestCount += 1;
+    else turnRequestCount += 1;
+    const echo = /\[#([A-Za-z0-9_-]+)\]/.exec(lastUserText)?.[1];
+    const text = isSummary ? SUMMARY_TEXT : corpusText(echo);
+    try {
+      appendFileSync(
+        requestLogPath,
+        `${JSON.stringify({
+          i: requestCount,
+          isSummary,
+          echo: echo ?? null,
+          roles,
+          systemHead: systemText.slice(0, 120),
+          lastUserHead: lastUserText.slice(0, 200),
+        })}\n`,
+      );
+    } catch {
+      // Diagnostics only.
+    }
+    const createdAt = Math.floor(Date.now() / 1_000);
+    const id = `chatcmpl-local-${requestCount}`;
+    const usage = {
+      prompt_tokens: isSummary ? 2_400 : 1_800,
+      completion_tokens: isSummary ? 120 : 300,
+      total_tokens: isSummary ? 2_520 : 2_100,
+    };
+    let finished = false;
+    response.on("close", () => {
+      if (!finished) abortedStreams += 1;
+    });
+    if (isSummary) await delay(SUMMARY_DELAY_MS);
+    if (body.stream === true) {
+      response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+      const envelope = (choice: JsonObject | null, extra?: JsonObject): string =>
+        `data: ${JSON.stringify({
+          id,
+          object: "chat.completion.chunk",
+          created: createdAt,
+          model: "fake-compact",
+          choices: choice === null ? [] : [choice],
+          ...(extra ?? {}),
+        })}\n\n`;
+      response.write(
+        envelope({ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }),
+      );
+      response.write(envelope({ index: 0, delta: {}, finish_reason: "stop" }));
+      response.write(envelope(null, { usage }));
+      response.end("data: [DONE]\n\n");
+    } else {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id,
+          object: "chat.completion",
+          created: createdAt,
+          model: "fake-compact",
+          choices: [
+            { index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" },
+          ],
+          usage,
+        }),
+      );
+    }
+    finished = true;
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const notes: string[] = [];
+  try {
+    const address = server.address();
+    assert(address !== null && typeof address !== "string");
+    writeFileSync(
+      join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          localtest: {
+            baseUrl: `http://127.0.0.1:${address.port}/v1`,
+            api: "openai-completions",
+            apiKey: "local-test",
+            compat: { maxTokensField: "max_tokens" },
+            models: [
+              {
+                id: "fake-compact",
+                contextWindow: 8_192,
+                maxTokens: 2_048,
+                cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+              },
+            ],
+          },
+        },
+      }),
+    );
+    writeFileSync(
+      join(agentDir, "settings.json"),
+      JSON.stringify({
+        cacheWarming: "off",
+        // Auto-compaction off: every compaction in this run was triggered by the extension.
+        compaction: { enabled: false, reserveTokens: 2_048, keepRecentTokens: 500 },
+        sessionDir,
+        defaultProjectTrust: "never",
+      }),
+    );
+
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) {
+      if (/(?:API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|PASSWORD)/i.test(key)) delete env[key];
+    }
+    Object.assign(env, {
+      PI_CODING_AGENT_DIR: agentDir,
+      PI_CODING_AGENT_SESSION_DIR: sessionDir,
+      PI_OFFLINE: "1",
+      PI_SKIP_VERSION_CHECK: "1",
+      PI_COMPACT_TRIGGER_LOG: logPath,
+      PI_COMPACT_TRIGGER_ARM: spec.trigger,
+      PI_COMPACT_TRIGGER_POLL_MS: "5",
+      PI_COMPACT_TRIGGER_IDLE_TIMEOUT_MS: "20000",
+      PI_COMPACT_TRIGGER_AFTER: "2",
+    });
+    delete env.PI_CACHE_RETENTION;
+    delete env.FOLDPOINT_DEFAULTS;
+    delete env.FOLDPOINT_MODE;
+
+    const child = spawn(
+      piNode,
+      [
+        piCli,
+        "--mode",
+        "rpc",
+        "--model",
+        "localtest/fake-compact",
+        "--no-approve",
+        "--extension",
+        extensionPath,
+      ],
+      { cwd: work, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+    );
+
+    const events: unknown[] = [];
+    const nonJsonLines: string[] = [];
+    const waiters = new Set<() => void>();
+    let stdout = "";
+    let stderr = "";
+    let lineBuffer = "";
+    const wake = (): void => {
+      for (const waiter of [...waiters]) waiter();
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      lineBuffer += text;
+      for (;;) {
+        const newline = lineBuffer.indexOf("\n");
+        if (newline < 0) break;
+        const line = lineBuffer.slice(0, newline).trim();
+        lineBuffer = lineBuffer.slice(newline + 1);
+        if (line.length === 0) continue;
+        try {
+          events.push(JSON.parse(line));
+          wake();
+        } catch {
+          nonJsonLines.push(line);
+        }
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    const softWait = async (
+      predicate: (event: unknown) => boolean,
+      label: string,
+      timeoutMs: number,
+      from: number,
+    ): Promise<WaitResult> => {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        for (let i = from; i < events.length; i += 1) {
+          const candidate = events[i];
+          if (predicate(candidate)) return { ok: true, index: i, event: candidate, error: null };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          return {
+            ok: false,
+            index: -1,
+            event: null,
+            error: `timed out after ${timeoutMs}ms waiting for ${label}`,
+          };
+        }
+        await new Promise<void>((resolve) => {
+          let timer: NodeJS.Timeout;
+          const settle = (): void => {
+            clearTimeout(timer);
+            waiters.delete(settle);
+            resolve();
+          };
+          waiters.add(settle);
+          timer = setTimeout(settle, remaining);
+        });
+      }
+    };
+
+    const send = (command: JsonObject): void => {
+      child.stdin.write(`${JSON.stringify(command)}\n`);
+    };
+
+    // --- readiness -------------------------------------------------------------------------
+    send({ id: "probe", type: "get_state" });
+    const probe = await softWait(
+      (event) => eventType(event) === "response" && isRecord(event) && event.id === "probe",
+      "the get_state response",
+      30_000,
+      0,
+    );
+    if (!probe.ok) {
+      throw new Error(
+        `Pi's RPC mode did not answer get_state in ${spec.name}: ${String(probe.error)}\nstderr: ${stderr.slice(-2_000)}`,
+      );
+    }
+    if (isRecord(probe.event) && probe.event.success === false) {
+      throw new Error(`get_state failed: ${String(probe.event.error)}`);
+    }
+
+    let extensionLoaded = false;
+    const logDeadline = Date.now() + 15_000;
+    while (Date.now() < logDeadline) {
+      if (readLogEntries(logPath).some((entry) => entry.kind === "extension_loaded")) {
+        extensionLoaded = true;
+        break;
+      }
+      await delay(50);
+    }
+    if (!extensionLoaded) {
+      throw new Error(
+        `the generated extension never logged extension_loaded (${extensionPath})\nstderr: ${stderr.slice(-2_000)}`,
+      );
+    }
+
+    // --- turn driver ----------------------------------------------------------------------
+    const promptTurn = async (
+      id: string,
+      message: string,
+      expectation: "runs" | "rejected",
+    ): Promise<TurnFacts> => {
+      const mark = events.length;
+      const promptSentAt = Date.now();
+      send({ id, type: "prompt", message: userPrompt(id, message) });
+      const accepted = await softWait(
+        (event) => eventType(event) === "response" && isRecord(event) && event.id === id,
+        `the ${id} prompt response`,
+        30_000,
+        mark,
+      );
+      const responseEvent = accepted.event;
+      const rejected =
+        accepted.ok && isRecord(responseEvent) && responseEvent.success === false
+          ? String(responseEvent.error)
+          : null;
+      // A rejected prompt never runs, so waiting for its settle would only burn the timeout.
+      const settled =
+        rejected === null
+          ? await softWait(
+              (event) => eventType(event) === "agent_settled",
+              `agent_settled for ${id}`,
+              60_000,
+              mark,
+            )
+          : { ok: false, index: -1, event: null, error: null };
+      let text = "";
+      let stopReason: string | null = null;
+      for (let i = mark; i < events.length; i += 1) {
+        const event = events[i];
+        if (eventType(event) !== "message_end") continue;
+        const message = eventMessage(event);
+        if (message?.role !== "assistant") continue;
+        text = messageText(event);
+        stopReason = asString(message.stopReason) ?? null;
+      }
+      const settledObservedAt = settled.ok ? Date.now() : null;
+      return {
+        id,
+        expectation,
+        promptSentAt,
+        promptAccepted: accepted.ok && rejected === null,
+        settled: settled.ok,
+        settledObservedAt,
+        latencyMs: settledObservedAt === null ? null : settledObservedAt - promptSentAt,
+        textHead: text.slice(0, 120),
+        textLength: text.length,
+        stopReason,
+        echoedOwnId: text.includes(`ECHO-${id}-OK`),
+        note:
+          rejected ??
+          (accepted.ok ? null : accepted.error) ??
+          (settled.ok ? null : settled.error) ??
+          null,
+      };
+    };
+
+    const turns: TurnFacts[] = [];
+    const compactMark = events.length;
+    // Two ordinary turns first: the extension arms its trigger on the second assistant message.
+    turns.push(await promptTurn("p1", "Turn one: reply with the turn one corpus.", "runs"));
+    turns.push(await promptTurn("p2", "Turn two: reply with the turn two corpus.", "runs"));
+
+    // The trigger fires in the idle window that follows turn two.
+    const started = await softWait(
+      (event) => eventType(event) === "compaction_start",
+      "compaction_start",
+      30_000,
+      compactMark,
+    );
+    const compactionStartAt = started.ok ? Date.now() : null;
+    if (!started.ok) {
+      notes.push(`no compaction_start was seen for arm ${spec.name}: ${String(started.error)}`);
+    }
+
+    const waitForCompactionEnd = async (): Promise<WaitResult> =>
+      softWait(
+        (event) => eventType(event) === "compaction_end",
+        "compaction_end",
+        30_000,
+        compactMark,
+      );
+
+    let compactionEnd: WaitResult;
+    if (spec.nextPrompt === "during_compaction") {
+      // Submitted while the summarization call is still running: expected to be refused.
+      turns.push(
+        await promptTurn("p3", "Turn three: reply with the turn three corpus.", "rejected"),
+      );
+      compactionEnd = await waitForCompactionEnd();
+      turns.push(await promptTurn("p4", "Turn four: reply with the turn four corpus.", "runs"));
+    } else {
+      compactionEnd = await waitForCompactionEnd();
+      turns.push(await promptTurn("p3", "Turn three: reply with the turn three corpus.", "runs"));
+    }
+    if (!compactionEnd.ok) {
+      // Never end the session while a summarization call is in flight: that would abort it.
+      notes.push(`compaction_end was not observed: ${String(compactionEnd.error)}`);
+      compactionEnd = await waitForCompactionEnd();
+    }
+
+    const sessionCompactFailed = await softWait(
+      (event) => eventType(event) === "session_compact_failed",
+      "session_compact_failed",
+      1_000,
+      compactMark,
+    );
+
+    // --- shutdown -------------------------------------------------------------------------
+    child.stdin.end();
+    const exitCode = await new Promise<number | null>((resolve) => {
+      if (child.exitCode !== null) {
+        resolve(child.exitCode);
+        return;
+      }
+      const timer = setTimeout(() => {
+        child.kill();
+        resolve(null);
+      }, 10_000);
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+    });
+
+    // --- evidence -------------------------------------------------------------------------
+    const logEntries = readLogEntries(logPath);
+    const compactCalled = findLogEntry(logEntries, "compact_called");
+    const onComplete = findLogEntry(logEntries, "on_complete");
+    const onError = findLogEntry(logEntries, "on_error");
+    const idleObserved = findLogEntry(logEntries, "idle_observed");
+    const sessionCompact = findLogEntry(logEntries, "session_compact");
+    const sessionCompactFailedLog = findLogEntry(logEntries, "session_compact_failed");
+    const compactionEndEvent = isRecord(compactionEnd.event) ? compactionEnd.event : undefined;
+    const compactionEndResult = isRecord(compactionEndEvent?.result)
+      ? compactionEndEvent.result
+      : undefined;
+
+    const sessionFiles = listFiles(sessionDir).filter((file) => file.endsWith(".jsonl"));
+    const persistedStopReasons: string[] = [];
+    let persistedCompactionEntries = 0;
+    for (const file of sessionFiles) {
+      const lines = readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => line.trim().length > 0);
+      for (const line of lines) {
+        let entry: unknown;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        collectAssistantStopReasons(entry, persistedStopReasons);
+        persistedCompactionEntries += countCompactionEntries(entry);
+      }
+    }
+
+    const abortedAssistantMessages = turns.filter((turn) => turn.stopReason === "aborted").length;
+    const persistedAborted = persistedStopReasons.filter((reason) => reason === "aborted").length;
+    const expectedTurns = turns.filter((turn) => turn.expectation === "runs");
+    const allExpectedTurnsSettled =
+      expectedTurns.length > 0 &&
+      expectedTurns.every((turn) => turn.settled && turn.echoedOwnId && turn.stopReason === "stop");
+    const compactCompleted = onComplete !== undefined;
+    const compactionEndOk =
+      compactionEndEvent !== undefined &&
+      asString(compactionEndEvent.reason) === "manual" &&
+      asBoolean(compactionEndEvent.aborted) === false &&
+      compactionEndEvent.result !== undefined;
+    const triggeredWhileIdle =
+      compactCalled !== undefined && compactCalled.isIdleBeforeCall === true;
+    const noAgentRunAtCall = compactCalled !== undefined && compactCalled.agentRunsInFlight === 0;
+    const extensionSawCompactEvent = sessionCompact !== undefined;
+    const noAbortedTurns = abortedAssistantMessages === 0 && persistedAborted === 0;
+
+    let verdict: string;
+    let hypothesisHolds: boolean | null;
+    if (spec.nextPrompt === "during_compaction") {
+      const during = turns.find((turn) => turn.expectation === "rejected");
+      const after = turns.find((turn) => turn.id === "p4");
+      const duringWasRefused = during?.promptAccepted === false;
+      const afterRan = after?.settled === true && after.echoedOwnId;
+      hypothesisHolds = compactCompleted && duringWasRefused && afterRan && noAbortedTurns;
+      verdict = compactCompleted
+        ? duringWasRefused
+          ? `The compaction completed; the prompt submitted while it ran was refused by Pi ("${String(during?.note ?? "")}") and the prompt submitted after it ran normally. An extension-triggered compaction does not interrupt a turn, but it does block the next one for its duration.`
+          : "The compaction completed and the concurrent prompt was accepted - it ran at the same time as the summarization call."
+        : `The compaction never completed (onError: ${String(onError?.message ?? "none")}).`;
+    } else {
+      hypothesisHolds =
+        compactCompleted &&
+        extensionSawCompactEvent &&
+        compactionEndOk &&
+        triggeredWhileIdle &&
+        noAgentRunAtCall &&
+        noAbortedTurns &&
+        allExpectedTurnsSettled &&
+        onError === undefined;
+      verdict = hypothesisHolds
+        ? "Triggering compaction from outside the handler worked: it started while the session was idle with no agent run in flight, completed, and no turn was aborted or interrupted."
+        : "The hypothesis did not hold in this arm - read the compact/turn facts before drawing a conclusion.";
+    }
+
+    const piEventSummary: string[] = [];
+    const seenTypes = new Set<string>();
+    for (const event of events) {
+      const type = eventType(event);
+      if (type === undefined) continue;
+      if (type === "message_update" || type === "message_start") continue;
+      if (type === "message_end") {
+        const message = eventMessage(event);
+        piEventSummary.push(
+          `message_end role=${String(message?.role)} stopReason=${String(message?.stopReason)}`,
+        );
+        continue;
+      }
+      if (type === "compaction_start" || type === "compaction_end" || type === "compaction") {
+        piEventSummary.push(`${type} ${JSON.stringify(event)}`);
+        continue;
+      }
+      if (type === "response" && isRecord(event) && event.id !== "probe") {
+        piEventSummary.push(`response id=${String(event.id)} success=${String(event.success)}`);
+        continue;
+      }
+      if (!seenTypes.has(type)) {
+        seenTypes.add(type);
+        piEventSummary.push(`${type} (first occurrence)`);
+      }
+    }
+    for (const line of nonJsonLines.slice(0, 10)) piEventSummary.push(`non-json stdout: ${line}`);
+
+    const compact: JsonObject = {
+      triggerMode: spec.trigger,
+      nextPromptTiming: spec.nextPrompt,
+      pollerStartedAt: asNumber(findLogEntry(logEntries, "poller_start")?.t) ?? null,
+      idleObservedAt: asNumber(idleObserved?.t) ?? null,
+      pollsBeforeIdle: asNumber(idleObserved?.polls) ?? null,
+      waitedForIdleMs: asNumber(idleObserved?.waitedForIdleMs) ?? null,
+      calledAt: asNumber(compactCalled?.t) ?? null,
+      isIdleBeforeCall: asBoolean(compactCalled?.isIdleBeforeCall) ?? null,
+      agentRunsInFlightAtCall: asNumber(compactCalled?.agentRunsInFlight) ?? null,
+      callReturnedSynchronously:
+        asBoolean(findLogEntry(logEntries, "compact_call_returned")?.returnedSynchronously) ?? null,
+      onCompleteAt: asNumber(onComplete?.t) ?? null,
+      durationMs: asNumber(onComplete?.durationMs) ?? null,
+      tokensBefore: asNumber(onComplete?.tokensBefore) ?? null,
+      estimatedTokensAfter: asNumber(onComplete?.estimatedTokensAfter) ?? null,
+      onErrorMessage: onError === undefined ? null : (asString(onError.message) ?? null),
+      extensionSessionCompactEvent: extensionSawCompactEvent
+        ? {
+            reason: asString(sessionCompact?.reason) ?? null,
+            fromExtension: asBoolean(sessionCompact?.fromExtension) ?? null,
+            tokensBefore: asNumber(sessionCompact?.tokensBefore) ?? null,
+          }
+        : null,
+      extensionSessionCompactFailedEvent:
+        sessionCompactFailedLog === undefined
+          ? null
+          : {
+              reason: asString(sessionCompactFailedLog.reason) ?? null,
+              aborted: asBoolean(sessionCompactFailedLog.aborted) ?? null,
+              errorMessage: asString(sessionCompactFailedLog.errorMessage) ?? null,
+            },
+      piCompactionEnd:
+        compactionEndEvent === undefined
+          ? null
+          : {
+              reason: asString(compactionEndEvent.reason) ?? null,
+              aborted: asBoolean(compactionEndEvent.aborted) ?? null,
+              errorMessage: asString(compactionEndEvent.errorMessage) ?? null,
+              tokensBefore: asNumber(compactionEndResult?.tokensBefore) ?? null,
+              estimatedTokensAfter: asNumber(compactionEndResult?.estimatedTokensAfter) ?? null,
+            },
+      compactionStartAt: compactionStartAt,
+      sessionCompactFailedEventSeen: sessionCompactFailed.ok,
+    };
+
+    return {
+      arm: spec.name,
+      question: spec.question,
+      workDir: work,
+      verdict,
+      hypothesisHolds,
+      compact,
+      turns,
+      interruption: {
+        abortedAssistantMessages,
+        persistedAbortedAssistantMessages: persistedAborted,
+        persistedAssistantStopReasons: persistedStopReasons,
+        persistedCompactionEntries,
+        providerStreamsAbortedByClient: abortedStreams,
+        allExpectedTurnsSettled,
+      },
+      provider: {
+        totalRequests: requestCount,
+        turnRequests: turnRequestCount,
+        summaryRequests: summaryRequestCount,
+      },
+      harness: {
+        extensionPath,
+        extensionLoaded,
+        rpcProbeOk: probe.ok,
+        piExitCode: exitCode,
+        sessionFiles,
+        logPath,
+        requestLogPath,
+        stdoutTail: stdout.slice(-4_000),
+      },
+      extensionLog: logEntries.map((entry) => JSON.stringify(entry)),
+      piEventSummary,
+      notes,
+      stderrTail: stderr.slice(-2_000),
+    };
+  } finally {
+    server.close();
+  }
+}
+
+const piCli = process.env.PI_CLI;
+if (piCli === undefined) throw new Error("PI_CLI must point to Pi's dist/bundle/cli.js");
+const piNode = process.env.PI_NODE ?? process.execPath;
+
+const results: ArmResult[] = [];
+for (const spec of ARMS) {
+  results.push(await runArm(spec, piCli, piNode));
+}
+
+const primary = results.find((result) => result.arm === "message_end_poll");
+const settledArm = results.find((result) => result.arm === "agent_settled_direct");
+console.log(
+  JSON.stringify(
+    {
+      runner: "foldpoint.pi-compact-trigger-smoke.v1",
+      paidApiCalls: 0,
+      summary: {
+        hypothesisHolds: primary?.hypothesisHolds ?? null,
+        agentSettledTriggerHolds: settledArm?.hypothesisHolds ?? null,
+      },
+      arms: results,
+    },
+    null,
+    2,
+  ),
+);

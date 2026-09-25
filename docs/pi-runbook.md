@@ -431,10 +431,34 @@ than a measurement — the same reason the library's own window guard is a polic
 Why `auto` waits for idle: `ctx.compact()` starts with `await abort()`, and `abort()` waits for the
 agent to go idle. Called from inside a handler the agent is blocked on, that wait never ends — the
 agent is waiting for the handler to return. This is the deadlock that makes the naive version of
-this unusable. Detaching the call and firing only once `ctx.isIdle()` is true avoids the cycle: at
-an idle boundary there is no turn to abort. The residual race is real and worth stating — if the
-user sends the next message in the moment between the idle check and the compaction starting, that
-new turn is aborted. `suggest` has no such window because it never starts anything.
+this unusable. Detaching the call and firing only once `ctx.isIdle()` is true avoids the cycle.
+
+**Verified against a running Pi**, not just reasoned about: `tools/pi-compact-trigger-smoke.ts`
+drives three arms through a loopback provider (zero paid calls) and reports the raw event stream.
+Detaching the call, polling `isIdle()`, and compacting at an idle boundary completes the
+compaction with no deadlock and no interrupted turn, consistently across runs; `onComplete` fires,
+`session_compact` arrives with `reason: "manual"`, and every assistant message in the session file
+keeps `stopReason: "stop"`. With `compaction.enabled: false` in that fixture, the compaction can
+only have come from the extension — and Pi still wrote the summary (`fromExtension: false`), which
+is the "when, never how" boundary holding in practice.
+
+Two things that verification changed, both worth knowing before turning `auto` on:
+
+- **`auto` acts at run boundaries, not mid-run.** `isIdle()` is false for as long as the agent run
+  is active, so the wait ends when the turn settles — not in the middle of a long tool call. If the
+  wait expires first, the advice simply fires again at the next model-call boundary; it is a retry,
+  not a lost compaction.
+- **A compaction is not invisible to the user.** While one is in progress Pi rejects a submitted
+  prompt outright — `Cannot submit a prompt while compaction is in progress. Wait for compaction to
+  finish and retry.` (`agent-session.ts:1627`) — and that check sits *before* the steer/follow-up
+  queueing branches, so the message is refused rather than queued. The adapter therefore cannot
+  promise "compacted before the next request", only "compacted while the session was idle".
+  `suggest` has no such window because it never starts anything.
+
+`agent_settled` (an extension event, `extensions/types.ts:824`) is the cleaner trigger: Pi clears
+`_isAgentRunActive` *before* emitting it, so `isIdle()` is already true in the handler and no
+polling is needed. It fires once per run, so it cannot compact mid-run either — the same boundary
+this adapter reaches by waiting, without the wait.
 
 ### 5.2 Policy checks are not decisions
 

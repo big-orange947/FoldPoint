@@ -17,10 +17,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   express. It matters most at large windows: with a 1M-token window Pi's own threshold is
   `1000000 - 16384`, so nothing compacts until the context is 98% full.
 - `auto` fires only from an idle boundary, because `ctx.compact()` begins with `await abort()`
-  and a call made from inside a handler the agent is blocked on deadlocks. The residual race -
-  a turn started between the idle check and the compaction - is documented rather than hidden.
-- Verified against a fake Pi only: no real session has yet compacted through `auto`, and the
-  idle-boundary behaviour is not yet confirmed against a running Pi.
+  and a call made from inside a handler the agent is blocked on deadlocks. Verified against a
+  running Pi through a loopback provider (`tools/pi-compact-trigger-smoke.ts`, zero paid calls):
+  the detached call completes with no deadlock and no interrupted turn. Two limits came out of
+  that verification - `auto` acts at run boundaries rather than mid-run, and while a compaction
+  is in progress Pi refuses a submitted prompt instead of queueing it
+  (`agent-session.ts:1627`), so the adapter cannot promise "compacted before the next request".
+- Still unverified: the TUI's presentation of that refusal, the interleaving with Pi's own
+  automatic compaction, and whether a poll started early in a long run survives to the idle
+  window.
 
 ### Controlled hypothetical price ratios in Pi trials
 
