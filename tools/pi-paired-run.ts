@@ -482,11 +482,19 @@ export function renderComparison(
       ["late", "default"],
       ["veto", "late"],
     ] as const) {
-      const paired = passing.filter(
+      const matched = passing.filter(
         (result) =>
           result.condition === baseline &&
           passing.some((other) => other.condition === condition && other.rep === result.rep),
       );
+      // If neither side actually compacted, different model/tool paths may still change the
+      // bill, but that delta says nothing about the compaction timing policy.
+      const paired = matched.filter((result) => {
+        const candidate = passing.find(
+          (other) => other.condition === condition && other.rep === result.rep,
+        );
+        return (result.cost?.compactions ?? 0) + (candidate?.cost?.compactions ?? 0) > 0;
+      });
       const baselineTotal = paired.reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
       const candidateTotal = paired.reduce(
         (sum, result) =>
@@ -499,8 +507,9 @@ export function renderComparison(
         paired.length > 0 && baselineTotal > 0
           ? `${(((candidateTotal - baselineTotal) / baselineTotal) * 100).toFixed(1)}%`
           : "n/a";
+      const excluded = matched.length - paired.length;
       lines.push(
-        `  - paired ${condition} vs ${baseline}: ${paired.length} matched passing rep(s), ${delta} cost change`,
+        `  - paired ${condition} vs ${baseline}: ${paired.length}/${matched.length} informative matched passing rep(s), ${delta} cost change${excluded > 0 ? `; ${excluded} no-compaction pair(s) excluded` : ""}`,
       );
     }
   }

@@ -108,11 +108,11 @@ describe("paired Pi trial isolation", () => {
   });
 
   it("compares only matched, successful repetitions", () => {
-    const cost = (totalCost: number): SessionCost => ({
+    const cost = (totalCost: number, compactions = 1): SessionCost => ({
       sessionId: "s",
       calls: 1,
       callCost: totalCost,
-      compactions: 0,
+      compactions,
       compactionCost: 0,
       cacheWarms: 0,
       cacheWarmCost: 0,
@@ -148,12 +148,36 @@ describe("paired Pi trial isolation", () => {
       TASKS.filter((task) => task.id === "sum"),
     );
     expect(report).toContain(
-      "paired veto vs default: 1 matched passing rep(s), -20.0% cost change",
+      "paired veto vs default: 1/1 informative matched passing rep(s), -20.0% cost change",
     );
     expect(report).toContain(
-      "paired late vs default: 1 matched passing rep(s), -10.0% cost change",
+      "paired late vs default: 1/1 informative matched passing rep(s), -10.0% cost change",
     );
-    expect(report).toContain("paired veto vs late: 1 matched passing rep(s), -11.1% cost change");
+    expect(report).toContain(
+      "paired veto vs late: 1/1 informative matched passing rep(s), -11.1% cost change",
+    );
+    const uninformative = renderComparison(
+      [
+        { ...result("default", 1, 10), cost: cost(10, 0) },
+        { ...result("veto", 1, 8), cost: cost(8, 0) },
+      ],
+      TASKS.filter((task) => task.id === "sum"),
+    );
+    expect(uninformative).toContain(
+      "paired veto vs default: 0/1 informative matched passing rep(s), n/a cost change; 1 no-compaction pair(s) excluded",
+    );
+    const mixed = renderComparison(
+      [
+        { ...result("default", 1, 100), cost: cost(100, 0) },
+        { ...result("veto", 1, 1), cost: cost(1, 0) },
+        result("default", 2, 10),
+        result("veto", 2, 8),
+      ],
+      TASKS.filter((task) => task.id === "sum"),
+    );
+    expect(mixed).toContain(
+      "paired veto vs default: 1/2 informative matched passing rep(s), -20.0% cost change; 1 no-compaction pair(s) excluded",
+    );
     expect(() =>
       renderComparison(
         [

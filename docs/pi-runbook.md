@@ -523,21 +523,26 @@ not evidence:
 - **Controlled arms**: `default` uses Pi's standard threshold; `ask` moves only the threshold;
   `veto` adds FoldPoint's answer on top of `ask`. Model, compactor, prompts and
   `cacheWarming: "off"` are fixed across arms.
-- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships three tasks: two append the
+- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships four tasks: two append the
   first line number of each 60-line chunk to `notes.md` (8 exact values), one writes the sum of
-  1..1000 to `out-sum.md` (500500). A run that is cheaper and wrong is not a win, so the check
-  is printed next to the cost and a missing artifact is visible in the table.
+  1..1000 to `out-sum.md` (500500), and `ledger` repairs code against an independent oracle.
+  A run that is cheaper and wrong is not a win, so the check is printed next to the cost and a
+  missing or incorrect artifact is visible in the table.
 - **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
   every call that ran, output included, plus compactions and any observed cache refreshes. `trace:analyze` prints
   the same table under `## Session cost`.
-- **Both directions matter**. A task that never reaches the threshold cannot show a difference
-  (the `sum` task is a control); the one that does (`steps`) is where the veto has something to
-  decide.
+- **Both directions matter**. A task that never reaches the threshold cannot show a timing
+  difference (`sum` and the first `ledger` probe were such controls). Paired cost deltas only
+  include matched, quality-passing runs in which at least one arm actually compacted. The
+  report counts and excludes zero-compaction pairs instead of presenting their cost noise as
+  a policy effect. A compaction in one arm is necessary, not sufficient, to attribute a saving
+  to timing; inspect call paths and repeat the experiment.
 
-`PI_SCRATCH` must be an existing seed directory containing `big.txt`, and
-`PI_CODING_AGENT_DIR` must be an existing experiment configuration directory. The runner
-copies the seed into a new per-run workspace and copies `settings.json`/`models.json` into a
-new per-run agent directory; it never clears the seed, edits the base settings, or copies
+`PI_SCRATCH` must be an existing seed directory; `steps` and `resume` require `big.txt` there,
+while `ledger` seeds its own fixture. `PI_CODING_AGENT_DIR` must be an existing experiment
+configuration directory. The runner copies the seed into a new per-run workspace and copies
+`settings.json`/`models.json` into a new per-run agent directory; it never clears the seed,
+edits the base settings, or copies
 `auth.json`. Supply provider credentials through the environment. Existing trace paths are
 refused rather than overwritten, so use a fresh `--out` prefix when repeating a trial.
 
