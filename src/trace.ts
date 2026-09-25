@@ -200,6 +200,12 @@ export interface TraceCompactionEvent {
    */
   reason?: string;
   /**
+   * Who started this compaction: the host on its own schedule (`"host"`), or the policy asking
+   * the host for it (`"policy"`). Pi reports both as `reason: "manual"`, so without this field a
+   * compaction an adapter asked for would be indistinguishable from the user running `/compact`.
+   */
+  initiatedBy?: "host" | "policy";
+  /**
    * A *policy check* rather than a model call: the reasons a host's policy gave for vetoing the
    * compaction, and how long the answer took. These live here, not on a decision event, because
    * a host may ask before every call - and a session with forty checks must not look like a
@@ -387,6 +393,7 @@ export class TraceRecorder {
       callId?: string;
       durationMs?: number;
       errorCode?: string;
+      initiatedBy?: "host" | "policy";
       reason?: string;
       reasons?: readonly string[];
       policyLatencyMs?: number;
@@ -401,6 +408,13 @@ export class TraceRecorder {
     }
     if (options.reason !== undefined) {
       assertTraceLabel("reason", options.reason, TRACE_SHORT_LABEL_MAX);
+    }
+    if (
+      options.initiatedBy !== undefined &&
+      options.initiatedBy !== "host" &&
+      options.initiatedBy !== "policy"
+    ) {
+      throw new RangeError('Trace event "initiatedBy" must be "host" or "policy"');
     }
     for (const reason of options.reasons ?? []) {
       assertTraceLabel("reasons", reason, TRACE_SHORT_LABEL_MAX);
@@ -427,6 +441,9 @@ export class TraceRecorder {
     }
     if (options.reason !== undefined) {
       event.reason = options.reason;
+    }
+    if (options.initiatedBy !== undefined) {
+      event.initiatedBy = options.initiatedBy;
     }
     if (options.reasons !== undefined && options.reasons.length > 0) {
       event.reasons = [...options.reasons];
@@ -694,6 +711,13 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       }
       if (event.errorCode !== undefined) {
         assertTraceLabel("errorCode", event.errorCode, TRACE_SHORT_LABEL_MAX);
+      }
+      if (
+        event.initiatedBy !== undefined &&
+        event.initiatedBy !== "host" &&
+        event.initiatedBy !== "policy"
+      ) {
+        throw new RangeError('Trace event "initiatedBy" must be "host" or "policy"');
       }
       assertFinite("beforeTokens", event.beforeTokens, 0);
       assertFinite("afterTokens", event.afterTokens, 0);

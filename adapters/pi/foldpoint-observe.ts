@@ -315,6 +315,11 @@ interface PendingCompaction {
   tokensBefore: number;
   usage: PiUsage | undefined;
   at: number;
+  /**
+   * Pi reports a compaction the adapter asked for as `reason: "manual"`, exactly like `/compact`.
+   * Without this the trace could not tell the two apart.
+   */
+  initiatedBy: "host" | "policy";
 }
 
 /**
@@ -976,6 +981,7 @@ export function createFoldPointObserver(
             trace.compaction(sessionKey, observation, {
               action: "COMPACT",
               reason: pending.reason,
+              initiatedBy: pending.initiatedBy,
             }),
           );
         }
@@ -1141,6 +1147,10 @@ export function createFoldPointObserver(
         tokensBefore,
         usage: undefined,
         at: now(),
+        // `session_before_compact` fires at the start of the compaction, so an in-flight
+        // automatic compaction is still flagged here - and this is the only place the trace can
+        // learn that the adapter, not the user, asked for it.
+        initiatedBy: state.autoInFlight ? "policy" : "host",
       };
 
       // Only a `threshold` compaction is ever questioned. `overflow` is Pi's last defence
@@ -1209,6 +1219,11 @@ export function createFoldPointObserver(
         tokensBefore: event.compactionEntry.tokensBefore,
         usage: event.compactionEntry.usage,
         at: now(),
+        // `session_compact` fires while the adapter's own compaction is still in flight, so the
+        // flag is still meaningful; keep whatever `session_before_compact` decided when it is not.
+        initiatedBy: state.autoInFlight
+          ? "policy"
+          : (state.pendingCompaction?.initiatedBy ?? "host"),
       };
       // The warmed request described the old conversation prefix. Its TTL must not be
       // transferred to Pi's new post-compaction prefix.

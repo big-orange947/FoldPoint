@@ -27,8 +27,10 @@ interface FakePi {
   statuses: Array<string | undefined>;
   /** Messages the adapter notified the user with. */
   notifications: string[];
-  /** Compactions the adapter asked Pi for, and whether the fake agent was idle when it did. */
-  compactions: Array<{ idle: boolean; completed: boolean; failed: boolean }>;
+  /** Compactions the adapter asked Pi for. */
+  compactions: Array<{ idle: boolean }>;
+  /** Finish the compaction Pi was asked for, as Pi's `onComplete` would. */
+  completeCompaction(): void;
   /** Run a command the adapter registered, as Pi's command handler would. */
   runCommand(name: string, args: string, ctx?: PiExtensionContext): void;
   emit<K extends keyof PiEventMap>(
@@ -53,7 +55,8 @@ function fakePi(): FakePi {
   const registered: string[] = [];
   const statuses: Array<string | undefined> = [];
   const notifications: string[] = [];
-  const compactions: Array<{ idle: boolean; completed: boolean; failed: boolean }> = [];
+  const compactions: Array<{ idle: boolean }> = [];
+  let inFlightCompaction: { onComplete?: (result: unknown) => void } | undefined;
   const pi: PiExtensionAPI = {
     on(event, handler) {
       registered.push(event);
@@ -81,10 +84,11 @@ function fakePi(): FakePi {
     hasUI: true,
     isIdle: () => true,
     compact: (options?: { onComplete?: (r: unknown) => void; onError?: (e: Error) => void }) => {
-      const record = { idle: true, completed: false, failed: false };
-      compactions.push(record);
-      options?.onComplete?.({});
-      record.completed = true;
+      compactions.push({ idle: true });
+      // Pi calls `onComplete` only when the compaction has actually finished, which is *after*
+      // `session_before_compact` and `session_compact` have been emitted. Firing it here would
+      // make the fake less faithful than the thing it stands in for.
+      inFlightCompaction = options;
     },
   };
   const defaultCtx: PiExtensionContext = {
@@ -100,6 +104,10 @@ function fakePi(): FakePi {
     statuses,
     notifications,
     compactions,
+    completeCompaction() {
+      inFlightCompaction?.onComplete?.({});
+      inFlightCompaction = undefined;
+    },
     runCommand(name, args, ctx = defaultCtx) {
       const handler = commands.get(name);
       if (handler === undefined) {
@@ -902,9 +910,49 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     fake.emit("context", { type: "context" }, ctx);
 
     expect(fake.compactions).toHaveLength(1);
-    expect(fake.compactions[0]?.completed).toBe(true);
+    expect(fake.compactions[0]?.idle).toBe(true);
     // The two modes are exclusive: an automatic compaction leaves nothing to remind about.
     expect(fake.notifications).toHaveLength(0);
+  });
+
+  it("records an automatic compaction as policy-initiated, not as the user's", () => {
+    const path = newTracePath("auto-trace");
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: path,
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    expect(fake.compactions).toHaveLength(1);
+
+    // Pi runs the compaction the adapter asked for and reports it as `manual`, exactly as it
+    // would for `/compact`. The trace has to be able to tell the two apart, or an experiment
+    // with automatic compaction on cannot be read afterwards.
+    fake.emit(
+      "session_before_compact",
+      { type: "session_before_compact", reason: "manual", preparation: { tokensBefore: 190_000 } },
+      ctx,
+    );
+    fake.emit(
+      "session_compact",
+      {
+        type: "session_compact",
+        reason: "manual",
+        compactionEntry: { tokensBefore: 190_000 },
+      },
+      ctx,
+    );
+    // The post-compaction size is only known on the next call, which is where the record lands.
+    fake.emit("context", { type: "context" }, fake.ctxWith(20_000));
+
+    const record = readTrace(path).find((event) => event.type === "compaction") as
+      | { reason?: string; initiatedBy?: string }
+      | undefined;
+    expect(record?.reason).toBe("manual");
+    expect(record?.initiatedBy).toBe("policy");
   });
 
   it("does nothing at all in off mode", () => {

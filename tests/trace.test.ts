@@ -198,6 +198,33 @@ describe("trace format", () => {
     expect(() => new TraceRecorder({ producer: "x".repeat(200) })).toThrow(RangeError);
   });
 
+  it("marks who asked for a compaction, and rejects an origin it does not know", () => {
+    const trace = recorder();
+    const observation = {
+      timestamp: BASE_TIMESTAMP,
+      beforeTokens: 190_000,
+      afterTokens: 20_000,
+      success: true,
+    };
+
+    // Pi reports a compaction the adapter asked for as `manual`, like `/compact`; the trace has
+    // to carry the difference or an experiment cannot be read back.
+    const asked = trace.compaction("session-a", observation, {
+      reason: "manual",
+      initiatedBy: "policy",
+    });
+    expect(asked.initiatedBy).toBe("policy");
+    expect(validateTraceEvent(asked)).toEqual(asked);
+
+    // Absent means the host did it on its own schedule, so a host that never sets it stays valid.
+    expect(trace.compaction("session-a", observation, { reason: "threshold" }).initiatedBy).toBe(
+      undefined,
+    );
+    expect(() =>
+      validateTraceEvent({ ...asked, initiatedBy: "somebody-else" }),
+    ).toThrow(RangeError);
+  });
+
   it("rejects malformed events instead of repairing them", () => {
     const trace = recorder();
     const input = makeInput({ contextTokens: 10_000 });
