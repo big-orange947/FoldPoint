@@ -523,9 +523,12 @@ not evidence:
 - **Controlled arms**: `default` uses Pi's standard threshold; `ask` moves only the threshold;
   `veto` adds FoldPoint's answer on top of `ask`. Model, compactor, prompts and
   `cacheWarming: "off"` are fixed across arms.
-- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships four tasks: two append the
+- **Machine-checkable artifacts**. `tools/pi-paired-run.ts` ships five tasks: two append the
   first line number of each 60-line chunk to `notes.md` (8 exact values), one writes the sum of
-  1..1000 to `out-sum.md` (500500), and `ledger` repairs code against an independent oracle.
+  1..1000 to `out-sum.md` (500500), `ledger` repairs code against an independent oracle, and
+  `pricing-regression` repairs an injected bug in a frozen copy of this repository. The last
+  task requires a local `npm ci` in the FoldPoint checkout before running; the runner copies
+  those dependencies into each arm without modifying the checkout or fetching packages.
   A run that is cheaper and wrong is not a win, so the check is printed next to the cost and a
   missing or incorrect artifact is visible in the table.
 - **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
@@ -539,7 +542,7 @@ not evidence:
   to timing; inspect call paths and repeat the experiment.
 
 `PI_SCRATCH` must be an existing seed directory; `steps` and `resume` require `big.txt` there,
-while `ledger` seeds its own fixture. `PI_CODING_AGENT_DIR` must be an existing experiment
+while `ledger` and `pricing-regression` seed their own fixtures. `PI_CODING_AGENT_DIR` must be an existing experiment
 configuration directory. The runner copies the seed into a new per-run workspace and copies
 `settings.json`/`models.json` into a new per-run agent directory; it never clears the seed,
 edits the base settings, or copies

@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen-repository Pi repair probe
+
+- Added an injected billing regression on a frozen FoldPoint repository snapshot. Each arm
+  receives the same tracked files and a separate copy of locally installed dependencies.
+- The external quality gate rejects edits outside `src/pricing.ts`, then requires typecheck,
+  the full test suite, a build, and three independent pricing-oracle tests. The deliberately
+  broken source fails; restoring the correct source passes. This is a controlled repair task,
+  not a natural production bug report.
+- Paired timing-cost deltas now exclude quality-passing repetitions where neither arm
+  compacted; raw incurred costs remain visible.
+
 ### Independent quality gate for a Pi repair task
 
 - Added a ledger-repair task with an external five-case oracle, untouched-spec verification,

@@ -14,8 +14,10 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -80,6 +82,123 @@ export const CONDITIONS: ReadonlyArray<{
 
 /** The line numbers an 8-step read of 60-line chunks must report. */
 const STEP_LINES = [1, 61, 121, 181, 241, 301, 361, 421];
+
+const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const PRICING_ORACLE = "benchmarks/fixtures/pi-pricing/oracle.test.mjs";
+
+function gitBytes(args: string[]): Buffer {
+  const result = spawnSync("git", args, {
+    cwd: REPO_ROOT,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.status !== 0 || result.stdout === null) {
+    throw new Error(`git ${args[0]} failed while preparing the frozen pricing task`);
+  }
+  return result.stdout;
+}
+
+function pricingSnapshot(): { files: string[]; bytes: (path: string) => Buffer } {
+  const revision = gitBytes(["rev-parse", "HEAD"]).toString("utf8").trim();
+  const files = gitBytes(["ls-tree", "-r", "-z", "--name-only", revision])
+    .toString("utf8")
+    .split("\0")
+    .filter((path) => path.length > 0 && path !== PRICING_ORACLE);
+  return { files, bytes: (path) => gitBytes(["show", `${revision}:${path}`]) };
+}
+
+function pricingRegressionSource(source: string): string {
+  const rewrite =
+    "const rewriteCost = prompt * prices.cacheWritePerToken + output * prices.outputPerToken;";
+  const liveTail =
+    "(prompt - prefixTokens) * prices.inputPerToken +\n    output * prices.outputPerToken;";
+  if (source.split(rewrite).length !== 2 || source.split(liveTail).length !== 2) {
+    throw new Error("Pricing source changed; review the benchmark mutation before running");
+  }
+  return source
+    .replace(
+      rewrite,
+      "const rewriteCost = prompt * prices.inputPerToken + output * prices.outputPerToken;",
+    )
+    .replace(liveTail, "(prompt - prefixTokens) * prices.inputPerToken;");
+}
+
+function safeVerificationEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    TEMP: process.env.TEMP,
+    TMP: process.env.TMP,
+    ...extra,
+  };
+}
+
+function npmInScratch(scratch: string, command: string, timeout: number): boolean {
+  const result = spawnSync("npm.cmd", ["run", command], {
+    cwd: scratch,
+    shell: process.platform === "win32",
+    env: safeVerificationEnv({
+      npm_config_userconfig: join(scratch, ".npmrc"),
+      FOLDPOINT_PRICING_VERIFY: "1",
+    }),
+    encoding: "utf8",
+    timeout,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return result.status === 0;
+}
+
+function seedPricingRegression(scratch: string): void {
+  const snapshot = pricingSnapshot();
+  const installedDependencies = join(REPO_ROOT, "node_modules");
+  if (
+    !existsSync(installedDependencies) ||
+    !readFileSync(join(REPO_ROOT, "package-lock.json")).equals(snapshot.bytes("package-lock.json"))
+  ) {
+    throw new Error("Run npm ci in the FoldPoint repository before seeding the pricing task");
+  }
+  for (const path of snapshot.files) {
+    const destination = join(scratch, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    const original = snapshot.bytes(path);
+    writeFileSync(
+      destination,
+      path === "src/pricing.ts" ? pricingRegressionSource(original.toString("utf8")) : original,
+    );
+  }
+  writeFileSync(join(scratch, ".npmrc"), "");
+  // A one-time, lockfile-matched local install is copied into each arm. This keeps the
+  // benchmark offline during seeding and avoids arm-order bias from registry/network latency.
+  // It is a copy, never a junction back into the user's repository.
+  cpSync(installedDependencies, join(scratch, "node_modules"), { recursive: true });
+}
+
+function checkPricingRegression(contents: string, scratch: string): boolean {
+  if (contents.trim().length === 0) return false;
+  const snapshot = pricingSnapshot();
+  for (const path of snapshot.files) {
+    if (path === "src/pricing.ts") continue;
+    const expected = createHash("sha256").update(snapshot.bytes(path)).digest("hex");
+    const actual = createHash("sha256")
+      .update(readFileSync(join(scratch, path)))
+      .digest("hex");
+    if (actual !== expected) return false;
+  }
+  if (!npmInScratch(scratch, "typecheck", 30_000)) return false;
+  if (!npmInScratch(scratch, "test", 60_000)) return false;
+  if (!npmInScratch(scratch, "build", 60_000)) return false;
+  const oracle = spawnSync(
+    process.env.PI_NODE ?? process.execPath,
+    ["--test", join(REPO_ROOT, PRICING_ORACLE)],
+    {
+      cwd: scratch,
+      env: safeVerificationEnv({ FOLDPOINT_PRICING_BUILD: join(scratch, "dist", "index.js") }),
+      encoding: "utf8",
+      timeout: 20_000,
+      maxBuffer: 1024 * 1024,
+    },
+  );
+  return oracle.status === 0;
+}
 
 function hasExactStepLines(contents: string): boolean {
   const lines = contents
@@ -164,6 +283,17 @@ export const TASKS: readonly Task[] = [
       });
       return result.status === 0;
     },
+  },
+  {
+    id: "pricing-regression",
+    prompt:
+      "This is a frozen FoldPoint repository snapshot with a regression in cache-aware call billing. Diagnose the failing tests and repair src/pricing.ts. In particular, the cost model must bill an expired cache write and a live cached call correctly, including output tokens. Do not change tests, documentation, package files or any other tracked file. Run the relevant tests and typecheck, then finish with DONE.",
+    artifact: "src/pricing.ts",
+    expectation:
+      "unchanged repository except src/pricing.ts; full tests, typecheck, build and external pricing oracle pass",
+    requiredInputs: [],
+    seed: seedPricingRegression,
+    check: checkPricingRegression,
   },
 ];
 

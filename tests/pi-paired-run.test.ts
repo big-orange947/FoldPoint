@@ -1,6 +1,7 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   prepareAgentDir,
@@ -13,6 +14,24 @@ import {
 import type { SessionCost } from "../tools/trace-analyze";
 
 describe("paired Pi trial isolation", () => {
+  it.skipIf(process.env.FOLDPOINT_PRICING_VERIFY === "1")(
+    "starts the frozen repository task with failing billing and accepts a repaired source",
+    () => {
+      const root = mkdtempSync(join(tmpdir(), "foldpoint-pricing-seed-"));
+      const task = TASKS.find((entry) => entry.id === "pricing-regression");
+      expect(task).toBeDefined();
+      if (task === undefined) return;
+      const scratch = prepareTaskScratch(root, task);
+      const pricingPath = join(scratch, "src", "pricing.ts");
+      expect(task.check(readFileSync(pricingPath, "utf8"), scratch)).toBe(false);
+      copyFileSync(fileURLToPath(new URL("../src/pricing.ts", import.meta.url)), pricingPath);
+      expect(task.check(readFileSync(pricingPath, "utf8"), scratch)).toBe(true);
+      writeFileSync(join(scratch, "tests", "cache.test.ts"), "modified test");
+      expect(task.check(readFileSync(pricingPath, "utf8"), scratch)).toBe(false);
+    },
+    240_000,
+  );
+
   it("seeds the ledger repair task and checks it with an oracle outside the scratch directory", () => {
     const root = mkdtempSync(join(tmpdir(), "foldpoint-ledger-seed-"));
     const task = TASKS.find((entry) => entry.id === "ledger");
