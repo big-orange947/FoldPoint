@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { TraceRecorder } from "../src/index";
+import { decideFoldPoint, TraceRecorder } from "../src/index";
 import {
   prepareAgentDir,
   prepareScratch,
@@ -14,14 +14,25 @@ import {
   TASKS,
 } from "../tools/pi-paired-run";
 import type { SessionCost } from "../tools/trace-analyze";
+import { makeInput, makeLearning, makeSession } from "./helpers";
 
 describe("paired Pi trial isolation", () => {
   it("treats failed compactions as unpriced but does not mistake a veto for a paid failure", () => {
     const root = mkdtempSync(join(tmpdir(), "foldpoint-unpriced-"));
     const tracePath = join(root, "trace.jsonl");
     const trace = new TraceRecorder({ producer: "test", now: () => 1 });
+    const input = makeInput({ sessionId: "session", timestamp: 1 });
+    const decision = decideFoldPoint(input, makeLearning(), makeSession());
     const events = [
       trace.header(),
+      trace.decision(input, decision, { callId: "call-1" }),
+      trace.request("session", "call-1", {
+        timestamp: 1,
+        promptTokens: 10_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 10,
+      }),
       trace.compaction(
         "session",
         { timestamp: 2, beforeTokens: 10_000, afterTokens: 10_000, success: false },
@@ -35,7 +46,7 @@ describe("paired Pi trial isolation", () => {
       trace.sessionEnd("session", { timestamp: 4 }),
     ];
     writeFileSync(tracePath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
-    expect(sessionCostOf(tracePath).unpricedCompactionFailures).toBe(1);
+    expect(sessionCostOf(tracePath)?.unpricedCompactions).toBe(1);
   });
 
   it.skipIf(process.env.FOLDPOINT_PRICING_VERIFY === "1")(
@@ -160,6 +171,7 @@ describe("paired Pi trial isolation", () => {
       cacheWarms: 0,
       cacheWarmCost: 0,
       compactionsNotRun: 0,
+      unpricedCompactions: 0,
       totalCost,
       compactionShare: 0,
       currency: "USD",
@@ -178,7 +190,6 @@ describe("paired Pi trial isolation", () => {
       ok: true,
       artifactOk,
       cost: cost(amount),
-      unpricedCompactionFailures: 0,
       trace: "trace",
     });
     const report = renderComparison(
@@ -223,7 +234,10 @@ describe("paired Pi trial isolation", () => {
       "paired veto vs default: 1/2 informative matched passing rep(s), -20.0% cost change; 1 no-compaction pair(s) excluded",
     );
     const unpriced = renderComparison(
-      [{ ...result("default", 1, 10), unpricedCompactionFailures: 2 }, result("veto", 1, 8)],
+      [
+        { ...result("default", 1, 10), cost: { ...cost(10), unpricedCompactions: 2 } },
+        result("veto", 1, 8),
+      ],
       TASKS.filter((task) => task.id === "sum"),
     );
     expect(unpriced).toContain(

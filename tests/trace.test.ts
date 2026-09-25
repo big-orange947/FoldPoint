@@ -598,6 +598,7 @@ describe("trace analysis", () => {
     );
     expect(cost?.compactions).toBe(1);
     expect(cost?.compactionsNotRun).toBe(1);
+    expect(cost?.unpricedCompactions).toBe(1);
     expect(cost?.compactionCost).toBeCloseTo(
       (90_000 * PRICING.inputPerMillion + 5_000 * PRICING.outputPerMillion) / 1_000_000,
       12,
@@ -606,6 +607,65 @@ describe("trace analysis", () => {
     expect(cost?.compactionShare).toBeGreaterThan(0);
     // And it reaches the report, which is the point of measuring it.
     expect(renderTraceReport(analysis)).toContain("## Session cost");
+    expect(renderTraceReport(analysis)).toContain(
+      "If unpriced compactions > 0, total is a lower bound",
+    );
+  });
+
+  it("prices failed compaction usage and does not bill a veto", () => {
+    const trace = recorder();
+    const input = makeInput({ sessionId: "failed-cost", profile: profileWithCacheTtl(60_000) });
+    const decision = decideFoldPoint(input, makeLearning(), makeSession());
+    const events: TraceEvent[] = [
+      trace.header(),
+      trace.decision(input, decision, { callId: "failed-1" }),
+      trace.request("failed-cost", "failed-1", {
+        timestamp: BASE_TIMESTAMP,
+        promptTokens: 1_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 10,
+      }),
+      trace.compaction(
+        "failed-cost",
+        {
+          timestamp: BASE_TIMESTAMP + 1,
+          beforeTokens: 1_000,
+          afterTokens: 1_000,
+          success: false,
+          promptTokens: 20_000,
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 200,
+        },
+        { errorCode: "failed" },
+      ),
+      trace.compaction(
+        "failed-cost",
+        { timestamp: BASE_TIMESTAMP + 2, beforeTokens: 1_000, afterTokens: 1_000, success: false },
+        { errorCode: "vetoed" },
+      ),
+      trace.compaction(
+        "failed-cost",
+        {
+          timestamp: BASE_TIMESTAMP + 3,
+          beforeTokens: 1_000,
+          afterTokens: 1_000,
+          success: false,
+          actualCost: 0.002,
+        },
+        { errorCode: "failed" },
+      ),
+      trace.sessionEnd("failed-cost", { timestamp: BASE_TIMESTAMP + 4 }),
+    ];
+    const cost = analyzeTraceEvents(events).sessionCosts[0];
+    expect(cost?.compactions).toBe(0);
+    expect(cost?.compactionsNotRun).toBe(3);
+    expect(cost?.unpricedCompactions).toBe(0);
+    expect(cost?.compactionCost).toBeCloseTo(
+      (20_000 * PRICING.inputPerMillion + 200 * PRICING.outputPerMillion) / 1_000_000 + 0.002,
+      12,
+    );
   });
 
   it("splits sessions into development and holdout deterministically", () => {

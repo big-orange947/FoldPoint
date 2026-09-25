@@ -83,9 +83,9 @@ export interface ClassMetrics {
  * What a session actually cost, as opposed to how well the model predicted it.
  *
  * The prediction metrics price the prompt only, because the model does not predict output.
- * This is the money: every call's input, cache read, cache write *and* output, plus what the
- * compactions themselves cost. A compaction is a model call too, and on a provider whose cache
- * reads are cheap it is often the largest single line in a session.
+ * This is the observed cost: reported calls' input, cache read, cache write and output, plus
+ * priced compaction attempts. A failed compaction may have called the provider without giving
+ * us usage; `unpricedCompactions` marks that this total is only a lower bound.
  */
 export interface SessionCost {
   sessionId: string;
@@ -93,11 +93,14 @@ export interface SessionCost {
   calls: number;
   /** Every priced token of those calls, output included. */
   callCost: number;
-  /** Compactions that ran, and what their summarisation calls cost. */
+  /** Successful compactions. */
   compactions: number;
+  /** Cost of all compaction attempts with reported usage, including failed attempts. */
   compactionCost: number;
-  /** Compaction attempts that did not run: vetoed by a host, or aborted. */
+  /** Unsuccessful compaction events: vetoed, aborted or failed. Some may have used the model. */
   compactionsNotRun: number;
+  /** Non-veto attempts without enough usage to price; totalCost is then a lower bound. */
+  unpricedCompactions: number;
   /** Successful paid refreshes Pi sent outside the ordinary agent request path. */
   cacheWarms: number;
   cacheWarmCost: number;
@@ -708,21 +711,37 @@ function collectSessionCosts(sessions: Map<string, SessionIndex>): SessionCost[]
     let compactions = 0;
     let compactionCost = 0;
     let compactionsNotRun = 0;
+    let unpricedCompactions = 0;
     for (const compaction of session.compactions) {
       if (!compaction.success) {
         compactionsNotRun += 1;
-        continue;
+      } else {
+        compactions += 1;
       }
-      compactions += 1;
-      if (compaction.usage === undefined) {
+      // A policy veto never sent a summarization call. Other failures may have sent one;
+      // without usage we cannot decide whether or how much the provider billed.
+      if (!compaction.success && compaction.errorCode === "vetoed") {
         continue;
       }
       const compactionUsage = compaction.usage;
+      if (compactionUsage?.actualCost !== undefined) {
+        compactionCost += compactionUsage.actualCost;
+        continue;
+      }
+      if (
+        compactionUsage?.promptTokens === undefined ||
+        compactionUsage.cachedInputTokens === undefined ||
+        compactionUsage.cacheWriteTokens === undefined ||
+        compactionUsage.outputTokens === undefined
+      ) {
+        unpricedCompactions += 1;
+        continue;
+      }
       compactionCost += costOfUsage(prices, {
-        promptTokens: compactionUsage.promptTokens ?? 0,
-        cachedInputTokens: compactionUsage.cachedInputTokens ?? 0,
-        cacheWriteTokens: compactionUsage.cacheWriteTokens ?? 0,
-        outputTokens: compactionUsage.outputTokens ?? 0,
+        promptTokens: compactionUsage.promptTokens,
+        cachedInputTokens: compactionUsage.cachedInputTokens,
+        cacheWriteTokens: compactionUsage.cacheWriteTokens,
+        outputTokens: compactionUsage.outputTokens,
       });
     }
 
@@ -738,6 +757,7 @@ function collectSessionCosts(sessions: Map<string, SessionIndex>): SessionCost[]
       compactions,
       compactionCost,
       compactionsNotRun,
+      unpricedCompactions,
       cacheWarms: session.cacheWarms.length,
       cacheWarmCost,
       totalCost,
@@ -1011,16 +1031,17 @@ function renderSessionCosts(costs: readonly SessionCost[]): string[] {
   const lines = [
     "## Session cost",
     "",
-    "Every call that ran, output included, plus compactions and observed cache refreshes. Not comparable",
+    "Reported calls, output included, plus priced compaction attempts and observed cache refreshes.",
+    "If unpriced compactions > 0, total is a lower bound. Not comparable",
     "across window sizes, and not the same number as the prediction metrics above (which price",
     "the prompt only, and only for calls with a decision).",
     "",
-    "| session | calls | calls cost | compactions | compaction cost | cache warms | warm cost | not run | total | compaction share |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| session | calls | calls cost | successful compactions | compaction cost | cache warms | warm cost | unsuccessful | unpriced compactions | observed total | compaction share |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const cost of costs) {
     lines.push(
-      `| ${cost.sessionId} | ${cost.calls} | ${formatMoney(cost.callCost, cost.currency)} | ${cost.compactions} | ${formatMoney(cost.compactionCost, cost.currency)} | ${cost.cacheWarms} | ${formatMoney(cost.cacheWarmCost, cost.currency)} | ${cost.compactionsNotRun} | ${formatMoney(cost.totalCost, cost.currency)} | ${(cost.compactionShare * 100).toFixed(0)}% |`,
+      `| ${cost.sessionId} | ${cost.calls} | ${formatMoney(cost.callCost, cost.currency)} | ${cost.compactions} | ${formatMoney(cost.compactionCost, cost.currency)} | ${cost.cacheWarms} | ${formatMoney(cost.cacheWarmCost, cost.currency)} | ${cost.compactionsNotRun} | ${cost.unpricedCompactions} | ${formatMoney(cost.totalCost, cost.currency)} | ${(cost.compactionShare * 100).toFixed(0)}% |`,
     );
   }
 
@@ -1032,7 +1053,7 @@ function renderSessionCosts(costs: readonly SessionCost[]): string[] {
     const compactionCost = costs.reduce((sum, cost) => sum + cost.compactionCost, 0);
     const cacheWarmCost = costs.reduce((sum, cost) => sum + cost.cacheWarmCost, 0);
     lines.push(
-      `| **all** | ${costs.reduce((sum, cost) => sum + cost.calls, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactions, 0)} | | ${costs.reduce((sum, cost) => sum + cost.cacheWarms, 0)} | ${formatMoney(cacheWarmCost, currency)} | ${costs.reduce((sum, cost) => sum + cost.compactionsNotRun, 0)} | **${formatMoney(total, currency)}** | **${(safeDivide(compactionCost, total, 0) * 100).toFixed(0)}%** |`,
+      `| **all** | ${costs.reduce((sum, cost) => sum + cost.calls, 0)} | | ${costs.reduce((sum, cost) => sum + cost.compactions, 0)} | | ${costs.reduce((sum, cost) => sum + cost.cacheWarms, 0)} | ${formatMoney(cacheWarmCost, currency)} | ${costs.reduce((sum, cost) => sum + cost.compactionsNotRun, 0)} | ${costs.reduce((sum, cost) => sum + cost.unpricedCompactions, 0)} | **${formatMoney(total, currency)}** | **${(safeDivide(compactionCost, total, 0) * 100).toFixed(0)}%** |`,
     );
   } else {
     lines.push(
@@ -1243,6 +1264,13 @@ export function main(argv: readonly string[] = process.argv.slice(2)): void {
     `unpaired decisions: ${analysis.unpairedDecisions}  unpriceable: ${analysis.unpriceable}  unknown cache usage: ${analysis.unknownCacheUsage}`,
   );
   console.log(`usable for calibration: ${analysis.usableForCalibration ? "yes" : "NO"}`);
+  const unpricedCompactions = analysis.sessionCosts.reduce(
+    (sum, cost) => sum + cost.unpricedCompactions,
+    0,
+  );
+  console.log(
+    `unpriced compactions in priced sessions: ${unpricedCompactions}${unpricedCompactions > 0 ? " (affected session costs are lower bounds)" : ""}`,
+  );
   console.log(`report: ${outPrefix}.md`);
   console.log(`data:   ${outPrefix}.json`);
 }

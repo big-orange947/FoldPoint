@@ -53,8 +53,6 @@ export interface RunResult {
   ok: boolean;
   artifactOk: boolean;
   cost: SessionCost | null;
-  /** Failed/aborted compactions whose provider usage is not in the priced session cost. */
-  unpricedCompactionFailures: number;
   trace: string;
 }
 
@@ -340,21 +338,12 @@ function parseArgs(argv: readonly string[]): {
   return options;
 }
 
-export function sessionCostOf(tracePath: string): {
-  cost: SessionCost | null;
-  unpricedCompactionFailures: number;
-} {
-  if (!existsSync(tracePath)) return { cost: null, unpricedCompactionFailures: 0 };
+export function sessionCostOf(tracePath: string): SessionCost | null {
+  if (!existsSync(tracePath)) return null;
   const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
   if (parsed.errors.length > 0) {
-    return { cost: null, unpricedCompactionFailures: 0 };
+    return null;
   }
-  // Pi reports vetoes as unsuccessful compaction events without a model call. Other failed or
-  // aborted attempts may have used provider tokens, but session_compact_failed has no usage.
-  // Their known bill is only a lower bound, so never put such runs in a priced comparison.
-  const unpricedCompactionFailures = parsed.events.filter(
-    (event) => event.type === "compaction" && !event.success && event.errorCode !== "vetoed",
-  ).length;
   const analysis = analyzeTraceEvents(parsed.events as TraceEvent[]);
   // A partial trace may contain a plausible but undercounted cost. Never compare it as a
   // successful priced run; the report will show '?' and omit it from paired deltas.
@@ -367,9 +356,9 @@ export function sessionCostOf(tracePath: string): {
     analysis.unpriceable !== 0 ||
     analysis.unknownCacheUsage !== 0
   ) {
-    return { cost: null, unpricedCompactionFailures };
+    return null;
   }
-  return { cost: analysis.sessionCosts[0] ?? null, unpricedCompactionFailures };
+  return analysis.sessionCosts[0] ?? null;
 }
 
 /** Read-only seed files. A run gets a fresh directory; nothing in PI_SCRATCH is deleted. */
@@ -564,8 +553,7 @@ function runOnce(
     exitCode: result.status ?? -1,
     ok: (result.status ?? -1) === 0,
     artifactOk,
-    cost: observedCost.cost,
-    unpricedCompactionFailures: observedCost.unpricedCompactionFailures,
+    cost: observedCost,
     trace: tracePath,
   };
 }
@@ -586,7 +574,7 @@ export function renderComparison(
   ];
   for (const result of results) {
     lines.push(
-      `| ${result.task} | ${result.condition} | ${result.rep} | ${result.exitCode} | ${result.artifactOk ? "ok" : "MISSING"} | ${result.cost?.calls ?? "?"} | ${result.cost?.compactions ?? "?"} | ${result.unpricedCompactionFailures} | ${result.cost?.cacheWarms ?? "?"} | ${result.cost ? `${result.cost.cacheWarmCost.toFixed(6)} ${result.cost.currency}` : "?"} | ${result.cost ? `${result.cost.totalCost.toFixed(6)} ${result.cost.currency}` : "?"} |`,
+      `| ${result.task} | ${result.condition} | ${result.rep} | ${result.exitCode} | ${result.artifactOk ? "ok" : "MISSING"} | ${result.cost?.calls ?? "?"} | ${result.cost?.compactions ?? "?"} | ${result.cost?.unpricedCompactions ?? "?"} | ${result.cost?.cacheWarms ?? "?"} | ${result.cost ? `${result.cost.cacheWarmCost.toFixed(6)} ${result.cost.currency}` : "?"} | ${result.cost ? `${result.cost.totalCost.toFixed(6)} ${result.cost.currency}` : "?"} |`,
     );
   }
 
@@ -637,9 +625,7 @@ export function renderComparison(
         const candidate = passing.find(
           (other) => other.condition === condition && other.rep === result.rep,
         );
-        return (
-          result.unpricedCompactionFailures === 0 && candidate?.unpricedCompactionFailures === 0
-        );
+        return result.cost?.unpricedCompactions === 0 && candidate?.cost?.unpricedCompactions === 0;
       });
       // If neither side actually compacted, different model/tool paths may still change the
       // bill, but that delta says nothing about the compaction timing policy.
@@ -731,7 +717,7 @@ function main(): void {
     );
     results.push(result);
     console.log(
-      `${spec.task.id} ${spec.condition} #${spec.rep}: exit=${result.exitCode} artifact=${result.artifactOk ? "ok" : "MISSING"} observedCost=${result.cost?.totalCost.toFixed(6) ?? "?"} unpricedFailures=${result.unpricedCompactionFailures}`,
+      `${spec.task.id} ${spec.condition} #${spec.rep}: exit=${result.exitCode} artifact=${result.artifactOk ? "ok" : "MISSING"} observedCost=${result.cost?.totalCost.toFixed(6) ?? "?"} unpricedCompactions=${result.cost?.unpricedCompactions ?? "?"}`,
     );
   }
 

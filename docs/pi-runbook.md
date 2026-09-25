@@ -495,11 +495,12 @@ knows this and does not say it", which is the shape of change worth proposing up
    would block the request path for the duration of a summarisation call *and* race the
    request being built, so an extension can delay a compaction but cannot bring one forward.
 
-The compaction's own cost is *not* a gap: Pi records it. `CompactionEntry.usage` is set on the
-automatic path and reaches the extension event, and the trace records it as the compaction
-event's `usage` (`promptTokens`, `outputTokens`, …). Measured across the collected sessions,
-compactions were 16–35% of a session's total cost — which is the cost a timing decision is
-trying to move, and it is fully visible in the data.
+Successful compaction cost is visible when `CompactionEntry.usage` is populated on the
+automatic path: the extension records it as the compaction event's `usage` (`promptTokens`,
+`outputTokens`, …). Measured across those collected sessions, compactions were 16–35% of
+observed session cost. **Failed compactions are different:** Pi's `session_compact_failed`
+event has no usage, and the summarized request may already have reached the provider. The
+analyzer therefore reports a lower bound and paired cost comparisons exclude these runs.
 
 Until those two exist, the plugin is the only place this can live — and it is a reasonable
 place for it: the policy needs calibration that is still moving, and Pi's core should not
@@ -532,9 +533,9 @@ not evidence:
   A run that is cheaper and wrong is not a win, so the check is printed next to the cost and a
   missing or incorrect artifact is visible in the table.
 - **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
-  reported ordinary calls, output included, plus successful compactions and observed cache
-  refreshes. Pi does not report failed compactions' usage; a run containing them has only an
-  observed-cost lower bound. `trace:analyze` prints the cost table under `## Session cost`.
+  reported ordinary calls, output included, plus compaction attempts with usage and observed
+  cache refreshes. Pi does not report failed compactions' usage; a run containing them has only
+  an observed-cost lower bound. `trace:analyze` prints the cost table under `## Session cost`.
 - **Both directions matter**. A task that never reaches the threshold cannot show a timing
   difference (`sum` and the first `ledger` probe were such controls). Paired cost deltas only
   include matched, quality-passing runs in which at least one arm actually compacted. The

@@ -74,8 +74,13 @@ cost and excludes a next-call cache comparison crossed by one, since that cache 
 caused solely by the previous decision. Legacy v1 traces remain readable, but cannot recover
 refreshes they never recorded.
 
-`compaction` — one per compaction attempt: `beforeTokens`, `afterTokens`, `success`, the
-compaction call's own usage and cost, its duration, and an optional short `errorCode`.
+`compaction` — one per compaction attempt: `beforeTokens`, `afterTokens`, `success`, optional
+provider usage/cost, duration and a short `errorCode`. A veto has no model call. Other failed
+attempts may have used tokens even when the host did not report usage; the analyzer counts
+these as `unpricedCompactions` and marks the observed session cost as a lower bound. When a
+failed attempt *does* report complete usage or `actualCost`, its cost is included.
+`usableForCalibration: true` only means the prediction-calibration samples are structurally
+usable; it does not turn a lower-bound session cost into a complete bill.
 
 `session_end` — closes a session. Without it, the session is right-censored and its remaining
 call horizon cannot be measured reliably.

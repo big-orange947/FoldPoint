@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Honest compaction-cost completeness
+
+- Session-cost analysis now includes reported usage or actual cost for failed compactions,
+  distinguishes policy vetoes from potentially paid failures, and counts non-veto attempts
+  without enough usage as `unpricedCompactions`. Such totals are lower bounds, not complete
+  provider bills. The Pi paired runner uses this shared completeness field as its cost gate.
+
 ### Frozen-repository Pi repair probe
 
 - Added an injected billing regression on a frozen FoldPoint repository snapshot. Each arm
