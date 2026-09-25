@@ -15,7 +15,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   broken source fails; restoring the correct source passes. This is a controlled repair task,
   not a natural production bug report.
 - Paired timing-cost deltas now exclude quality-passing repetitions where neither arm
-  compacted; raw incurred costs remain visible.
+  compacted or where a failed compaction has no priced usage; raw observed costs remain visible
+  as lower bounds.
+- One DeepSeek probe passed the external gate in all four arms, but exposed unpriced failed
+  compactions and large call-path variation. No dynamic-policy cost advantage is claimed.
 
 ### Independent quality gate for a Pi repair task
 

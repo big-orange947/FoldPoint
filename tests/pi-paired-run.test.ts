@@ -3,17 +3,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { TraceRecorder } from "../src/index";
 import {
   prepareAgentDir,
   prepareScratch,
   prepareTaskScratch,
   type RunResult,
   renderComparison,
+  sessionCostOf,
   TASKS,
 } from "../tools/pi-paired-run";
 import type { SessionCost } from "../tools/trace-analyze";
 
 describe("paired Pi trial isolation", () => {
+  it("treats failed compactions as unpriced but does not mistake a veto for a paid failure", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-unpriced-"));
+    const tracePath = join(root, "trace.jsonl");
+    const trace = new TraceRecorder({ producer: "test", now: () => 1 });
+    const events = [
+      trace.header(),
+      trace.compaction(
+        "session",
+        { timestamp: 2, beforeTokens: 10_000, afterTokens: 10_000, success: false },
+        { errorCode: "failed" },
+      ),
+      trace.compaction(
+        "session",
+        { timestamp: 3, beforeTokens: 10_000, afterTokens: 10_000, success: false },
+        { errorCode: "vetoed" },
+      ),
+      trace.sessionEnd("session", { timestamp: 4 }),
+    ];
+    writeFileSync(tracePath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+    expect(sessionCostOf(tracePath).unpricedCompactionFailures).toBe(1);
+  });
+
   it.skipIf(process.env.FOLDPOINT_PRICING_VERIFY === "1")(
     "starts the frozen repository task with failing billing and accepts a repaired source",
     () => {
@@ -154,6 +178,7 @@ describe("paired Pi trial isolation", () => {
       ok: true,
       artifactOk,
       cost: cost(amount),
+      unpricedCompactionFailures: 0,
       trace: "trace",
     });
     const report = renderComparison(
@@ -196,6 +221,13 @@ describe("paired Pi trial isolation", () => {
     );
     expect(mixed).toContain(
       "paired veto vs default: 1/2 informative matched passing rep(s), -20.0% cost change; 1 no-compaction pair(s) excluded",
+    );
+    const unpriced = renderComparison(
+      [{ ...result("default", 1, 10), unpricedCompactionFailures: 2 }, result("veto", 1, 8)],
+      TASKS.filter((task) => task.id === "sum"),
+    );
+    expect(unpriced).toContain(
+      "paired veto vs default: 0/1 informative matched passing rep(s), n/a cost change; 1 unpriced-failure pair(s) excluded",
     );
     expect(() =>
       renderComparison(

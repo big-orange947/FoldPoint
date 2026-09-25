@@ -532,21 +532,24 @@ not evidence:
   A run that is cheaper and wrong is not a win, so the check is printed next to the cost and a
   missing or incorrect artifact is visible in the table.
 - **Cost from the traces**, not from an estimate: `analyzeTraceEvents().sessionCosts` prices
-  every call that ran, output included, plus compactions and any observed cache refreshes. `trace:analyze` prints
-  the same table under `## Session cost`.
+  reported ordinary calls, output included, plus successful compactions and observed cache
+  refreshes. Pi does not report failed compactions' usage; a run containing them has only an
+  observed-cost lower bound. `trace:analyze` prints the cost table under `## Session cost`.
 - **Both directions matter**. A task that never reaches the threshold cannot show a timing
   difference (`sum` and the first `ledger` probe were such controls). Paired cost deltas only
   include matched, quality-passing runs in which at least one arm actually compacted. The
   report counts and excludes zero-compaction pairs instead of presenting their cost noise as
-  a policy effect. A compaction in one arm is necessary, not sufficient, to attribute a saving
-  to timing; inspect call paths and repeat the experiment.
+  a policy effect. It also excludes pairs with failed/aborted compactions whose provider usage
+  Pi did not report: their observed cost is only a lower bound. A compaction in one arm is
+  necessary, not sufficient, to attribute a saving to timing; inspect call paths and repeat
+  the experiment.
 
 `PI_SCRATCH` must be an existing seed directory; `steps` and `resume` require `big.txt` there,
-while `ledger` and `pricing-regression` seed their own fixtures. `PI_CODING_AGENT_DIR` must be an existing experiment
-configuration directory. The runner copies the seed into a new per-run workspace and copies
-`settings.json`/`models.json` into a new per-run agent directory; it never clears the seed,
-edits the base settings, or copies
-`auth.json`. Supply provider credentials through the environment. Existing trace paths are
+while `ledger` and `pricing-regression` seed their own fixtures. `PI_CODING_AGENT_DIR` must be
+an existing experiment configuration directory. The runner copies the seed into a new per-run
+workspace and copies `settings.json`/`models.json` into a new per-run agent directory; it never
+clears the seed, edits the base settings, or copies `auth.json`. Supply provider credentials
+through the environment. Existing trace paths are
 refused rather than overwritten, so use a fresh `--out` prefix when repeating a trial.
 
 What the trial still cannot do: a handful of runs on one model is a signal, not a result. The
