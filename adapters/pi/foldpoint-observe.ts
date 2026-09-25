@@ -270,9 +270,13 @@ function pricingFromModel(model: PiModel): PricingSnapshot | undefined {
   if (cost === undefined) {
     return undefined;
   }
+  // The scenario name is a *label*: the prices themselves come from Pi's effective model config,
+  // which the trial writes. Validating it against a list here would mean two lists to keep in
+  // step, and a scenario the trial added would break the adapter instead of being recorded -
+  // the harness asserts the prices in the trace against its own table, which is the real guard.
   const scenario = process.env.FOLDPOINT_PRICE_SCENARIO;
-  if (scenario !== undefined && scenario !== "cache-read-60" && scenario !== "cache-write-200") {
-    throw new Error(`Unknown FOLDPOINT_PRICE_SCENARIO: ${scenario}`);
+  if (scenario !== undefined && !/^[A-Za-z0-9._-]{1,32}$/.test(scenario)) {
+    throw new Error("FOLDPOINT_PRICE_SCENARIO must be a short label: letters, digits, . _ -");
   }
   const pricing: PricingSnapshot = {
     currency: scenario === undefined ? "USD" : "HYPOTHETICAL",

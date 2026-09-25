@@ -551,10 +551,13 @@ export function prepareAgentDir(
 
   /** Rewrite the run's models.json from the experiment base, optionally patching the model. */
   const patchModel = (patch: (model: Record<string, unknown>) => void): void => {
-    if (!existsSync(modelsPath)) {
+    // Read and write the run's own copy, never the base: two patches in a row must not clobber
+    // each other, and the base file belongs to the caller.
+    const runModelsPath = join(agentDir, "models.json");
+    if (!existsSync(runModelsPath)) {
       throw new Error("This trial requires a models.json experiment config");
     }
-    const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
+    const models = JSON.parse(readFileSync(runModelsPath, "utf8")) as {
       providers?: {
         deepseek?: { modelOverrides?: { "deepseek-flash"?: Record<string, unknown> } };
       };
@@ -564,7 +567,7 @@ export function prepareAgentDir(
       throw new Error("This trial requires deepseek/deepseek-flash modelOverrides");
     }
     patch(model);
-    writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, 2)}\n`, "utf8");
+    writeFileSync(runModelsPath, `${JSON.stringify(models, null, 2)}\n`, "utf8");
   };
 
   if (priceScenario !== "native") {
