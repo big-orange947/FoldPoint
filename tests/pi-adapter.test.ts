@@ -213,6 +213,57 @@ describe("Pi observer adapter", () => {
     expect(events.some((event) => event.type === "session_end")).toBe(true);
   });
 
+  it("labels a trial price as hypothetical while retaining actual provider usage", () => {
+    const previous = process.env.FOLDPOINT_PRICE_SCENARIO;
+    process.env.FOLDPOINT_PRICE_SCENARIO = "cache-read-60";
+    try {
+      const path = newTracePath("hypothetical-price");
+      const fake = fakePi();
+      const model: PiModel = {
+        ...MODEL,
+        provider: "deepseek",
+        id: "deepseek-flash",
+        cost: { input: 1, output: 5, cacheRead: 0.6, cacheWrite: 1.25 },
+      };
+      createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+        fake.pi,
+      );
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+      fake.emit("context", { type: "context" }, fake.ctxWith(50_000, model));
+      fake.emit("message_end", {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 10_000, output: 100, cacheRead: 40_000, cacheWrite: 0 },
+          stopReason: "stop",
+        },
+      });
+      fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+      const events = readTrace(path);
+      const decision = events.find((event) => event.type === "decision");
+      expect(decision?.type === "decision" ? decision.profile.pricing : undefined).toMatchObject({
+        currency: "HYPOTHETICAL",
+        inputPerMillion: 1,
+        outputPerMillion: 5,
+        cacheReadPerMillion: 0.6,
+        cacheWritePerMillion: 1.25,
+        source: "pi-experiment:cache-read-60:deepseek/deepseek-flash",
+      });
+      const request = events.find((event) => event.type === "request");
+      expect(request?.type === "request" ? request.usage : undefined).toMatchObject({
+        promptTokens: 50_000,
+        cachedInputTokens: 40_000,
+        outputTokens: 100,
+      });
+      const cost = analyzeTraceEvents(events).sessionCosts[0];
+      expect(cost?.currency).toBe("HYPOTHETICAL");
+      expect(cost?.callCost).toBeCloseTo((10_000 * 1 + 40_000 * 0.6 + 100 * 5) / 1_000_000);
+    } finally {
+      if (previous === undefined) delete process.env.FOLDPOINT_PRICE_SCENARIO;
+      else process.env.FOLDPOINT_PRICE_SCENARIO = previous;
+    }
+  });
+
   it("reports unpaired calls instead of pairing the wrong ones", () => {
     const path = newTracePath("unpaired");
     const messages: string[] = [];

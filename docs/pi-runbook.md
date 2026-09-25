@@ -461,6 +461,12 @@ results in one percentage comparison.
 Production use does not disable Pi's warming. On a model without a declared `promptCache`
 lifetime, Pi cannot schedule this warmer; DeepSeek's current Pi model entry is in that class.
 
+For a controlled DeepSeek task under **hypothetical price ratios**, see
+[`benchmarks/pi-price-ratio-plan.md`](../benchmarks/pi-price-ratio-plan.md). The runner uses
+Pi's per-model cost override in a fresh agent directory and verifies the same price snapshot
+in every decision trace. This is a pricing-policy sensitivity test, not a provider billing
+experiment; cache warming must be off because its usage record carries an actual-price cost.
+
 For a zero-paid integration check against a local Pi checkout, point the smoke runner at
 Pi's built CLI bundle. It starts a loopback OpenAI-compatible fake provider, runs the same
 two-call task with warming `off` and `streaming`, and keeps each Pi agent/session/trace in

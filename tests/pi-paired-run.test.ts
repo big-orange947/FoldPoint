@@ -12,9 +12,10 @@ import {
   renderComparison,
   sessionCostOf,
   TASKS,
+  TRIAL_PRICES,
 } from "../tools/pi-paired-run";
 import type { SessionCost } from "../tools/trace-analyze";
-import { makeInput, makeLearning, makeSession } from "./helpers";
+import { makeInput, makeLearning, makeProfile, makeSession } from "./helpers";
 
 describe("paired Pi trial isolation", () => {
   it("treats failed compactions as unpriced but does not mistake a veto for a paid failure", () => {
@@ -47,6 +48,50 @@ describe("paired Pi trial isolation", () => {
     ];
     writeFileSync(tracePath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
     expect(sessionCostOf(tracePath)?.unpricedCompactions).toBe(1);
+  });
+
+  it("rejects actual-price cache warming in a hypothetical-price trace", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-mixed-price-"));
+    const tracePath = join(root, "trace.jsonl");
+    const trace = new TraceRecorder({ producer: "test", now: () => 1 });
+    const input = makeInput({
+      sessionId: "session",
+      timestamp: 1,
+      profile: makeProfile({
+        provider: "deepseek",
+        model: "deepseek-flash",
+        pricing: {
+          currency: "HYPOTHETICAL",
+          source: "pi-experiment:cache-read-60:deepseek/deepseek-flash",
+          inputPerMillion: 1,
+          outputPerMillion: 5,
+          cacheReadPerMillion: 0.6,
+          cacheWritePerMillion: 1.25,
+        },
+      }),
+    });
+    const decision = decideFoldPoint(input, makeLearning(), makeSession());
+    const events = [
+      trace.header(),
+      trace.decision(input, decision, { callId: "call-1" }),
+      trace.request("session", "call-1", {
+        timestamp: 1,
+        promptTokens: 10_000,
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 10,
+      }),
+      trace.cacheWarm("session", 2, {
+        promptTokens: 1000,
+        cachedInputTokens: 999,
+        cacheWriteTokens: 0,
+        outputTokens: 1,
+        actualCost: 0.001,
+      }),
+      trace.sessionEnd("session", { timestamp: 3 }),
+    ];
+    writeFileSync(tracePath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+    expect(() => sessionCostOf(tracePath, "cache-read-60")).toThrow(/actual-price cache warming/);
   });
 
   it.skipIf(process.env.FOLDPOINT_PRICING_VERIFY === "1")(
@@ -161,6 +206,32 @@ describe("paired Pi trial isolation", () => {
     expect(readFileSync(join(vetoDir, "models.json"), "utf8")).toBe("{}");
   });
 
+  it("copies the same hypothetical tariff into isolated Pi model configs", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-price-scenario-"));
+    const original = {
+      providers: {
+        deepseek: {
+          modelOverrides: {
+            "deepseek-flash": { contextWindow: 26_000, maxTokens: 4_000 },
+          },
+        },
+      },
+    };
+    writeFileSync(join(root, "models.json"), JSON.stringify(original));
+    const defaultDir = prepareAgentDir(root, "default", "off", "cache-read-60");
+    const vetoDir = prepareAgentDir(root, "veto", "off", "cache-read-60");
+    const priceAt = (dir: string) => {
+      const config = JSON.parse(readFileSync(join(dir, "models.json"), "utf8"));
+      return config.providers.deepseek.modelOverrides["deepseek-flash"].cost;
+    };
+    expect(priceAt(defaultDir)).toEqual(TRIAL_PRICES["cache-read-60"]);
+    expect(priceAt(vetoDir)).toEqual(TRIAL_PRICES["cache-read-60"]);
+    expect(JSON.parse(readFileSync(join(root, "models.json"), "utf8"))).toEqual(original);
+    expect(() => prepareAgentDir(root, "veto", "streaming", "cache-read-60")).toThrow(
+      /requires cache warming off/,
+    );
+  });
+
   it("compares only matched, successful repetitions", () => {
     const cost = (totalCost: number, compactions = 1): SessionCost => ({
       sessionId: "s",
@@ -184,6 +255,7 @@ describe("paired Pi trial isolation", () => {
     ): RunResult => ({
       task: "sum",
       condition,
+      priceScenario: "native",
       cacheWarming: "off",
       rep,
       exitCode: 0,
@@ -211,6 +283,8 @@ describe("paired Pi trial isolation", () => {
     expect(report).toContain(
       "paired veto vs late: 1/1 informative matched passing rep(s), -11.1% cost change",
     );
+    expect(report).not.toContain("ask 0.000000");
+    expect(report).not.toContain("paired ask vs default:");
     const uninformative = renderComparison(
       [
         { ...result("default", 1, 10), cost: cost(10, 0) },
@@ -255,5 +329,11 @@ describe("paired Pi trial isolation", () => {
         TASKS.filter((task) => task.id === "sum"),
       ),
     ).toThrow(/different Pi cache-warming modes/);
+    expect(() =>
+      renderComparison(
+        [result("default", 1, 10), { ...result("veto", 1, 8), priceScenario: "cache-read-60" }],
+        TASKS.filter((task) => task.id === "sum"),
+      ),
+    ).toThrow(/different hypothetical price scenarios/);
   });
 });

@@ -270,11 +270,18 @@ function pricingFromModel(model: PiModel): PricingSnapshot | undefined {
   if (cost === undefined) {
     return undefined;
   }
+  const scenario = process.env.FOLDPOINT_PRICE_SCENARIO;
+  if (scenario !== undefined && scenario !== "cache-read-60" && scenario !== "cache-write-200") {
+    throw new Error(`Unknown FOLDPOINT_PRICE_SCENARIO: ${scenario}`);
+  }
   const pricing: PricingSnapshot = {
-    currency: "USD",
+    currency: scenario === undefined ? "USD" : "HYPOTHETICAL",
     inputPerMillion: cost.input,
     outputPerMillion: cost.output,
-    source: `pi:${model.provider}/${model.id}`,
+    source:
+      scenario === undefined
+        ? `pi:${model.provider}/${model.id}`
+        : `pi-experiment:${scenario}:${model.provider}/${model.id}`,
   };
   if (cost.cacheRead > 0) {
     pricing.cacheReadPerMillion = cost.cacheRead;

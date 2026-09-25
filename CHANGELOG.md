@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Controlled hypothetical price ratios in Pi trials
+
+- The paired runner can override only a fresh Pi experiment directory's model cost metadata
+  with two preregistered hypothetical price ratios. All arms share the same scenario; warm
+  cache refreshes are disabled because Pi reports their actual-price cost separately.
+- Trial traces label their currency `HYPOTHETICAL` and identify the scenario. The DeepSeek
+  execution model is unchanged, so these are pricing-regime experiments, not another
+  provider's measured bills or task quality.
+- First `cache-read-60` pilot: all three quality gates passed; Pi default had unpriced
+  compaction failures, while FoldPoint's one complete pair cost more than a fixed late
+  threshold. One run is diagnostic only; no savings claim follows.
+
 ### Honest compaction-cost completeness
 
 - Session-cost analysis now includes reported usage or actual cost for failed compactions,

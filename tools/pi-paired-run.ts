@@ -6,7 +6,8 @@
  * late threshold. All costs, including compactions, come from traces. Every task has a
  * machine-checkable artifact: a cheaper run that got the answer wrong is not a win.
  *
- *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--cache-warming off|streaming|idle] [--out <prefix>]
+ *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--conditions default,veto,late]
+ *     [--price-scenario native|cache-read-60|cache-write-200] [--cache-warming off] [--out <prefix>]
  *
  * Environment: `PI_CLI` (path to Pi's cli.js), optional `PI_NODE` (Node >=22.19),
  * `PI_CODING_AGENT_DIR`, `PI_MODEL` (default
@@ -47,6 +48,7 @@ export interface Task {
 export interface RunResult {
   task: string;
   condition: ConditionId;
+  priceScenario: PriceScenarioId;
   cacheWarming: CacheWarmingMode;
   rep: number;
   exitCode: number;
@@ -58,6 +60,23 @@ export interface RunResult {
 
 export type ConditionId = "default" | "ask" | "veto" | "late";
 export type CacheWarmingMode = "off" | "streaming" | "idle";
+export type PriceScenarioId = "native" | "cache-read-60" | "cache-write-200";
+
+/** Hypothetical USD-like units per million tokens, not a quote for another provider. */
+export const TRIAL_PRICES: Readonly<
+  Record<
+    Exclude<PriceScenarioId, "native">,
+    {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+    }
+  >
+> = {
+  "cache-read-60": { input: 1, output: 5, cacheRead: 0.6, cacheWrite: 1.25 },
+  "cache-write-200": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 2 },
+};
 
 /**
  * Four arms. Moving Pi's threshold earlier is part of how FoldPoint gets control, so it
@@ -306,12 +325,16 @@ interface RunSpec {
 function parseArgs(argv: readonly string[]): {
   reps: number;
   tasks: string[];
+  conditions: ConditionId[];
+  priceScenario: PriceScenarioId;
   outPrefix: string;
   cacheWarming: CacheWarmingMode;
 } {
   const options = {
     reps: 3,
     tasks: TASKS.map((task) => task.id),
+    conditions: CONDITIONS.map((condition) => condition.id),
+    priceScenario: "native" as PriceScenarioId,
     outPrefix: join(homedir(), ".foldpoint", "paired", `run-${Date.now()}`),
     cacheWarming: "off" as CacheWarmingMode,
   };
@@ -322,6 +345,23 @@ function parseArgs(argv: readonly string[]): {
       index += 1;
     } else if (arg === "--tasks") {
       options.tasks = (argv[index + 1] ?? "").split(",").filter((id) => id.length > 0);
+      index += 1;
+    } else if (arg === "--conditions") {
+      const selected = (argv[index + 1] ?? "").split(",");
+      if (
+        selected.length === 0 ||
+        selected.some((id) => !CONDITIONS.some((arm) => arm.id === id))
+      ) {
+        throw new Error("--conditions must be a comma-separated subset of default,ask,veto,late");
+      }
+      options.conditions = selected as ConditionId[];
+      index += 1;
+    } else if (arg === "--price-scenario") {
+      const scenario = argv[index + 1];
+      if (scenario !== "native" && scenario !== "cache-read-60" && scenario !== "cache-write-200") {
+        throw new Error("--price-scenario must be native, cache-read-60 or cache-write-200");
+      }
+      options.priceScenario = scenario;
       index += 1;
     } else if (arg === "--out") {
       options.outPrefix = resolve(argv[index + 1] ?? options.outPrefix);
@@ -338,13 +378,39 @@ function parseArgs(argv: readonly string[]): {
   return options;
 }
 
-export function sessionCostOf(tracePath: string): SessionCost | null {
+export function sessionCostOf(
+  tracePath: string,
+  scenario: PriceScenarioId = "native",
+): SessionCost | null {
   if (!existsSync(tracePath)) return null;
   const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
   if (parsed.errors.length > 0) {
     return null;
   }
+  if (scenario !== "native") {
+    const expected = TRIAL_PRICES[scenario];
+    const decisions = parsed.events.filter((event) => event.type === "decision");
+    if (
+      decisions.length === 0 ||
+      decisions.some((event) => {
+        const price = event.profile.pricing;
+        return (
+          price?.currency !== "HYPOTHETICAL" ||
+          price.source !== `pi-experiment:${scenario}:deepseek/deepseek-flash` ||
+          price.inputPerMillion !== expected.input ||
+          price.outputPerMillion !== expected.output ||
+          price.cacheReadPerMillion !== expected.cacheRead ||
+          price.cacheWritePerMillion !== expected.cacheWrite
+        );
+      })
+    ) {
+      throw new Error(`Trace price mismatch for ${scenario}: ${tracePath}`);
+    }
+  }
   const analysis = analyzeTraceEvents(parsed.events as TraceEvent[]);
+  if (scenario !== "native" && analysis.cacheWarms > 0) {
+    throw new Error(`Hypothetical cost cannot mix Pi's actual-price cache warming: ${tracePath}`);
+  }
   // A partial trace may contain a plausible but undercounted cost. Never compare it as a
   // successful priced run; the report will show '?' and omit it from paired deltas.
   if (
@@ -400,6 +466,7 @@ export function prepareAgentDir(
   base: string,
   condition: ConditionId,
   cacheWarming: CacheWarmingMode = "off",
+  priceScenario: PriceScenarioId = "native",
 ): string {
   if (!existsSync(base) || !lstatSync(base).isDirectory()) {
     throw new Error(`PI_CODING_AGENT_DIR must be an existing experiment directory: ${base}`);
@@ -416,6 +483,26 @@ export function prepareAgentDir(
   const agentDir = mkdtempSync(join(base, "foldpoint-agent-"));
   const modelsPath = join(base, "models.json");
   if (existsSync(modelsPath)) copyFileSync(modelsPath, join(agentDir, "models.json"));
+  if (priceScenario !== "native") {
+    if (cacheWarming !== "off") {
+      throw new Error(
+        "Hypothetical pricing requires cache warming off: Pi reports warmer cost at real prices",
+      );
+    }
+    if (!existsSync(modelsPath))
+      throw new Error("Hypothetical pricing requires a models.json experiment config");
+    const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
+      providers?: {
+        deepseek?: { modelOverrides?: { "deepseek-flash"?: Record<string, unknown> } };
+      };
+    };
+    const overrides = models.providers?.deepseek?.modelOverrides;
+    const model = overrides?.["deepseek-flash"];
+    if (model === undefined)
+      throw new Error("Hypothetical pricing requires deepseek/deepseek-flash modelOverrides");
+    model.cost = { ...TRIAL_PRICES[priceScenario] };
+    writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, 2)}\n`, "utf8");
+  }
   const previousCompaction = settings.compaction;
   settings.compaction = {
     ...(previousCompaction !== null &&
@@ -444,7 +531,12 @@ export function prepareAgentDir(
  * shows whether the adapter is in the process - the difference between "FoldPoint vetoed" and
  * "FoldPoint was never there" is otherwise invisible in the results.
  */
-function preflight(scratch: string, tracePath: string, agentDir: string): void {
+function preflight(
+  scratch: string,
+  tracePath: string,
+  agentDir: string,
+  priceScenario: PriceScenarioId,
+): void {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
@@ -464,6 +556,7 @@ function preflight(scratch: string, tracePath: string, agentDir: string): void {
         PI_CODING_AGENT_DIR: agentDir,
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
         FOLDPOINT_TRACE: tracePath,
+        FOLDPOINT_PRICE_SCENARIO: priceScenario === "native" ? undefined : priceScenario,
       },
     },
   );
@@ -496,6 +589,7 @@ function runOnce(
   tracePath: string,
   agentDir: string,
   cacheWarming: CacheWarmingMode,
+  priceScenario: PriceScenarioId,
 ): RunResult {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
@@ -533,6 +627,7 @@ function runOnce(
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
         FOLDPOINT_TRACE: tracePath,
         FOLDPOINT_MODE: condition.mode,
+        FOLDPOINT_PRICE_SCENARIO: priceScenario === "native" ? undefined : priceScenario,
       },
     },
   );
@@ -544,10 +639,11 @@ function runOnce(
     artifactOk = false;
   }
 
-  const observedCost = sessionCostOf(tracePath);
+  const observedCost = sessionCostOf(tracePath, priceScenario);
   return {
     task: spec.task.id,
     condition: spec.condition,
+    priceScenario,
     cacheWarming,
     rep: spec.rep,
     exitCode: result.status ?? -1,
@@ -566,8 +662,13 @@ export function renderComparison(
   if (results.some((result) => result.cacheWarming !== cacheWarming)) {
     throw new Error("Cannot compare runs with different Pi cache-warming modes");
   }
+  const priceScenario = results[0]?.priceScenario ?? "native";
+  if (results.some((result) => result.priceScenario !== priceScenario)) {
+    throw new Error("Cannot compare runs with different hypothetical price scenarios");
+  }
   const lines = [
     `Cache warming: ${cacheWarming} (fixed across all arms)`,
+    `Price scenario: ${priceScenario}${priceScenario === "native" ? " (Pi model prices)" : ` (hypothetical units per million: ${JSON.stringify(TRIAL_PRICES[priceScenario])}; not the provider bill)`}`,
     "",
     "| task | condition | rep | exit | artifact | calls | compactions | unpriced failures | cache warms | warm cost | observed cost |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -582,14 +683,17 @@ export function renderComparison(
     const runs = results.filter((result) => result.task === task.id);
     const byCondition = (condition: ConditionId): RunResult[] =>
       runs.filter((result) => result.condition === condition);
+    const activeConditions = CONDITIONS.filter((condition) => byCondition(condition.id).length > 0);
     const totals = (condition: ConditionId): number =>
       byCondition(condition).reduce((sum, result) => sum + (result.cost?.totalCost ?? 0), 0);
     const quality = (condition: ConditionId): number =>
       byCondition(condition).filter((result) => result.ok && result.artifactOk).length;
-    const summary = CONDITIONS.map(
-      (condition) =>
-        `${condition.id} ${totals(condition.id).toFixed(6)} (${quality(condition.id)}/${byCondition(condition.id).length} ok)`,
-    ).join(" vs ");
+    const summary = activeConditions
+      .map(
+        (condition) =>
+          `${condition.id} ${totals(condition.id).toFixed(6)} (${quality(condition.id)}/${byCondition(condition.id).length} ok)`,
+      )
+      .join(" vs ");
     lines.push(
       "",
       `**${task.id}** (${task.expectation}), all-run observed costs (lower bounds if failures are unpriced): ${summary}`,
@@ -605,10 +709,12 @@ export function renderComparison(
         runs: selected.length,
       };
     };
-    const passingSummary = CONDITIONS.map((condition) => {
-      const arm = passingCost(condition.id);
-      return `${condition.id} ${arm.runs === 0 ? "n/a" : arm.total.toFixed(6)} (${arm.runs} runs)`;
-    }).join(" vs ");
+    const passingSummary = activeConditions
+      .map((condition) => {
+        const arm = passingCost(condition.id);
+        return `${condition.id} ${arm.runs === 0 ? "n/a" : arm.total.toFixed(6)} (${arm.runs} runs)`;
+      })
+      .join(" vs ");
     lines.push(`  - passing runs (not directly comparable if counts differ): ${passingSummary}`);
     for (const [condition, baseline] of [
       ["ask", "default"],
@@ -616,6 +722,7 @@ export function renderComparison(
       ["late", "default"],
       ["veto", "late"],
     ] as const) {
+      if (byCondition(condition).length === 0 || byCondition(baseline).length === 0) continue;
       const matched = passing.filter(
         (result) =>
           result.condition === baseline &&
@@ -666,6 +773,16 @@ function main(): void {
   if (unknownTasks.length > 0 || options.tasks.length === 0) {
     throw new Error(`Unknown or empty task selection: ${options.tasks.join(",")}`);
   }
+  if (new Set(options.conditions).size !== options.conditions.length) {
+    throw new Error("--conditions must not contain duplicate arms");
+  }
+  if (
+    options.priceScenario !== "native" &&
+    (options.cacheWarming !== "off" ||
+      (process.env.PI_MODEL ?? "deepseek-flash") !== "deepseek-flash")
+  ) {
+    throw new Error("Hypothetical pricing requires deepseek-flash and --cache-warming off");
+  }
   const scratch = process.env.PI_SCRATCH ?? join(homedir(), ".foldpoint", "paired", "scratch");
   const agentBase = process.env.PI_CODING_AGENT_DIR;
   if (agentBase === undefined)
@@ -673,7 +790,7 @@ function main(): void {
 
   const selected = TASKS.filter((task) => options.tasks.includes(task.id));
   const specs: RunSpec[] = [];
-  const armOrder = CONDITIONS.map((condition) => condition.id);
+  const armOrder = options.conditions;
   for (const task of selected) {
     for (let rep = 1; rep <= options.reps; rep += 1) {
       // Rotate which arm goes first: if the model or the provider drifts over a session, running
@@ -701,7 +818,13 @@ function main(): void {
   preflight(
     prepareTaskScratch(scratch, selected[0] as Task),
     `${options.outPrefix}-preflight.jsonl`,
-    prepareAgentDir(agentBase, "default", options.cacheWarming),
+    prepareAgentDir(
+      agentBase,
+      options.conditions[0] as ConditionId,
+      options.cacheWarming,
+      options.priceScenario,
+    ),
+    options.priceScenario,
   );
   console.log("preflight: the extension loaded and wrote a trace header");
 
@@ -712,8 +835,9 @@ function main(): void {
       spec,
       prepareTaskScratch(scratch, spec.task),
       tracePath,
-      prepareAgentDir(agentBase, spec.condition, options.cacheWarming),
+      prepareAgentDir(agentBase, spec.condition, options.cacheWarming, options.priceScenario),
       options.cacheWarming,
+      options.priceScenario,
     );
     results.push(result);
     console.log(
