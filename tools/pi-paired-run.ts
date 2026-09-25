@@ -60,9 +60,24 @@ export interface RunResult {
 
 export type ConditionId = "default" | "ask" | "veto" | "late";
 export type CacheWarmingMode = "off" | "streaming" | "idle";
-export type PriceScenarioId = "native" | "cache-read-60" | "cache-write-200";
+export type PriceScenarioId =
+  | "native"
+  | "cache-read-60"
+  | "cache-write-200"
+  | "claude-like"
+  | "write-free"
+  | "write-050";
 
-/** Hypothetical USD-like units per million tokens, not a quote for another provider. */
+/**
+ * Hypothetical USD-like units per million tokens, not a quote for another provider.
+ *
+ * All hypothetical scenarios keep input at 1 and output at 5, so the only variables are the two
+ * cache rates. `claude-like` is Claude Sonnet's shape (3 / 15 / 0.3 / 3.75 per million, i.e.
+ * 1 / 5 / 0.1 / 1.25 once input is 1); `write-free` and `write-050` move only the cache-write
+ * rate, which is the one rate DeepSeek charges nothing for and Claude charges 1.25x input for.
+ * That is the structural difference a compaction-timing policy is supposed to react to: a
+ * compaction rewrites a prefix, which is free on DeepSeek and expensive on a Claude-shaped bill.
+ */
 export const TRIAL_PRICES: Readonly<
   Record<
     Exclude<PriceScenarioId, "native">,
@@ -76,6 +91,9 @@ export const TRIAL_PRICES: Readonly<
 > = {
   "cache-read-60": { input: 1, output: 5, cacheRead: 0.6, cacheWrite: 1.25 },
   "cache-write-200": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 2 },
+  "claude-like": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  "write-free": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 0 },
+  "write-050": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 0.5 },
 };
 
 /**
@@ -230,6 +248,32 @@ function hasExactStepLines(contents: string): boolean {
   );
 }
 
+/** Lines in the generated corpus, and the width each line is padded to. */
+const CORPUS_LINES = 480;
+const CORPUS_LINE_CHARS = 253;
+
+/**
+ * Write the task corpus instead of copying it from the seed directory.
+ *
+ * A cohort is only reproducible if the file that decided its token counts is reproducible too.
+ * The first cohorts copied a 121,440-byte `big.txt` out of a temp directory; it is gone now, and
+ * with it any chance of re-running those runs. This generator produces the same shape (480
+ * lines, ~253 characters each) deterministically, and every report can cite its hash.
+ */
+function writeSeedCorpus(scratch: string): void {
+  const stem =
+    "the foldpoint scratch corpus records one deterministic sentence per line so that a reader can summarise it without ambiguity and without needing the surrounding file. ";
+  const lines: string[] = [];
+  for (let index = 1; index <= CORPUS_LINES; index += 1) {
+    const prefix = `Line ${String(index).padStart(4, "0")}: `;
+    const body = stem
+      .repeat(Math.ceil(CORPUS_LINE_CHARS / stem.length))
+      .slice(0, CORPUS_LINE_CHARS - prefix.length);
+    lines.push(`${prefix}${body}`);
+  }
+  writeFileSync(join(scratch, "big.txt"), `${lines.join("\n")}\n`, "utf8");
+}
+
 export const TASKS: readonly Task[] = [
   {
     id: "steps",
@@ -238,7 +282,8 @@ export const TASKS: readonly Task[] = [
     artifact: "notes.md",
     expectation: "notes.md contains a line for each of the 8 chunk starts, 1 61 ... 421",
     check: hasExactStepLines,
-    requiredInputs: ["big.txt"],
+    requiredInputs: [],
+    seed: writeSeedCorpus,
   },
   {
     id: "sum",
@@ -258,7 +303,8 @@ export const TASKS: readonly Task[] = [
     artifact: "notes.md",
     expectation: "notes.md contains a line for each of the 8 chunk starts, 1 61 ... 421",
     check: hasExactStepLines,
-    requiredInputs: ["big.txt"],
+    requiredInputs: [],
+    seed: writeSeedCorpus,
   },
   {
     id: "ledger",
@@ -329,6 +375,7 @@ function parseArgs(argv: readonly string[]): {
   priceScenario: PriceScenarioId;
   outPrefix: string;
   cacheWarming: CacheWarmingMode;
+  temperature: number | undefined;
 } {
   const options = {
     reps: 3,
@@ -337,6 +384,7 @@ function parseArgs(argv: readonly string[]): {
     priceScenario: "native" as PriceScenarioId,
     outPrefix: join(homedir(), ".foldpoint", "paired", `run-${Date.now()}`),
     cacheWarming: "off" as CacheWarmingMode,
+    temperature: undefined as number | undefined,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -358,10 +406,19 @@ function parseArgs(argv: readonly string[]): {
       index += 1;
     } else if (arg === "--price-scenario") {
       const scenario = argv[index + 1];
-      if (scenario !== "native" && scenario !== "cache-read-60" && scenario !== "cache-write-200") {
-        throw new Error("--price-scenario must be native, cache-read-60 or cache-write-200");
+      if (scenario === undefined || !(scenario === "native" || scenario in TRIAL_PRICES)) {
+        throw new Error(
+          `--price-scenario must be native or one of ${Object.keys(TRIAL_PRICES).join(", ")}`,
+        );
       }
-      options.priceScenario = scenario;
+      options.priceScenario = scenario as PriceScenarioId;
+      index += 1;
+    } else if (arg === "--temperature") {
+      const value = Number(argv[index + 1]);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error("--temperature must be a non-negative number");
+      }
+      options.temperature = value;
       index += 1;
     } else if (arg === "--out") {
       options.outPrefix = resolve(argv[index + 1] ?? options.outPrefix);
@@ -461,12 +518,20 @@ export function prepareTaskScratch(seedRoot: string, task: Task): string {
   return scratch;
 }
 
-/** Use a fresh Pi configuration per run, leaving the user's settings and credentials intact. */
+/**
+ * Use a fresh Pi configuration per run, leaving the user's settings and credentials intact.
+ *
+ * `temperature` fixes the model's sampling for the whole trial. A policy comparison needs the
+ * arms to differ by the policy and not by the path the model happened to take: in the first
+ * cohorts the same task took 18 to 29 calls across runs, which is larger than the effect being
+ * measured. Setting it to 0 trades realism for a comparison that can resolve a small delta.
+ */
 export function prepareAgentDir(
   base: string,
   condition: ConditionId,
   cacheWarming: CacheWarmingMode = "off",
   priceScenario: PriceScenarioId = "native",
+  temperature: number | undefined = undefined,
 ): string {
   if (!existsSync(base) || !lstatSync(base).isDirectory()) {
     throw new Error(`PI_CODING_AGENT_DIR must be an existing experiment directory: ${base}`);
@@ -483,25 +548,43 @@ export function prepareAgentDir(
   const agentDir = mkdtempSync(join(base, "foldpoint-agent-"));
   const modelsPath = join(base, "models.json");
   if (existsSync(modelsPath)) copyFileSync(modelsPath, join(agentDir, "models.json"));
+
+  /** Rewrite the run's models.json from the experiment base, optionally patching the model. */
+  const patchModel = (patch: (model: Record<string, unknown>) => void): void => {
+    if (!existsSync(modelsPath)) {
+      throw new Error("This trial requires a models.json experiment config");
+    }
+    const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
+      providers?: {
+        deepseek?: { modelOverrides?: { "deepseek-flash"?: Record<string, unknown> } };
+      };
+    };
+    const model = models.providers?.deepseek?.modelOverrides?.["deepseek-flash"];
+    if (model === undefined) {
+      throw new Error("This trial requires deepseek/deepseek-flash modelOverrides");
+    }
+    patch(model);
+    writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, 2)}\n`, "utf8");
+  };
+
   if (priceScenario !== "native") {
     if (cacheWarming !== "off") {
       throw new Error(
         "Hypothetical pricing requires cache warming off: Pi reports warmer cost at real prices",
       );
     }
-    if (!existsSync(modelsPath))
-      throw new Error("Hypothetical pricing requires a models.json experiment config");
-    const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
-      providers?: {
-        deepseek?: { modelOverrides?: { "deepseek-flash"?: Record<string, unknown> } };
+    patchModel((model) => {
+      model.cost = { ...TRIAL_PRICES[priceScenario] };
+    });
+  }
+  if (temperature !== undefined) {
+    // Pi merges `model.samplingParams` into the provider request (`packages/ai/src/simple-options.ts`).
+    patchModel((model) => {
+      model.samplingParams = {
+        ...((model.samplingParams as Record<string, unknown> | undefined) ?? {}),
+        temperature,
       };
-    };
-    const overrides = models.providers?.deepseek?.modelOverrides;
-    const model = overrides?.["deepseek-flash"];
-    if (model === undefined)
-      throw new Error("Hypothetical pricing requires deepseek/deepseek-flash modelOverrides");
-    model.cost = { ...TRIAL_PRICES[priceScenario] };
-    writeFileSync(join(agentDir, "models.json"), `${JSON.stringify(models, null, 2)}\n`, "utf8");
+    });
   }
   const previousCompaction = settings.compaction;
   settings.compaction = {
@@ -823,6 +906,7 @@ function main(): void {
       options.conditions[0] as ConditionId,
       options.cacheWarming,
       options.priceScenario,
+      options.temperature,
     ),
     options.priceScenario,
   );
@@ -835,7 +919,13 @@ function main(): void {
       spec,
       prepareTaskScratch(scratch, spec.task),
       tracePath,
-      prepareAgentDir(agentBase, spec.condition, options.cacheWarming, options.priceScenario),
+      prepareAgentDir(
+        agentBase,
+        spec.condition,
+        options.cacheWarming,
+        options.priceScenario,
+        options.temperature,
+      ),
       options.cacheWarming,
       options.priceScenario,
     );
