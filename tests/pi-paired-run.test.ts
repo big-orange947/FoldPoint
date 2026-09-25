@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   prepareAgentDir,
   prepareScratch,
+  prepareTaskScratch,
   type RunResult,
   renderComparison,
   TASKS,
@@ -12,13 +13,46 @@ import {
 import type { SessionCost } from "../tools/trace-analyze";
 
 describe("paired Pi trial isolation", () => {
+  it("seeds the ledger repair task and checks it with an oracle outside the scratch directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-ledger-seed-"));
+    const task = TASKS.find((entry) => entry.id === "ledger");
+    expect(task).toBeDefined();
+    if (task === undefined) return;
+    const scratch = prepareTaskScratch(root, task);
+    expect(readFileSync(join(scratch, "SPEC.md"), "utf8")).toContain("half-open UTC interval");
+    const source = readFileSync(join(scratch, "ledger.mjs"), "utf8");
+    expect(task.check(source, scratch)).toBe(false);
+    expect(() => readFileSync(join(scratch, "oracle.test.mjs"), "utf8")).toThrow();
+
+    const repaired = `export function summarizeLedger(rows, { from, to }) {
+      const seen = new Set();
+      const perUser = new Map();
+      for (const row of rows) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        if (row.occurredAt < from || row.occurredAt >= to) continue;
+        const current = perUser.get(row.userId) ?? {
+          userId: row.userId, netCents: 0, transactionCount: 0,
+        };
+        current.netCents += row.kind === "refund" ? -row.amountCents : row.amountCents;
+        current.transactionCount += 1;
+        perUser.set(row.userId, current);
+      }
+      return [...perUser.values()].sort((a, b) => a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0);
+    }`;
+    writeFileSync(join(scratch, "ledger.mjs"), repaired);
+    expect(task.check(repaired, scratch)).toBe(true);
+    writeFileSync(join(scratch, "SPEC.md"), "changed spec");
+    expect(task.check(repaired, scratch)).toBe(false);
+  });
+
   it("requires each step artifact to contain the ordered eight numbers exactly once", () => {
     const task = TASKS.find((entry) => entry.id === "steps");
     expect(task).toBeDefined();
     const valid = "1\n61\n121\n181\n241\n301\n361\n421\n";
-    expect(task?.check(valid)).toBe(true);
-    expect(task?.check(`${valid}421\n`)).toBe(false);
-    expect(task?.check("421\n361\n301\n241\n181\n121\n61\n1\n")).toBe(false);
+    expect(task?.check(valid, "unused")).toBe(true);
+    expect(task?.check(`${valid}421\n`, "unused")).toBe(false);
+    expect(task?.check("421\n361\n301\n241\n181\n121\n61\n1\n", "unused")).toBe(false);
   });
 
   it("creates fresh workspaces without deleting anything in PI_SCRATCH", () => {

@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Independent quality gate for a Pi repair task
+
+- Added a ledger-repair task with an external five-case oracle, untouched-spec verification,
+  per-run fixture seeding, and bounded verification subprocess without inherited API secrets.
+- Real DeepSeek probe: all four arms passed quality, none compacted. It is reported as a
+  negative control, not as evidence of cost savings from FoldPoint.
+
 ### Fixed-late Pi control and Chinese README
 
 - Added a fourth Pi paired-trial arm: a fixed late threshold (6K reserve under the controlled
