@@ -411,7 +411,7 @@ describe("Pi observer adapter", () => {
       reason: "threshold",
       compactionEntry: {
         tokensBefore: 120_000,
-        usage: { input: 120_000, output: 2_000, cacheRead: 0, cacheWrite: 120_000 },
+        usage: { input: 0, output: 2_000, cacheRead: 0, cacheWrite: 120_000 },
       },
     });
     // The next model call is where the new context size becomes known.
@@ -423,6 +423,67 @@ describe("Pi observer adapter", () => {
     expect(compactions[0]?.beforeTokens).toBe(120_000);
     expect(compactions[0]?.afterTokens).toBe(35_000);
     expect(compactions[0]?.success).toBe(true);
+  });
+
+  it("prices a successful final compaction without inventing its post-compaction size", () => {
+    const path = newTracePath("terminal-compaction");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(120_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 120_000, output: 300, cacheRead: 0, cacheWrite: 120_000 },
+      },
+    });
+    fake.emit("session_before_compact", {
+      type: "session_before_compact",
+      reason: "threshold",
+      preparation: { tokensBefore: 120_000 },
+    });
+    fake.emit("session_compact", {
+      type: "session_compact",
+      reason: "threshold",
+      compactionEntry: {
+        tokensBefore: 120_000,
+        usage: { input: 0, output: 2_000, cacheRead: 0, cacheWrite: 120_000 },
+      },
+    });
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+
+    const events = readTrace(path);
+    const compactions = events.filter((event) => event.type === "compaction");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.success).toBe(true);
+    expect(compactions[0]?.afterTokens).toBeNull();
+    const analysis = analyzeTraceEvents(events);
+    expect(analysis.sessionCosts[0]?.compactions).toBe(1);
+    expect(analysis.sessionCosts[0]?.unpricedCompactions).toBe(0);
+    expect(analysis.sessionCosts[0]?.compactionCost).toBeCloseTo(0.48);
+  });
+
+  it("does not mark an in-flight compaction as successful when shutdown interrupts it", () => {
+    const path = newTracePath("interrupted-compaction");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("session_before_compact", {
+      type: "session_before_compact",
+      reason: "threshold",
+      preparation: { tokensBefore: 120_000 },
+    });
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+    const compactions = readTrace(path).filter((event) => event.type === "compaction");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.success).toBe(false);
+    expect(compactions[0]?.errorCode).toBe("interrupted");
   });
 
   it("skips a decision when Pi does not know the context size", () => {

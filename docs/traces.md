@@ -41,7 +41,7 @@ cannot calibrate anything, so they are separate events with separate fields.
 defaults** in force, so a trace can be tied back to the model that produced its predictions.
 
 ```json
-{"v":2,"type":"header","seq":0,"timestamp":1700000000000,
+{"v":3,"type":"header","seq":0,"timestamp":1700000000000,
  "library":{"name":"foldpoint","version":"0.1.0"},
  "defaults":{"retentionRatio":0.4,"...":"..."},"producer":"my-agent@1.2.3"}
 ```
@@ -51,7 +51,7 @@ defaults** in force, so a trace can be tied back to the model that produced its 
 policy), the decision input, the action with its reason codes, and the full prediction block.
 
 ```json
-{"v":2,"type":"decision","seq":1,"timestamp":1700000010000,"sessionId":"s-1","callId":"s-1#1",
+{"v":3,"type":"decision","seq":1,"timestamp":1700000010000,"sessionId":"s-1","callId":"s-1#1",
  "profile":{"model":"claude-...","contextWindowTokens":200000,"compactorId":"summary-v2",
             "pricing":{"inputPerMillion":3,"outputPerMillion":15,"cacheReadPerMillion":0.3,
                        "cacheWritePerMillion":3.75},"cachePolicy":{"ttlMs":300000}},
@@ -79,6 +79,9 @@ provider usage/cost, duration and a short `errorCode`. A veto has no model call.
 attempts may have used tokens even when the host did not report usage; the analyzer counts
 these as `unpricedCompactions` and marks the observed session cost as a lower bound. When a
 failed attempt *does* report complete usage or `actualCost`, its cost is included.
+In v3, a successful compaction may have `afterTokens: null` when the session ends before Pi
+reports the size of a subsequent context. Its known usage is still billed, but it contributes
+no retention-calibration sample. v1/v2 traces remain readable; neither permits this null value.
 `usableForCalibration: true` only means the prediction-calibration samples are structurally
 usable; it does not turn a lower-bound session cost into a complete bill.
 

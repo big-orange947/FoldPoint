@@ -40,7 +40,8 @@ import type {
 import { FOLDPOINT_VERSION } from "./version";
 
 /** Bumped whenever the event shape changes in a way a reader has to know about. */
-export const TRACE_FORMAT_VERSION = 2;
+export const TRACE_FORMAT_VERSION = 3;
+type TraceVersion = 1 | 2 | typeof TRACE_FORMAT_VERSION;
 
 /** What happened to the call a decision was about. */
 export type TraceOutcome = "ok" | "error" | "overflow" | "aborted";
@@ -101,7 +102,7 @@ export interface TraceInput {
 }
 
 export interface TraceHeaderEvent {
-  v: 1 | typeof TRACE_FORMAT_VERSION;
+  v: TraceVersion;
   type: "header";
   seq: 0;
   timestamp: number;
@@ -113,7 +114,7 @@ export interface TraceHeaderEvent {
 }
 
 export interface TraceDecisionEvent {
-  v: 1 | typeof TRACE_FORMAT_VERSION;
+  v: TraceVersion;
   type: "decision";
   seq: number;
   timestamp: number;
@@ -143,7 +144,7 @@ export interface TraceDecisionEvent {
 }
 
 export interface TraceRequestEvent {
-  v: 1 | typeof TRACE_FORMAT_VERSION;
+  v: TraceVersion;
   type: "request";
   seq: number;
   timestamp: number;
@@ -157,7 +158,7 @@ export interface TraceRequestEvent {
 
 /** A host-side cache refresh is a paid call, but not an agent turn or a decision/request pair. */
 export interface TraceCacheWarmEvent {
-  v: typeof TRACE_FORMAT_VERSION;
+  v: 2 | typeof TRACE_FORMAT_VERSION;
   type: "cache_warm";
   seq: number;
   timestamp: number;
@@ -173,7 +174,7 @@ export interface TraceCacheWarmEvent {
 }
 
 export interface TraceCompactionEvent {
-  v: 1 | typeof TRACE_FORMAT_VERSION;
+  v: TraceVersion;
   type: "compaction";
   seq: number;
   timestamp: number;
@@ -182,7 +183,8 @@ export interface TraceCompactionEvent {
   callId?: string;
   action: FoldPointAction;
   beforeTokens: number;
-  afterTokens: number;
+  /** Null when the session ended before Pi could report the post-compaction context size. */
+  afterTokens: number | null;
   success: boolean;
   usage?: {
     promptTokens?: number;
@@ -216,7 +218,7 @@ export interface TraceCompactionEvent {
 }
 
 export interface TraceSessionEndEvent {
-  v: 1 | typeof TRACE_FORMAT_VERSION;
+  v: TraceVersion;
   type: "session_end";
   seq: number;
   timestamp: number;
@@ -387,7 +389,9 @@ export class TraceRecorder {
   /** Records a compaction attempt and what it actually cost. */
   compaction(
     sessionId: string,
-    observation: CompactionObservation,
+    observation:
+      | CompactionObservation
+      | (Omit<CompactionObservation, "afterTokens"> & { afterTokens: null }),
     options: {
       action?: FoldPointAction;
       callId?: string;
@@ -620,7 +624,7 @@ export function isTraceEvent(value: unknown): value is TraceEvent {
   }
   const event = value as { v?: unknown; type?: unknown };
   return (
-    (event.v === 1 || event.v === TRACE_FORMAT_VERSION) &&
+    (event.v === 1 || event.v === 2 || event.v === TRACE_FORMAT_VERSION) &&
     typeof event.type === "string" &&
     (TRACE_EVENT_TYPES as readonly string[]).includes(event.type) &&
     (event.v !== 1 || event.type !== "cache_warm")
@@ -636,9 +640,14 @@ export function isTraceEvent(value: unknown): value is TraceEvent {
 export function validateTraceEvent(value: unknown): TraceEvent {
   if (!isTraceEvent(value)) {
     const version = (value as { v?: unknown } | null)?.v;
-    if (version !== undefined && version !== 1 && version !== TRACE_FORMAT_VERSION) {
+    if (
+      version !== undefined &&
+      version !== 1 &&
+      version !== 2 &&
+      version !== TRACE_FORMAT_VERSION
+    ) {
       throw new RangeError(
-        `Trace event version ${String(version)} is not supported (expected 1 or ${TRACE_FORMAT_VERSION})`,
+        `Trace event version ${String(version)} is not supported (expected 1, 2 or ${TRACE_FORMAT_VERSION})`,
       );
     }
     throw new RangeError("Trace event must carry a supported `v` and a known `type`");
@@ -720,7 +729,15 @@ export function validateTraceEvent(value: unknown): TraceEvent {
         throw new RangeError('Trace event "initiatedBy" must be "host" or "policy"');
       }
       assertFinite("beforeTokens", event.beforeTokens, 0);
-      assertFinite("afterTokens", event.afterTokens, 0);
+      if (event.afterTokens === null) {
+        if (event.v !== TRACE_FORMAT_VERSION || event.success !== true) {
+          throw new RangeError(
+            'Trace event "afterTokens" may be null only for a successful v3 compaction',
+          );
+        }
+      } else {
+        assertFinite("afterTokens", event.afterTokens, 0);
+      }
       if (typeof event.success !== "boolean") {
         throw new RangeError('Trace event "success" must be a boolean');
       }

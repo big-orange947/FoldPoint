@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Trace v3: account for terminal compactions
+
+- A successful Pi compaction is charged even when its session ends before another model call
+  reveals the post-compaction context size. Such a v3 event has `afterTokens: null`: cost is
+  measured, retention is not guessed. Interrupted attempts without reported usage are marked
+  unpriced rather than silently treated as free. Existing v1/v2 traces remain readable.
+
 ### Compaction advice and automatic compaction in the Pi adapter
 
 - `FOLDPOINT_COMPACTION` (default `suggest`) decides how the adapter delivers FoldPoint's

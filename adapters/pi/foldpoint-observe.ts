@@ -315,6 +315,8 @@ interface PendingCompaction {
   tokensBefore: number;
   usage: PiUsage | undefined;
   at: number;
+  /** Only session_compact proves Pi finished; session_before_compact is merely an attempt. */
+  completed: boolean;
   /**
    * Pi reports a compaction the adapter asked for as `reason: "manual"`, exactly like `/compact`.
    * Without this the trace could not tell the two apart.
@@ -1147,6 +1149,7 @@ export function createFoldPointObserver(
         tokensBefore,
         usage: undefined,
         at: now(),
+        completed: false,
         // `session_before_compact` fires at the start of the compaction, so an in-flight
         // automatic compaction is still flagged here - and this is the only place the trace can
         // learn that the adapter, not the user, asked for it.
@@ -1219,6 +1222,7 @@ export function createFoldPointObserver(
         tokensBefore: event.compactionEntry.tokensBefore,
         usage: event.compactionEntry.usage,
         at: now(),
+        completed: true,
         // `session_compact` fires while the adapter's own compaction is still in flight, so the
         // flag is still meaningful; keep whatever `session_before_compact` decided when it is not.
         initiatedBy: state.autoInFlight
@@ -1280,6 +1284,57 @@ export function createFoldPointObserver(
       const sessionKey = state.sessionKey;
       if (sessionKey === null) {
         return;
+      }
+      // Pi has already paid for this summary, but there may be no next model call from which
+      // to learn the post-compaction size. Count its cost without inventing a retention value.
+      const terminalCompaction = state.pendingCompaction;
+      if (terminalCompaction?.completed === true) {
+        write(
+          trace.compaction(
+            sessionKey,
+            {
+              timestamp: terminalCompaction.at,
+              beforeTokens: terminalCompaction.tokensBefore,
+              afterTokens: null,
+              success: true,
+              ...(terminalCompaction.usage === undefined
+                ? {}
+                : {
+                    promptTokens: totalPromptTokens(terminalCompaction.usage),
+                    cachedInputTokens: terminalCompaction.usage.cacheRead,
+                    cacheWriteTokens: terminalCompaction.usage.cacheWrite,
+                    outputTokens: terminalCompaction.usage.output,
+                  }),
+            },
+            {
+              action: "COMPACT",
+              reason: terminalCompaction.reason,
+              initiatedBy: terminalCompaction.initiatedBy,
+            },
+          ),
+        );
+        state.pendingCompaction = null;
+      } else if (terminalCompaction !== null) {
+        // We cannot know whether the summarization request reached the provider. A lower
+        // bound is safer than silently treating this as a free, unattempted compaction.
+        write(
+          trace.compaction(
+            sessionKey,
+            {
+              timestamp: terminalCompaction.at,
+              beforeTokens: terminalCompaction.tokensBefore,
+              afterTokens: terminalCompaction.tokensBefore,
+              success: false,
+            },
+            {
+              action: "COMPACT",
+              errorCode: "interrupted",
+              reason: terminalCompaction.reason,
+              initiatedBy: terminalCompaction.initiatedBy,
+            },
+          ),
+        );
+        state.pendingCompaction = null;
       }
       state.unpairedDecisions += state.decisions.length;
       const profile = state.lastProfile;

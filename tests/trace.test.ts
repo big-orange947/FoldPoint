@@ -41,7 +41,7 @@ function recorder(): TraceRecorder {
 
 describe("trace format", () => {
   it("is versioned, and the library version matches package.json", () => {
-    expect(TRACE_FORMAT_VERSION).toBe(2);
+    expect(TRACE_FORMAT_VERSION).toBe(3);
     expect(FOLDPOINT_VERSION).toBe(PACKAGE_JSON.version);
   });
 
@@ -143,6 +143,27 @@ describe("trace format", () => {
       },
     );
     expect(end.reason).toBe("completed");
+  });
+
+  it("accepts an unknown final retention size without allowing unknown failed-compaction sizes", () => {
+    const trace = recorder();
+    const terminal = trace.compaction("session-a", {
+      timestamp: BASE_TIMESTAMP,
+      beforeTokens: 100_000,
+      afterTokens: null,
+      promptTokens: 80_000,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 1_000,
+      success: true,
+    });
+    expect(parseTraceJsonl(JSON.stringify(terminal)).errors).toEqual([]);
+    expect(terminal.afterTokens).toBeNull();
+    expect(() => validateTraceEvent({ ...terminal, success: false })).toThrow(/afterTokens/);
+    expect(() => validateTraceEvent({ ...terminal, v: 2 })).toThrow(/afterTokens/);
+    expect(
+      parseTraceJsonl(JSON.stringify({ ...terminal, v: 2, afterTokens: 20_000 })).errors,
+    ).toEqual([]);
   });
 
   it("round-trips through JSONL and reports unreadable lines", () => {

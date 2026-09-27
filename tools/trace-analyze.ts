@@ -503,7 +503,7 @@ export function analyzeTraceEvents(
 
     // --- retention: the model's post-compaction estimate against the real one ---
     for (const compaction of session.compactions) {
-      if (!compaction.success) {
+      if (!compaction.success || compaction.afterTokens === null) {
         continue;
       }
       const decision = retentionDecisionByCompaction.get(compaction);
