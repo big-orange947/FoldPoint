@@ -12,6 +12,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reveals the post-compaction context size. Such a v3 event has `afterTokens: null`: cost is
   measured, retention is not guessed. Interrupted attempts without reported usage are marked
   unpriced rather than silently treated as free. Existing v1/v2 traces remain readable.
+- Repeated Pi compactions no longer overwrite an earlier paid summary whose post-compaction
+  size is still unknown. A queued FoldPoint auto-compaction is cancelled if Pi compacted first,
+  avoiding the duplicate `Already compacted` attempt and attributing the native compaction to
+  the host rather than the policy.
 
 ### Compaction advice and automatic compaction in the Pi adapter
 

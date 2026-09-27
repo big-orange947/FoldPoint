@@ -378,6 +378,8 @@ interface ObserverState {
   suggestion: { atTokens: number } | null;
   /** A compaction this adapter asked Pi for, until Pi reports the outcome. */
   autoInFlight: boolean;
+  /** True only after the detached task actually called Pi's compact(), not while waiting. */
+  autoDispatched: boolean;
   /** Advice messages raised, and compactions this adapter started. */
   suggestions: number;
   autoCompactions: number;
@@ -686,6 +688,7 @@ export function createFoldPointObserver(
       minCompactTokens: minCompactTokensFromOptions,
       suggestion: null,
       autoInFlight: false,
+      autoDispatched: false,
       suggestions: 0,
       autoCompactions: 0,
       log,
@@ -752,6 +755,7 @@ export function createFoldPointObserver(
         return;
       }
       state.autoInFlight = true;
+      state.autoDispatched = false;
       state.autoCompactions += 1;
       const sessionAtRequest = state.sessionKey;
       log(`[foldpoint] asking Pi to compact at ${tokens} tokens`);
@@ -767,22 +771,35 @@ export function createFoldPointObserver(
         }
         if (state.sessionKey !== sessionAtRequest) {
           state.autoInFlight = false;
+          state.autoDispatched = false;
           return;
         }
         if (ctx.isIdle?.() === false) {
           state.autoInFlight = false;
+          state.autoDispatched = false;
           warnOnce(
             "auto-no-idle",
             "the agent never went idle, so the compaction this adapter asked for was skipped",
           );
           return;
         }
+        // A Pi threshold/overflow compaction may have completed while the detached task
+        // waited for idle. Its result supersedes the earlier FoldPoint request; asking again
+        // would fail with "Already compacted" and pollute the cost/quality trace.
+        if (state.pendingCompaction !== null) {
+          state.autoInFlight = false;
+          state.autoDispatched = false;
+          return;
+        }
+        state.autoDispatched = true;
         ctx.compact?.({
           onComplete: () => {
             state.autoInFlight = false;
+            state.autoDispatched = false;
           },
           onError: (error: Error) => {
             state.autoInFlight = false;
+            state.autoDispatched = false;
             log(`[foldpoint] the compaction this adapter asked for failed: ${error.message}`);
           },
         });
@@ -900,6 +917,59 @@ export function createFoldPointObserver(
       return last === 0 ? undefined : Math.max(0, timestamp - last);
     };
 
+    /** Preserve a paid compaction even if Pi never reports its post-compaction size. */
+    const flushPendingCompaction = (sessionKey: string): void => {
+      const pending = state.pendingCompaction;
+      if (pending === null) return;
+      state.pendingCompaction = null;
+      if (pending.completed) {
+        write(
+          trace.compaction(
+            sessionKey,
+            {
+              timestamp: pending.at,
+              beforeTokens: pending.tokensBefore,
+              afterTokens: null,
+              success: true,
+              ...(pending.usage === undefined
+                ? {}
+                : {
+                    promptTokens: totalPromptTokens(pending.usage),
+                    cachedInputTokens: pending.usage.cacheRead,
+                    cacheWriteTokens: pending.usage.cacheWrite,
+                    outputTokens: pending.usage.output,
+                  }),
+            },
+            {
+              action: "COMPACT",
+              reason: pending.reason,
+              initiatedBy: pending.initiatedBy,
+            },
+          ),
+        );
+      } else {
+        // An attempt was started but neither success nor failure was observed. Its cost is
+        // unknown, so the analyzer must treat the total as a lower bound.
+        write(
+          trace.compaction(
+            sessionKey,
+            {
+              timestamp: pending.at,
+              beforeTokens: pending.tokensBefore,
+              afterTokens: pending.tokensBefore,
+              success: false,
+            },
+            {
+              action: "COMPACT",
+              errorCode: "interrupted",
+              reason: pending.reason,
+              initiatedBy: pending.initiatedBy,
+            },
+          ),
+        );
+      }
+    };
+
     pi.on("session_start", (_event, ctx) => {
       sessionCount += 1;
       // A runtime-scoped key: unique per session of this Pi process, and not Pi's own session
@@ -912,6 +982,8 @@ export function createFoldPointObserver(
       state.failedCalls = 0;
       state.vetoes = 0;
       state.pendingCompaction = null;
+      state.autoInFlight = false;
+      state.autoDispatched = false;
       state.lastCallAt = undefined;
       state.lastCacheRefreshAt = undefined;
       state.lastCacheRefreshModel = undefined;
@@ -959,7 +1031,7 @@ export function createFoldPointObserver(
       // know the size - that prompt is the post-compaction context, which is what the
       // retention comparison needs.
       const pending = state.pendingCompaction;
-      if (pending !== null) {
+      if (pending?.completed === true) {
         const afterTokens = ctx.getContextUsage()?.tokens ?? null;
         if (afterTokens !== null) {
           state.pendingCompaction = null;
@@ -1143,6 +1215,9 @@ export function createFoldPointObserver(
       if (sessionKey === null) {
         return;
       }
+      // Pi can compact again before a context event with a known size. Otherwise the new
+      // attempt overwrites a completed paid summary and silently drops its cost.
+      flushPendingCompaction(sessionKey);
       const tokensBefore = event.preparation.tokensBefore ?? 0;
       state.pendingCompaction = {
         reason: event.reason,
@@ -1153,7 +1228,7 @@ export function createFoldPointObserver(
         // `session_before_compact` fires at the start of the compaction, so an in-flight
         // automatic compaction is still flagged here - and this is the only place the trace can
         // learn that the adapter, not the user, asked for it.
-        initiatedBy: state.autoInFlight ? "policy" : "host",
+        initiatedBy: state.autoDispatched ? "policy" : "host",
       };
 
       // Only a `threshold` compaction is ever questioned. `overflow` is Pi's last defence
@@ -1225,7 +1300,7 @@ export function createFoldPointObserver(
         completed: true,
         // `session_compact` fires while the adapter's own compaction is still in flight, so the
         // flag is still meaningful; keep whatever `session_before_compact` decided when it is not.
-        initiatedBy: state.autoInFlight
+        initiatedBy: state.autoDispatched
           ? "policy"
           : (state.pendingCompaction?.initiatedBy ?? "host"),
       };
@@ -1285,57 +1360,7 @@ export function createFoldPointObserver(
       if (sessionKey === null) {
         return;
       }
-      // Pi has already paid for this summary, but there may be no next model call from which
-      // to learn the post-compaction size. Count its cost without inventing a retention value.
-      const terminalCompaction = state.pendingCompaction;
-      if (terminalCompaction?.completed === true) {
-        write(
-          trace.compaction(
-            sessionKey,
-            {
-              timestamp: terminalCompaction.at,
-              beforeTokens: terminalCompaction.tokensBefore,
-              afterTokens: null,
-              success: true,
-              ...(terminalCompaction.usage === undefined
-                ? {}
-                : {
-                    promptTokens: totalPromptTokens(terminalCompaction.usage),
-                    cachedInputTokens: terminalCompaction.usage.cacheRead,
-                    cacheWriteTokens: terminalCompaction.usage.cacheWrite,
-                    outputTokens: terminalCompaction.usage.output,
-                  }),
-            },
-            {
-              action: "COMPACT",
-              reason: terminalCompaction.reason,
-              initiatedBy: terminalCompaction.initiatedBy,
-            },
-          ),
-        );
-        state.pendingCompaction = null;
-      } else if (terminalCompaction !== null) {
-        // We cannot know whether the summarization request reached the provider. A lower
-        // bound is safer than silently treating this as a free, unattempted compaction.
-        write(
-          trace.compaction(
-            sessionKey,
-            {
-              timestamp: terminalCompaction.at,
-              beforeTokens: terminalCompaction.tokensBefore,
-              afterTokens: terminalCompaction.tokensBefore,
-              success: false,
-            },
-            {
-              action: "COMPACT",
-              errorCode: "interrupted",
-              reason: terminalCompaction.reason,
-              initiatedBy: terminalCompaction.initiatedBy,
-            },
-          ),
-        );
-        state.pendingCompaction = null;
-      }
+      flushPendingCompaction(sessionKey);
       state.unpairedDecisions += state.decisions.length;
       const profile = state.lastProfile;
       if (profile !== undefined) {

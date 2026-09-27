@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const piCli = process.env.PI_CLI;
+const largeLoopback = process.env.PI_MILLION_LARGE_LOOPBACK === "1";
 
 describe("persistent Pi 1M RPC runner", () => {
   it.skipIf(!piCli)(
@@ -18,11 +19,21 @@ describe("persistent Pi 1M RPC runner", () => {
       mkdirSync(base);
       let calls = 0;
       const server = createServer(async (request, response) => {
-        for await (const _chunk of request) {
-          // Drain the body; the local fixture never stores prompt text.
+        let requestChars = 0;
+        let requestHead = "";
+        for await (const chunk of request) {
+          const part = Buffer.from(chunk).toString("utf8");
+          requestChars += part.length;
+          if (requestHead.length < 40_000)
+            requestHead += part.slice(0, 40_000 - requestHead.length);
         }
+        const isSummary =
+          largeLoopback && requestHead.includes("You are a context summarization assistant");
         calls += 1;
-        const answer = "STAGE_OK";
+        const answer = isSummary
+          ? "## Goal\n- Continue the staged task.\n## Progress\n- Prior stages were received.\n## Next Steps\n- Reply STAGE_OK."
+          : "STAGE_OK";
+        const promptTokens = largeLoopback ? Math.ceil(requestChars / 4) : 1200;
         const body = {
           id: `local-${calls}`,
           object: "chat.completion",
@@ -35,7 +46,11 @@ describe("persistent Pi 1M RPC runner", () => {
               finish_reason: "stop",
             },
           ],
-          usage: { prompt_tokens: 1200, completion_tokens: 12, total_tokens: 1212 },
+          usage: {
+            prompt_tokens: promptTokens,
+            completion_tokens: 12,
+            total_tokens: promptTokens + 12,
+          },
         };
         const chunk = (choice: unknown, usage?: unknown): string =>
           `data: ${JSON.stringify({
@@ -72,20 +87,23 @@ describe("persistent Pi 1M RPC runner", () => {
           join(base, "settings.json"),
           JSON.stringify({ defaultProjectTrust: "never" }),
         );
-        writeFileSync(join(temp, "stage1.txt"), "Reply exactly STAGE_OK. This is stage one.");
-        writeFileSync(join(temp, "stage2.txt"), "Reply exactly STAGE_OK. This is stage two.");
-        writeFileSync(join(temp, "stage3.txt"), "Reply exactly STAGE_OK. This is stage three.");
-        writeFileSync(join(temp, "stage4.txt"), "Reply exactly STAGE_OK. This is stage four.");
+        const stageCount = largeLoopback ? 8 : 4;
+        const longMaterial = largeLoopback
+          ? "项目记录：本周核对交付清单与责任人；请仅在问题出现时回答。\n".repeat(45_000)
+          : "";
+        const stages = Array.from({ length: stageCount }, (_, index) => {
+          const file = `stage${index + 1}.txt`;
+          writeFileSync(
+            join(temp, file),
+            `${longMaterial}\nReply exactly STAGE_OK. This is stage ${index + 1}.`,
+          );
+          return { file, expectedContains: "STAGE_OK" };
+        });
         writeFileSync(
           join(temp, "manifest.json"),
           JSON.stringify({
             id: "local-loopback",
-            stages: [
-              { file: "stage1.txt", expectedContains: "STAGE_OK" },
-              { file: "stage2.txt", expectedContains: "STAGE_OK" },
-              { file: "stage3.txt", expectedContains: "STAGE_OK" },
-              { file: "stage4.txt", expectedContains: "STAGE_OK" },
-            ],
+            stages,
           }),
         );
         const env = { ...process.env };
@@ -111,7 +129,7 @@ describe("persistent Pi 1M RPC runner", () => {
             "--out",
             join(temp, "result"),
             "--min-compactions",
-            "0",
+            largeLoopback ? "2" : "0",
           ],
           { cwd: root, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
         );
@@ -122,10 +140,13 @@ describe("persistent Pi 1M RPC runner", () => {
         const exit = await Promise.race([
           new Promise<number | null>((done) => child.once("exit", (code) => done(code))),
           new Promise<null>((done) =>
-            setTimeout(() => {
-              child.kill();
-              done(null);
-            }, 90_000),
+            setTimeout(
+              () => {
+                child.kill();
+                done(null);
+              },
+              largeLoopback ? 240_000 : 90_000,
+            ),
           ),
         ]);
         expect(exit, stderr).toBe(0);
@@ -138,10 +159,15 @@ describe("persistent Pi 1M RPC runner", () => {
           true,
         ]);
         expect(calls).toBeGreaterThanOrEqual(12);
+        if (largeLoopback) {
+          expect(report.arms.every((arm: { compactions: number }) => arm.compactions >= 2)).toBe(
+            true,
+          );
+        }
       } finally {
         await new Promise<void>((done) => server.close(() => done()));
       }
     },
-    100_000,
+    largeLoopback ? 250_000 : 100_000,
   );
 });

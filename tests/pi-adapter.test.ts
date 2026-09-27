@@ -467,6 +467,49 @@ describe("Pi observer adapter", () => {
     expect(analysis.sessionCosts[0]?.compactionCost).toBeCloseTo(0.48);
   });
 
+  it("does not lose an earlier paid compaction when Pi compacts again before size is known", () => {
+    const path = newTracePath("back-to-back-compactions");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(120_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 120_000, output: 300, cacheRead: 0, cacheWrite: 120_000 },
+      },
+    });
+    for (const before of [120_000, 130_000]) {
+      fake.emit("session_before_compact", {
+        type: "session_before_compact",
+        reason: "threshold",
+        preparation: { tokensBefore: before },
+      });
+      fake.emit("session_compact", {
+        type: "session_compact",
+        reason: "threshold",
+        compactionEntry: {
+          tokensBefore: before,
+          usage: { input: 0, output: 2_000, cacheRead: 0, cacheWrite: before },
+        },
+      });
+      fake.emit("context", { type: "context" }, fake.ctxWith(null));
+    }
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+    const events = readTrace(path);
+    const compactions = events.filter((event) => event.type === "compaction");
+    expect(compactions).toHaveLength(2);
+    expect(compactions.map((event) => event.beforeTokens)).toEqual([120_000, 130_000]);
+    expect(compactions.every((event) => event.success && event.afterTokens === null)).toBe(true);
+    const analysis = analyzeTraceEvents(events);
+    expect(analysis.sessionCosts[0]?.compactions).toBe(2);
+    expect(analysis.sessionCosts[0]?.unpricedCompactions).toBe(0);
+    expect(analysis.sessionCosts[0]?.compactionCost).toBeCloseTo(0.9975);
+  });
+
   it("does not mark an in-flight compaction as successful when shutdown interrupts it", () => {
     const path = newTracePath("interrupted-compaction");
     const fake = fakePi();
@@ -974,6 +1017,46 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     expect(fake.compactions[0]?.idle).toBe(true);
     // The two modes are exclusive: an automatic compaction leaves nothing to remind about.
     expect(fake.notifications).toHaveLength(0);
+  });
+
+  it("drops a queued automatic request if Pi compacted while the adapter waited for idle", async () => {
+    const path = newTracePath("auto-native-race");
+    const fake = fakePi();
+    let idle = false;
+    const ctx = { ...fake.ctxWith(CONTEXT_WINDOW * 0.95), isIdle: () => idle };
+    createFoldPointObserver({ tracePath: path, compaction: "auto", log: () => undefined })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    expect(fake.compactions).toHaveLength(0);
+    fake.emit(
+      "session_before_compact",
+      {
+        type: "session_before_compact",
+        reason: "overflow",
+        preparation: { tokensBefore: 190_000 },
+      },
+      ctx,
+    );
+    fake.emit(
+      "session_compact",
+      {
+        type: "session_compact",
+        reason: "overflow",
+        compactionEntry: {
+          tokensBefore: 190_000,
+          usage: { input: 190_000, output: 200, cacheRead: 0, cacheWrite: 0 },
+        },
+      },
+      ctx,
+    );
+    idle = true;
+    await new Promise<void>((done) => setTimeout(done, 300));
+    expect(fake.compactions).toHaveLength(0);
+    fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
+    const compactions = readTrace(path).filter((event) => event.type === "compaction");
+    expect(compactions).toHaveLength(1);
+    expect(compactions[0]?.initiatedBy).toBe("host");
+    expect(compactions[0]?.success).toBe(true);
   });
 
   it("records an automatic compaction as policy-initiated, not as the user's", () => {
