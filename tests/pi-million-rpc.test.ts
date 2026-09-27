@@ -11,6 +11,8 @@ const piCli = process.env.PI_CLI;
 const largeLoopback = process.env.PI_MILLION_LARGE_LOOPBACK === "1";
 const sourceManifest = process.env.PI_MILLION_SOURCE_MANIFEST;
 const preflightOnly = process.env.PI_MILLION_PREFLIGHT === "1";
+const fakeOverflow = process.env.PI_MILLION_FAKE_OVERFLOW === "1";
+const fakeInsufficientBalance = process.env.PI_MILLION_FAKE_402 === "1";
 
 describe("persistent Pi 1M RPC runner", () => {
   it.skipIf(!piCli)(
@@ -21,14 +23,20 @@ describe("persistent Pi 1M RPC runner", () => {
       mkdirSync(base);
       let calls = 0;
       let sawDeterministicRequest = false;
+      let currentStageMarker = "STAGE_OK";
       const server = createServer(async (request, response) => {
         let requestChars = 0;
         let requestHead = "";
+        let requestTail = "";
+        let latestStageMarker: string | undefined;
         for await (const chunk of request) {
           const part = Buffer.from(chunk).toString("utf8");
           requestChars += part.length;
           if (requestHead.length < 40_000)
             requestHead += part.slice(0, 40_000 - requestHead.length);
+          const matches = (requestTail + part).match(/Reply exactly STAGE_\d+/g);
+          if (matches?.length) latestStageMarker = matches.at(-1)?.slice(14);
+          requestTail = (requestTail + part).slice(-8_000);
         }
         if (
           requestHead.includes('"temperature":0') &&
@@ -38,10 +46,37 @@ describe("persistent Pi 1M RPC runner", () => {
         }
         const isSummary =
           largeLoopback && requestHead.includes("You are a context summarization assistant");
+        if (!isSummary && latestStageMarker) currentStageMarker = latestStageMarker;
         calls += 1;
+        if (fakeInsufficientBalance && calls >= 2) {
+          response.writeHead(402, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              error: {
+                message: "Insufficient Balance",
+                type: "unknown_error",
+                code: "invalid_request_error",
+              },
+            }),
+          );
+          return;
+        }
+        if (fakeOverflow && !isSummary && Math.ceil(requestChars / 4) > 1_048_576) {
+          response.writeHead(400, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              error: {
+                message: `This model's maximum context length is 1048576 tokens. However, you requested ${Math.ceil(requestChars / 4)} tokens. Please reduce the length of the messages or completion.`,
+                type: "invalid_request_error",
+                code: "invalid_request_error",
+              },
+            }),
+          );
+          return;
+        }
         const answer = isSummary
-          ? "## Goal\n- Continue the staged task.\n## Progress\n- Prior stages were received.\n## Next Steps\n- Reply STAGE_OK."
-          : "STAGE_OK";
+          ? `## Goal\n- Continue the staged task.\n## Progress\n- Prior stages were received.\n## Next Steps\n- Reply exactly ${currentStageMarker}.`
+          : (latestStageMarker ?? currentStageMarker);
         const promptTokens = largeLoopback ? Math.ceil(requestChars / 4) : 1200;
         const body = {
           id: `local-${calls}`,
@@ -110,9 +145,9 @@ describe("persistent Pi 1M RPC runner", () => {
             : longMaterial;
           writeFileSync(
             join(temp, file),
-            `${material}\nReply exactly STAGE_OK. This is stage ${index + 1}.`,
+            `${material}\nReply exactly ${fakeOverflow ? `STAGE_${index + 1}` : "STAGE_OK"}. This is stage ${index + 1}.`,
           );
-          return { file, expectedContains: "STAGE_OK" };
+          return { file, expectedContains: fakeOverflow ? `STAGE_${index + 1}` : "STAGE_OK" };
         });
         writeFileSync(
           join(temp, "manifest.json"),
@@ -165,8 +200,13 @@ describe("persistent Pi 1M RPC runner", () => {
             ),
           ),
         ]);
-        expect(exit, stderr).toBe(0);
+        expect(exit, stderr).toBe(fakeInsufficientBalance ? 1 : 0);
         const report = JSON.parse(readFileSync(join(temp, "result-report.json"), "utf8"));
+        if (fakeInsufficientBalance) {
+          expect(report.arms).toHaveLength(1);
+          expect(report.arms[0].reason).toMatch(/^stage-2-no-successful-response$/);
+          return;
+        }
         expect(report.comparable).toBe(!preflightOnly);
         expect(report.preflightPassed).toBe(preflightOnly);
         expect(report.arms).toHaveLength(3);
@@ -175,6 +215,10 @@ describe("persistent Pi 1M RPC runner", () => {
           true,
           true,
         ]);
+        if (fakeOverflow)
+          expect(
+            report.arms.every((arm: { qualityFailed: number }) => arm.qualityFailed === 0),
+          ).toBe(true);
         expect(calls).toBeGreaterThanOrEqual(preflightOnly ? 3 : 12);
         if (!largeLoopback && !sourceManifest) expect(sawDeterministicRequest).toBe(true);
         if (largeLoopback && !preflightOnly) {

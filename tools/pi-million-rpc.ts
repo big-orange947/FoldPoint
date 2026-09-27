@@ -52,7 +52,7 @@ interface RpcEvent {
   id?: string;
   success?: boolean;
   error?: string;
-  data?: { isCompacting?: boolean };
+  data?: { isCompacting?: boolean; isStreaming?: boolean };
   message?: {
     role?: string;
     stopReason?: string;
@@ -203,9 +203,9 @@ class RpcSession {
     return event;
   }
 
-  async settleCompaction(from: number, timeoutMs: number): Promise<void> {
-    // `agent_settled` may precede the adapter's detached 250-ms idle poll. Give it two
-    // ticks, then confirm no compaction remains; never send a prompt while Pi is compacting.
+  async settleTurn(from: number, timeoutMs: number): Promise<void> {
+    // Pi can emit agent_settled before an overflow compaction resumes the interrupted turn.
+    // Wait for both compaction and the resumed agent run, not just compaction alone.
     await new Promise<void>((done) => setTimeout(done, 600));
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -216,7 +216,8 @@ class RpcSession {
         .slice(from)
         .filter((event) => event.type === "compaction_end").length;
       const state = await this.command("get_state");
-      if (state.data?.isCompacting !== true && starts === ends) return;
+      if (state.data?.isCompacting !== true && state.data?.isStreaming !== true && starts === ends)
+        return;
       if (Date.now() >= deadline)
         throw new Error("Pi compaction did not settle before the next turn");
       await new Promise<void>((done) => setTimeout(done, 250));
@@ -291,14 +292,10 @@ async function runArm(
     for (let index = 0; index < prompts.length; index += 1) {
       const from = rpc.events.length;
       await rpc.command("prompt", { message: prompts[index] }, 30_000);
-      const { index: settledIndex } = await rpc.waitFor(
-        (event) => event.type === "agent_settled",
-        from,
-        300_000,
-      );
-      await rpc.settleCompaction(from, 300_000);
+      await rpc.waitFor((event) => event.type === "agent_settled", from, 300_000);
+      await rpc.settleTurn(from, 300_000);
       const replies = rpc.events
-        .slice(from, settledIndex + 1)
+        .slice(from)
         .filter((event) => event.type === "message_end" && event.message?.role === "assistant");
       const last = replies.at(-1)?.message;
       const answer = (last?.content ?? [])
@@ -313,6 +310,10 @@ async function runArm(
         promptTokensSoFar: totals.promptTokens,
         compactionsSoFar: totals.compactions,
       });
+      if (last?.stopReason !== "stop") {
+        reason = `stage-${index + 1}-no-successful-response`;
+        break;
+      }
       // Continue the frozen sequence even when an answer is wrong. Otherwise a weaker arm
       // gets fewer paid calls and appears cheaper only because it failed earlier.
       if (totals.promptTokens > maxPromptTokens) {
@@ -337,6 +338,14 @@ async function runArm(
     )
     .map((event) => JSON.stringify(event.profile.pricing ?? null));
   const pricingConsistent = prices.length > 0 && prices.every((price) => price === prices[0]);
+  const successfulRequestsWithUnknownCache = (parsed?.events ?? []).filter(
+    (event) =>
+      event.type === "request" &&
+      (event.outcome !== "error" ||
+        event.usage.promptTokens > 0 ||
+        (event.usage.outputTokens ?? 0) > 0) &&
+      event.usage.cachedInputTokens === undefined,
+  ).length;
   if (rpc.diagnostics.badLines > 0) reason ??= "non-JSON Pi RPC output";
   if (
     analysis === null ||
@@ -346,7 +355,7 @@ async function runArm(
     analysis.sessionCosts.length !== 1 ||
     analysis.unpairedDecisions > 0 ||
     analysis.unpriceable > 0 ||
-    analysis.unknownCacheUsage > 0 ||
+    successfulRequestsWithUnknownCache > 0 ||
     !pricingConsistent ||
     (cost?.unpricedCompactions ?? 0) > 0
   ) {

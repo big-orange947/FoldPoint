@@ -112,6 +112,16 @@ Copy-Item benchmarks\pi-million-models.template.json D:\project\FoldPoint\traces
 走 Pi 的 overflow 恢复，因此先导必须把错误、重试与总费用单独报告，不能把此离线
 结果当作真实 API 已完成验证。
 
+2026-09-27 的首次真实全量尝试**未构成三臂比较**：只有 Pi 默认组启动。第 4 阶段
+请求 1,114,489 token，被 DeepSeek 的 1,048,576-token 窗口以 HTTP 400 拒绝；
+后续出现 HTTP 402 `Insufficient Balance`。报告保留在忽略提交的
+`traces/pi-million-paid-full-01-report.json`，`comparable=false`，其默认组估算
+成本约 $1.17，但失败压缩没有完整 usage，不能当最终账单。原执行器把溢出恢复后的
+回复按第一条 `agent_settled` 截取，错记阶段质量；已改为等待恢复后的 Pi idle 与
+最后回复，并用本地 HTTP 400 / 402 回归测试锁定。旧报告的 `3/13` 不作为质量
+结论。下一次正式比较必须先缩小阶段负载、重新冻结语料并获得足够余额；**不得**
+直接重跑旧的 13 阶段全量命令。
+
 三组固定使用 DeepSeek `deepseek-flash`、`--thinking off`、`temperature: 0`；
 本地 Pi HTTP 回环测试已逐请求验证后两个参数实际发出。`--max-prompt-tokens` 是
 **每组每阶段完成后**检查的累计输入 token 停机线，不是 provider 请求前的硬额度锁，
