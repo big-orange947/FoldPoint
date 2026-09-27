@@ -6,12 +6,11 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTraceJsonl, type TraceEvent } from "../src/index";
 import { type MillionArmId, prepareMillionAgentDir } from "./pi-million-config";
+import { gradeStageResponse, type StageExpectation } from "./pi-million-oracle";
 import { analyzeTraceEvents } from "./trace-analyze";
 
-interface Stage {
+interface Stage extends StageExpectation {
   file: string;
-  /** A short, exact marker expected in the final assistant reply. Not prompt content. */
-  expectedContains?: string;
 }
 
 interface TrialManifest {
@@ -30,6 +29,8 @@ interface ArmResult {
   arm: MillionArmId;
   completed: boolean;
   stages: StageResult[];
+  qualityPassed: number;
+  qualityFailed: number;
   reason: string | null;
   trace: string;
   calls: number;
@@ -82,7 +83,20 @@ function readManifest(path: string): { manifest: TrialManifest; prompts: string[
       isAbsolute(stage.file) ||
       stage.file.split(/[\\/]/).includes("..") ||
       (stage.expectedContains !== undefined &&
-        (typeof stage.expectedContains !== "string" || stage.expectedContains.length > 128))
+        (typeof stage.expectedContains !== "string" || stage.expectedContains.length > 128)) ||
+      (stage.expectedAnswers !== undefined &&
+        (stage.expectedAnswers === null ||
+          typeof stage.expectedAnswers !== "object" ||
+          Array.isArray(stage.expectedAnswers) ||
+          Object.keys(stage.expectedAnswers).length === 0 ||
+          Object.entries(stage.expectedAnswers).some(
+            ([key, answer]) =>
+              !/^[A-Za-z0-9_-]{1,32}$/.test(key) ||
+              typeof answer !== "string" ||
+              answer.length === 0 ||
+              answer.length > 256,
+          ))) ||
+      (stage.expectedContains !== undefined && stage.expectedAnswers !== undefined)
     ) {
       throw new Error(`Invalid manifest stage ${index + 1}`);
     }
@@ -248,7 +262,18 @@ async function runArm(
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   const rpc = new RpcSession(
     piNode,
-    [piCli, "--mode", "rpc", "--model", "deepseek-flash", "--no-approve", "--extension", EXTENSION],
+    [
+      piCli,
+      "--mode",
+      "rpc",
+      "--model",
+      "deepseek-flash",
+      "--thinking",
+      "off",
+      "--no-approve",
+      "--extension",
+      EXTENSION,
+    ],
     agentDir,
     {
       ...process.env,
@@ -280,9 +305,7 @@ async function runArm(
         .filter((part) => part.type === "text")
         .map((part) => part.text ?? "")
         .join("\n");
-      const expected = manifest.stages[index]?.expectedContains;
-      const passed =
-        last?.stopReason === "stop" && (expected === undefined || answer.includes(expected));
+      const passed = gradeStageResponse(answer, last?.stopReason, manifest.stages[index] ?? {});
       const totals = traceTotals(tracePath);
       stages.push({
         stage: index + 1,
@@ -290,10 +313,8 @@ async function runArm(
         promptTokensSoFar: totals.promptTokens,
         compactionsSoFar: totals.compactions,
       });
-      if (!passed) {
-        reason = `quality-failure-stage-${index + 1}`;
-        break;
-      }
+      // Continue the frozen sequence even when an answer is wrong. Otherwise a weaker arm
+      // gets fewer paid calls and appears cheaper only because it failed earlier.
       if (totals.promptTokens > maxPromptTokens) {
         reason = "prompt-token-budget";
         break;
@@ -335,6 +356,8 @@ async function runArm(
     arm,
     completed: reason === null && stages.length === prompts.length,
     stages,
+    qualityPassed: stages.filter((stage) => stage.passed).length,
+    qualityFailed: stages.filter((stage) => !stage.passed).length,
     reason,
     trace: tracePath,
     calls: cost?.calls ?? 0,
@@ -386,6 +409,11 @@ async function main(): Promise<void> {
     throw new Error("Invalid minimum compaction count");
   const output = resolve(out);
   const manifestData = readManifest(resolve(manifestPath));
+  const maxStages = Number(value("--max-stages") ?? manifestData.prompts.length);
+  if (!Number.isSafeInteger(maxStages) || maxStages < 1 || maxStages > manifestData.prompts.length)
+    throw new Error("Invalid maximum stage count");
+  const fullCorpus = maxStages === manifestData.prompts.length;
+  const prompts = manifestData.prompts.slice(0, maxStages);
   const reportPath = `${output}-report.json`;
   if (existsSync(reportPath) || ARM_IDS.some((arm) => existsSync(`${output}-${arm}.jsonl`))) {
     throw new Error("Refusing to overwrite an existing 1M trial result");
@@ -400,7 +428,7 @@ async function main(): Promise<void> {
       process.env.PI_NODE ?? process.execPath,
       output,
       manifestData.manifest,
-      manifestData.prompts,
+      prompts,
       maxPromptTokens,
     );
     results.push(result);
@@ -409,22 +437,56 @@ async function main(): Promise<void> {
     );
     if (!result.completed) break;
   }
+  const defaultArm = results.find((result) => result.arm === "default");
+  const fixedArm = results.find((result) => result.arm === "fixed60");
+  const dynamicArm = results.find((result) => result.arm === "dynamic");
+  const regressions = (baseline: ArmResult | undefined): number | null =>
+    baseline === undefined || dynamicArm === undefined
+      ? null
+      : baseline.stages.filter(
+          (stage, index) => stage.passed && dynamicArm.stages[index]?.passed === false,
+        ).length;
+  const qualityRegressionsAgainstDefault = regressions(defaultArm);
+  const qualityRegressionsAgainstFixed60 = regressions(fixedArm);
+  const comparable =
+    fullCorpus &&
+    results.length === 3 &&
+    results.every((result) => result.completed && result.compactions >= minCompactions) &&
+    results.every((result) => result.pricingFingerprint === results[0]?.pricingFingerprint);
   const report = {
     runner: "foldpoint.pi-million-rpc.v1",
-    qualityGate: "exact expectedContains marker per stage; external task oracle not included",
+    runMode: fullCorpus ? "full" : "preflight",
+    stagesRun: maxStages,
+    fullCorpus,
+    qualityGate:
+      "exact marker or hidden JSON field answers per stage; external task oracle not included",
     manifestId: manifestData.manifest.id,
     manifestHash: manifestData.hash,
     minCompactions,
     arms: results,
-    comparable:
+    comparable,
+    preflightPassed:
+      !fullCorpus &&
       results.length === 3 &&
-      results.every((result) => result.completed && result.compactions >= minCompactions) &&
-      results.every((result) => result.pricingFingerprint === results[0]?.pricingFingerprint),
+      results.every((result) => result.completed && result.qualityFailed === 0),
+    qualityRegressionsAgainstDefault,
+    qualityRegressionsAgainstFixed60,
+    pilotCostAndQualitySignal:
+      comparable &&
+      qualityRegressionsAgainstDefault === 0 &&
+      qualityRegressionsAgainstFixed60 === 0 &&
+      dynamicArm !== undefined &&
+      defaultArm !== undefined &&
+      fixedArm !== undefined &&
+      dynamicArm.totalCost !== null &&
+      defaultArm.totalCost !== null &&
+      fixedArm.totalCost !== null &&
+      dynamicArm.totalCost < Math.min(defaultArm.totalCost, fixedArm.totalCost),
     costBasis: "Pi model pricing snapshot applied to provider usage; not the final provider bill",
   };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   process.stdout.write(`report: ${reportPath}\n`);
-  if (!report.comparable) process.exitCode = 1;
+  if (!report.comparable && !report.preflightPassed) process.exitCode = 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

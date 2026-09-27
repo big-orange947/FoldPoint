@@ -35,8 +35,10 @@ describe("1M Pi trial arm isolation", () => {
       const model = models.providers.deepseek.modelOverrides["deepseek-flash"];
       expect(model.contextWindow).toBe(MILLION_WINDOW_TOKENS);
       expect(model.maxTokens).toBe(MILLION_SUMMARY_MAX_TOKENS);
+      expect(model.samplingParams).toEqual({ temperature: 0 });
       expect(model.cost).toBeUndefined();
       expect(settings.cacheWarming).toBe("off");
+      expect(settings.defaultTools).toEqual([]);
       expect(settings.compaction).toEqual({
         enabled: true,
         reserveTokens: MILLION_ARMS[id].reserveTokens,

@@ -2,13 +2,15 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const piCli = process.env.PI_CLI;
 const largeLoopback = process.env.PI_MILLION_LARGE_LOOPBACK === "1";
+const sourceManifest = process.env.PI_MILLION_SOURCE_MANIFEST;
+const preflightOnly = process.env.PI_MILLION_PREFLIGHT === "1";
 
 describe("persistent Pi 1M RPC runner", () => {
   it.skipIf(!piCli)(
@@ -18,6 +20,7 @@ describe("persistent Pi 1M RPC runner", () => {
       const base = join(temp, "base");
       mkdirSync(base);
       let calls = 0;
+      let sawDeterministicRequest = false;
       const server = createServer(async (request, response) => {
         let requestChars = 0;
         let requestHead = "";
@@ -26,6 +29,12 @@ describe("persistent Pi 1M RPC runner", () => {
           requestChars += part.length;
           if (requestHead.length < 40_000)
             requestHead += part.slice(0, 40_000 - requestHead.length);
+        }
+        if (
+          requestHead.includes('"temperature":0') &&
+          requestHead.includes('"thinking":{"type":"disabled"}')
+        ) {
+          sawDeterministicRequest = true;
         }
         const isSummary =
           largeLoopback && requestHead.includes("You are a context summarization assistant");
@@ -87,15 +96,21 @@ describe("persistent Pi 1M RPC runner", () => {
           join(base, "settings.json"),
           JSON.stringify({ defaultProjectTrust: "never" }),
         );
-        const stageCount = largeLoopback ? 8 : 4;
+        const sourceStages = sourceManifest
+          ? (JSON.parse(readFileSync(sourceManifest, "utf8")).stages as Array<{ file: string }>)
+          : null;
+        const stageCount = sourceStages?.length ?? (largeLoopback ? 8 : 4);
         const longMaterial = largeLoopback
           ? "项目记录：本周核对交付清单与责任人；请仅在问题出现时回答。\n".repeat(45_000)
           : "";
         const stages = Array.from({ length: stageCount }, (_, index) => {
           const file = `stage${index + 1}.txt`;
+          const material = sourceStages?.[index]
+            ? readFileSync(join(dirname(sourceManifest ?? ""), sourceStages[index].file), "utf8")
+            : longMaterial;
           writeFileSync(
             join(temp, file),
-            `${longMaterial}\nReply exactly STAGE_OK. This is stage ${index + 1}.`,
+            `${material}\nReply exactly STAGE_OK. This is stage ${index + 1}.`,
           );
           return { file, expectedContains: "STAGE_OK" };
         });
@@ -129,7 +144,8 @@ describe("persistent Pi 1M RPC runner", () => {
             "--out",
             join(temp, "result"),
             "--min-compactions",
-            largeLoopback ? "2" : "0",
+            preflightOnly ? "0" : largeLoopback ? "2" : "0",
+            ...(preflightOnly ? ["--max-stages", "1"] : []),
           ],
           { cwd: root, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true },
         );
@@ -145,21 +161,23 @@ describe("persistent Pi 1M RPC runner", () => {
                 child.kill();
                 done(null);
               },
-              largeLoopback ? 240_000 : 90_000,
+              sourceManifest ? 420_000 : largeLoopback ? 240_000 : 90_000,
             ),
           ),
         ]);
         expect(exit, stderr).toBe(0);
         const report = JSON.parse(readFileSync(join(temp, "result-report.json"), "utf8"));
-        expect(report.comparable).toBe(true);
+        expect(report.comparable).toBe(!preflightOnly);
+        expect(report.preflightPassed).toBe(preflightOnly);
         expect(report.arms).toHaveLength(3);
         expect(report.arms.map((arm: { completed: boolean }) => arm.completed)).toEqual([
           true,
           true,
           true,
         ]);
-        expect(calls).toBeGreaterThanOrEqual(12);
-        if (largeLoopback) {
+        expect(calls).toBeGreaterThanOrEqual(preflightOnly ? 3 : 12);
+        if (!largeLoopback && !sourceManifest) expect(sawDeterministicRequest).toBe(true);
+        if (largeLoopback && !preflightOnly) {
           expect(report.arms.every((arm: { compactions: number }) => arm.compactions >= 2)).toBe(
             true,
           );
@@ -168,6 +186,6 @@ describe("persistent Pi 1M RPC runner", () => {
         await new Promise<void>((done) => server.close(() => done()));
       }
     },
-    largeLoopback ? 250_000 : 100_000,
+    sourceManifest ? 430_000 : largeLoopback ? 250_000 : 100_000,
   );
 });

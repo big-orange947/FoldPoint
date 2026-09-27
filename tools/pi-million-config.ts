@@ -59,6 +59,7 @@ export function prepareMillionAgentDir(
   // output identically prevents fixed60's 400K reserve from changing *how* Pi summarizes.
   model.contextWindow = MILLION_WINDOW_TOKENS;
   model.maxTokens = MILLION_SUMMARY_MAX_TOKENS;
+  model.samplingParams = { temperature: 0 };
 
   const settingsPath = join(base, "settings.json");
   const settings = existsSync(settingsPath)
@@ -74,6 +75,8 @@ export function prepareMillionAgentDir(
     modelOverrides: {},
   };
   settings.cacheWarming = "off";
+  // Source-reading trial: answer only from staged material, not by reading the local Pi checkout.
+  settings.defaultTools = [];
 
   const agentDir = mkdtempSync(join(base, "foldpoint-1m-"));
   const sessionDir = join(agentDir, "sessions");
