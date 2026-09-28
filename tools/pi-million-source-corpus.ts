@@ -1,4 +1,10 @@
-/** Freeze a staged, answerable reading task from a clean open-source TypeScript checkout. */
+/**
+ * Freeze a staged, answerable reading task from a clean open-source TypeScript checkout.
+ *
+ * Stages are cut on file boundaries only - source text is never rewritten - and each stage is
+ * small enough that one user message cannot walk a request across the provider's request
+ * ceiling between Pi's threshold checks. See `SAFE_STAGE_CHARS` below.
+ */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,7 +20,25 @@ interface SourceFile {
 interface GeneratedStage {
   file: string;
   expectedAnswers: Record<string, string>;
+  /** Stage length in UTF-16 code units, matching `prompt.length` below. */
+  chars: number;
+  /** SHA-256 of the stage text as written to disk, so a run can prove which bytes it read. */
+  sha256: string;
 }
+
+/**
+ * Default material per stage.
+ *
+ * A single user message is the unit Pi cannot interrupt: it only checks the compaction
+ * threshold after a reply and before the next request. The first paid attempt staged ~950k
+ * characters per message and the stage-4 request reached 1,114,489 tokens, over DeepSeek's
+ * 1,048,576 ceiling (HTTP 400). ~100k characters is ~25k tokens on Pi's chars/4 estimate and
+ * ~29k on DeepSeek's real tokenizer, so even with the ~13% underestimate a stage cannot walk
+ * the request across the ceiling between two checks.
+ */
+export const SAFE_STAGE_CHARS = 100_000;
+/** Refuse to build a corpus whose stages are known to be able to overshoot the request ceiling. */
+export const MAX_TARGET_STAGE_CHARS = 200_000;
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], {
@@ -25,14 +49,18 @@ function git(root: string, ...args: string[]): string {
 
 export function buildSourceCorpus(
   sourceRoot: string,
-  targetChars = 1_000_000,
+  targetChars = SAFE_STAGE_CHARS,
 ): {
   commit: string;
   stages: Array<{ prompt: string; expectedAnswers: Record<string, string>; paths: string[] }>;
   sourceHash: string;
 } {
-  if (!Number.isSafeInteger(targetChars) || targetChars < 100_000)
-    throw new Error("targetChars must be at least 100000");
+  if (!Number.isSafeInteger(targetChars) || targetChars < 20_000)
+    throw new Error("targetChars must be at least 20000");
+  if (targetChars > MAX_TARGET_STAGE_CHARS)
+    throw new Error(
+      `targetChars ${targetChars} exceeds ${MAX_TARGET_STAGE_CHARS}: a stage that large can push a request past the 1,048,576-token ceiling between Pi's threshold checks`,
+    );
   const root = resolve(sourceRoot);
   const dirty = git(root, "status", "--porcelain", "--", "packages").trim();
   if (dirty) throw new Error("Source packages are dirty; freeze a clean checkout first");
@@ -63,9 +91,19 @@ export function buildSourceCorpus(
     for (const name of new Set(file.exports)) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
   }
   const groups: SourceFile[][] = [];
+  const skipped: Array<{ path: string; chars: number }> = [];
   let current: SourceFile[] = [];
   let size = 0;
   for (const file of files) {
+    // A file bigger than the cap would become a stage on its own, and a stage that big can walk
+    // a single request past DeepSeek's 1,048,576-token ceiling between two of Pi's threshold
+    // checks - the failure that lost the first paid attempt (1,114,489 tokens, HTTP 400). Stage
+    // size is the only safety valve, so an oversized file is left out rather than trimmed: the
+    // oracle's answers come from the files that remain, so the task stays self-consistent.
+    if (file.content.length > SAFE_STAGE_CHARS) {
+      skipped.push({ path: file.path, chars: file.content.length });
+      continue;
+    }
     if (current.length > 0 && size + file.content.length > targetChars) {
       groups.push(current);
       current = [];
@@ -75,9 +113,12 @@ export function buildSourceCorpus(
     size += file.content.length;
   }
   if (current.length > 0) groups.push(current);
+  if (skipped.length > 0) {
+    const detail = skipped.map((entry) => `${entry.path} (${entry.chars} chars)`).join(", ");
+    console.error(`[corpus] excluded ${skipped.length} file(s) over the cap: ${detail}`);
+  }
   if (groups.length < 6)
     throw new Error("Need at least six distinct stages for a multi-compaction trial");
-
   const candidates = groups.map((group) =>
     group
       .flatMap((file) =>
@@ -140,22 +181,35 @@ function main(): void {
     );
   const out = resolve(output);
   if (existsSync(out)) throw new Error("Refusing to overwrite an existing corpus directory");
-  const corpus = buildSourceCorpus(source, Number(value("--stage-chars") ?? 1_000_000));
+  const targetChars = Number(value("--stage-chars") ?? SAFE_STAGE_CHARS);
+  const corpus = buildSourceCorpus(source, targetChars);
   mkdirSync(out, { recursive: true });
+  let totalChars = 0;
   const manifestStages: GeneratedStage[] = corpus.stages.map((stage, index) => {
     const file = `stage-${String(index + 1).padStart(2, "0")}.txt`;
     writeFileSync(join(out, file), stage.prompt, "utf8");
-    return { file, expectedAnswers: stage.expectedAnswers };
+    totalChars += stage.prompt.length;
+    return {
+      file,
+      expectedAnswers: stage.expectedAnswers,
+      chars: stage.prompt.length,
+      sha256: createHash("sha256").update(stage.prompt).digest("hex"),
+    };
   });
-  const manifest = { id: `pi-source-${corpus.commit.slice(0, 12)}`, stages: manifestStages };
+  const largest = Math.max(...manifestStages.map((stage) => stage.chars));
+  const manifest = {
+    id: `pi-source-${corpus.commit.slice(0, 12)}`,
+    stageCharsTarget: targetChars,
+    stages: manifestStages,
+  };
   writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   writeFileSync(
     join(out, "source-lock.json"),
-    `${JSON.stringify({ sourceCommit: corpus.commit, sourceHash: corpus.sourceHash, stages: corpus.stages.map((stage) => ({ sourceFiles: stage.paths.length, promptChars: stage.prompt.length })) }, null, 2)}\n`,
+    `${JSON.stringify({ sourceCommit: corpus.commit, sourceHash: corpus.sourceHash, stageCharsTarget: targetChars, totalChars, largestStageChars: largest, stages: corpus.stages.map((stage) => ({ sourceFiles: stage.paths.length, promptChars: stage.prompt.length, sha256: createHash("sha256").update(stage.prompt).digest("hex") })) }, null, 2)}\n`,
     "utf8",
   );
   process.stdout.write(
-    `source commit: ${corpus.commit}\nstages: ${corpus.stages.length}\nmanifest: ${join(out, "manifest.json")}\n`,
+    `source commit: ${corpus.commit}\nstages: ${corpus.stages.length}\nstage chars: total ${totalChars}, largest ${largest}\nmanifest: ${join(out, "manifest.json")}\n`,
   );
 }
 
