@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 
 /**
- * The model is a 1M-context model, but the trial runs it with a smaller *declared* window.
+ * The historical source-code trial used a smaller *declared* window. The newer controlled
+ * project-ledger trial can explicitly opt into the full 1M declared window; reports must record
+ * which setting was used, and a provider over-limit response is a trial failure, not a result
+ * to silently discard.
  *
  * DeepSeek's real request ceiling is 1,048,576 tokens, and the first paid attempt died on an
  * HTTP 400 at 1,114,489 - a stage can overshoot between Pi's post-response threshold checks. Pi's
@@ -11,11 +14,11 @@ import { join } from "node:path";
  * shortfall and one stage: at 900k the worst case lands ~1,028,000, only 1.9% under the ceiling,
  * which is not a margin.
  *
- * The 800k declared window is a safety margin against input overflow, not a remedy for summary
+ * The historical 800k declared window is a safety margin against input overflow, not a remedy for summary
  * failure. Exact replays of the failed Pi sessions on 2026-09-28 proved that the 4096-token
  * summary cap failed at ~847k estimated context, while 13107 and even 32768 failed at ~795k.
- * Those replays hit the *output* cap, independently of the input ceiling. Report this as
- * "1M model, 800k run budget", never as "ran at 1M" or "compaction fixed".
+ * Those replays hit the *output* cap, independently of the input ceiling. The old report stays
+ * "1M model, 800k run budget"; only an explicit 1M run may say "1M declared window".
  */
 export const MILLION_MODEL_WINDOW_TOKENS = 1_000_000;
 export const MILLION_RUN_WINDOW_TOKENS = 800_000;
@@ -138,6 +141,7 @@ export const MILLION_ARMS: Readonly<
 export function prepareMillionAgentDir(
   base: string,
   arm: MillionArmId,
+  runWindowTokens = MILLION_RUN_WINDOW_TOKENS,
 ): {
   agentDir: string;
   systemPrompt: string;
@@ -149,6 +153,14 @@ export function prepareMillionAgentDir(
 } {
   const armConfig = MILLION_ARMS[arm];
   if (armConfig === undefined) throw new Error(`Unknown 1M trial arm: ${arm}`);
+  if (
+    runWindowTokens !== MILLION_RUN_WINDOW_TOKENS &&
+    runWindowTokens !== MILLION_MODEL_WINDOW_TOKENS
+  ) {
+    throw new Error(
+      "The run window must be either the historical 800k budget or the full 1M window",
+    );
+  }
   const baseModelsPath = join(base, "models.json");
   if (!existsSync(baseModelsPath)) {
     throw new Error(`The 1M trial requires an experiment models.json: ${baseModelsPath}`);
@@ -173,7 +185,7 @@ export function prepareMillionAgentDir(
   // 13,107 = floor(0.8 * 16,384) is the largest cap the default arm can reach on its own; a larger
   // one would let fixed60's 320,000 reserve rise above the other arms again. See
   // `MILLION_SUMMARY_MAX_TOKENS` for why the old 4,096 cap truncated the summary and failed the run.
-  model.contextWindow = MILLION_RUN_WINDOW_TOKENS;
+  model.contextWindow = runWindowTokens;
   model.maxTokens = MILLION_SUMMARY_MAX_TOKENS;
   // Pi's OpenAI provider assigns `samplingParams` straight into the request body
   // (`openai-completions.ts:997`), so this is how the arm's cache namespace reaches DeepSeek.
@@ -188,7 +200,10 @@ export function prepareMillionAgentDir(
   }
   settings.compaction = {
     enabled: true,
-    reserveTokens: armConfig.reserveTokens,
+    reserveTokens:
+      arm === "fixed60"
+        ? Math.round(runWindowTokens * (1 - MILLION_FIXED_RATIO))
+        : armConfig.reserveTokens,
     keepRecentTokens: MILLION_KEEP_RECENT_TOKENS,
     modelOverrides: {},
   };

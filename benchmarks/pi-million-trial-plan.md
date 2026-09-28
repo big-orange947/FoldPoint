@@ -1,5 +1,23 @@
 # 1M 窗口下的多轮、多次压缩试验
 
+## 新一轮：真实声明 1M 窗口的受控项目状态任务
+
+旧长源码定位语料在 Pi 原生摘要处触发输出上限，不应用加长等待或提高预算继续硬跑，也不能把 800k 声明窗口说成实际跑满 1M。新语料由 `tools/pi-million-ledger-corpus.ts` 冻结生成：140 轮，每轮约 90k 字符；四个项目的负责人和截止日期不断更新，模型每轮须从整个历史回答六个状态字段。大量明确标作背景的例行记录用于填充上下文。这是**合成受控压力任务**，不是日常工作流的代表性样本；答对状态也不等于摘要质量在其他任务上可靠。
+
+新执行器显式接受 `--run-window-tokens 1000000`，在报告中写入 `declaredRunWindowTokens`；旧结果仍默认 800000，不能与新结果混写。固定 60% 臂在 1M 下的 reserve 为 400000，默认和动态臂保留 Pi 的 16384。三臂共用 13107 的摘要输出上限，沿用相同的缓存隔离与计费口径，不修改 FoldPoint 核心。1M 默认臂靠近 DeepSeek 请求上限，有输入溢出风险；若发生，则记录为该配置失败，不调高 provider 上限、不删失败记录，也不把剩余两臂的局部结果称为三臂比较。
+
+先用一个独立输出名跑默认臂 70 轮、至少一次成功压缩的付费预检，限额后置检查（单轮可能越界）。前 28 轮约 46.7 万 Pi 上下文 token，预计首次阈值触发在第 60 轮附近，故 55 轮不足以保证进入压缩。只有预检完成、质量核对通过且摘要成功，才运行 140 轮三臂正式试验；正式结果至少每臂两次成功压缩，三臂完整且任务质量无明显退化时才谈费用差异。命令示例（在 FoldPoint 仓库，已由宿主设置 `PI_CLI`、`PI_NODE`、`DEEPSEEK_API_KEY`）：
+
+```powershell
+npx tsx tools/pi-million-ledger-corpus.ts --out traces/pi-ledger-1m-v2
+npx tsx tools/pi-million-rpc.ts --manifest traces/pi-ledger-1m-v2/manifest.json --agent-base traces/pi-million-base --out traces/pi-ledger-1m-paid-preflight-02 --run-window-tokens 1000000 --arm default --max-stages 70 --min-compactions 1 --max-cost-usd 3 --max-prompt-tokens 50000000
+npx tsx tools/pi-million-rpc.ts --manifest traces/pi-ledger-1m-v2/manifest.json --agent-base traces/pi-million-base --out traces/pi-ledger-1m-paid-full-01 --run-window-tokens 1000000 --min-compactions 2 --max-cost-usd 12 --max-prompt-tokens 100000000
+```
+
+每次使用新 `--out`，工具拒绝覆盖；原始付费轨迹在 gitignore 中。预检不能证明三臂节省，正式试验也只支持这份合成任务上的结论。
+
+首轮真实 1M 声明窗口预检（`pi-ledger-1m-paid-preflight-01`）在第 29 轮因 DeepSeek HTTP 402 `insufficient-balance` 停止。前 28 轮任务答案全部通过，累计约 6,691,451 个输入 token、模型价格快照估算 $0.177797；尚无成功压缩，因此 **预检未通过，正式三臂不可启动**。第 28 轮 Pi 估计上下文约 467,645 tokens、provider prompt 约 461,467 tokens；在这份语料上目前没有重现旧源码语料的估算偏低，但仅凭半程不能推断临近 1M 上限安全。充值后必须换新的 `--out` 重新运行预检，旧失败记录不可覆盖；不要因为前 28 轮正确就宣称 1M 测试成功。
+
 状态：三臂执行器、缓存隔离、费用门禁和零付费环回已实现，但当前 128 阶段源码定位语料
 在真实 Pi 摘要器上**不能跑通**；四份付费记录都不可用于三臂策略比较。以下长篇记录包含
 DeepSeek 开发期间的历史假设，**以紧接着的 2026-09-28 复核结论为准**。

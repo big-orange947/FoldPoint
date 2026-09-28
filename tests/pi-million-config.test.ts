@@ -98,6 +98,21 @@ describe("1M Pi trial arm isolation", () => {
     expect(MILLION_SUMMARY_MAX_TOKENS).toBeGreaterThan(4_096);
   });
 
+  it("can declare a genuine 1M Pi window without rewriting the historical 800k configuration", () => {
+    const base = baseDir();
+    for (const id of ["default", "fixed60", "dynamic"] as const) {
+      const { agentDir } = prepareMillionAgentDir(base, id, MILLION_MODEL_WINDOW_TOKENS);
+      const models = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
+      const settings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+      expect(models.providers.deepseek.modelOverrides["deepseek-flash"].contextWindow).toBe(
+        1_000_000,
+      );
+      expect(settings.compaction.reserveTokens).toBe(id === "fixed60" ? 400_000 : 16_384);
+      expect(settings.compaction.keepRecentTokens).toBe(MILLION_KEEP_RECENT_TOKENS);
+    }
+    expect(() => prepareMillionAgentDir(base, "default", 900_000)).toThrow(/run window/);
+  });
+
   it("gives every arm its own cache namespace, and never shares one between arms", () => {
     const ids = ["default", "fixed60", "dynamic"] as const;
     const namespaces = ids.map((id) => millionUserId(id));

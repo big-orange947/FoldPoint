@@ -5,7 +5,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTraceJsonl, type TraceEvent } from "../src/index";
-import { type MillionArmId, prepareMillionAgentDir } from "./pi-million-config";
+import {
+  MILLION_MODEL_WINDOW_TOKENS,
+  MILLION_RUN_WINDOW_TOKENS,
+  type MillionArmId,
+  prepareMillionAgentDir,
+} from "./pi-million-config";
 import { gradeStageResponse, type StageExpectation } from "./pi-million-oracle";
 import { analyzeTraceEvents } from "./trace-analyze";
 
@@ -771,8 +776,13 @@ async function runArm(
   prompts: readonly string[],
   maxPromptTokens: number,
   maxCostUsd: number | null,
+  runWindowTokens: number,
 ): Promise<ArmResult> {
-  const { agentDir, systemPrompt, env: armEnv } = prepareMillionAgentDir(base, arm);
+  const {
+    agentDir,
+    systemPrompt,
+    env: armEnv,
+  } = prepareMillionAgentDir(base, arm, runWindowTokens);
   const tracePath = `${out}-${arm}.jsonl`;
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   const rpc = new RpcSession(
@@ -1002,6 +1012,16 @@ async function main(): Promise<void> {
   const maxCostUsd = maxCostUsdRaw === undefined ? null : Number(maxCostUsdRaw);
   if (maxCostUsd !== null && (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0))
     throw new Error("Invalid cost budget");
+  const runWindowTokens = Number(value("--run-window-tokens") ?? MILLION_RUN_WINDOW_TOKENS);
+  if (
+    runWindowTokens !== MILLION_RUN_WINDOW_TOKENS &&
+    runWindowTokens !== MILLION_MODEL_WINDOW_TOKENS
+  )
+    throw new Error("Invalid run window: use 800000 or 1000000");
+  const selectedArm = value("--arm");
+  if (selectedArm !== undefined && !ARM_IDS.includes(selectedArm as MillionArmId))
+    throw new Error("Invalid arm: use default, fixed60, or dynamic");
+  const selectedArms = selectedArm === undefined ? ARM_IDS : [selectedArm as MillionArmId];
   const minCompactions = Number(value("--min-compactions") ?? 2);
   if (!Number.isSafeInteger(minCompactions) || minCompactions < 0)
     throw new Error("Invalid minimum compaction count");
@@ -1013,12 +1033,12 @@ async function main(): Promise<void> {
   const fullCorpus = maxStages === manifestData.prompts.length;
   const prompts = manifestData.prompts.slice(0, maxStages);
   const reportPath = `${output}-report.json`;
-  if (existsSync(reportPath) || ARM_IDS.some((arm) => existsSync(`${output}-${arm}.jsonl`))) {
+  if (existsSync(reportPath) || selectedArms.some((arm) => existsSync(`${output}-${arm}.jsonl`))) {
     throw new Error("Refusing to overwrite an existing 1M trial result");
   }
   mkdirSync(dirname(output), { recursive: true });
   const results: ArmResult[] = [];
-  for (const arm of ARM_IDS) {
+  for (const arm of selectedArms) {
     const result = await runArm(
       arm,
       resolve(base),
@@ -1029,6 +1049,7 @@ async function main(): Promise<void> {
       prompts,
       maxPromptTokens,
       maxCostUsd,
+      runWindowTokens,
     );
     results.push(result);
     const last = result.lastFailure;
@@ -1054,6 +1075,7 @@ async function main(): Promise<void> {
   const systemPromptPrefixes = new Set(results.map((result) => result.systemPromptPrefixHash));
   const comparable =
     fullCorpus &&
+    selectedArms.length === 3 &&
     results.length === 3 &&
     results.every(
       (result) =>
@@ -1070,6 +1092,8 @@ async function main(): Promise<void> {
       "exact marker or hidden JSON field answers per stage; external task oracle not included",
     manifestId: manifestData.manifest.id,
     manifestHash: manifestData.hash,
+    declaredRunWindowTokens: runWindowTokens,
+    selectedArms,
     minCompactions,
     maxPromptTokens,
     maxCostUsd,
@@ -1090,8 +1114,11 @@ async function main(): Promise<void> {
     comparable,
     preflightPassed:
       !fullCorpus &&
-      results.length === 3 &&
-      results.every((result) => result.completed && result.qualityFailed === 0),
+      results.length === selectedArms.length &&
+      results.every(
+        (result) =>
+          result.completed && result.qualityFailed === 0 && result.compactions >= minCompactions,
+      ),
     qualityRegressionsAgainstDefault,
     qualityRegressionsAgainstFixed60,
     pilotCostAndQualitySignal:
