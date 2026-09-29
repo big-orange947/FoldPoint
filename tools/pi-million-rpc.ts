@@ -777,12 +777,13 @@ async function runArm(
   maxPromptTokens: number,
   maxCostUsd: number | null,
   runWindowTokens: number,
+  cacheRunId: string,
 ): Promise<ArmResult> {
   const {
     agentDir,
     systemPrompt,
     env: armEnv,
-  } = prepareMillionAgentDir(base, arm, runWindowTokens);
+  } = prepareMillionAgentDir(base, arm, runWindowTokens, cacheRunId);
   const tracePath = `${out}-${arm}.jsonl`;
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   const rpc = new RpcSession(
@@ -1022,6 +1023,21 @@ async function main(): Promise<void> {
   if (selectedArm !== undefined && !ARM_IDS.includes(selectedArm as MillionArmId))
     throw new Error("Invalid arm: use default, fixed60, or dynamic");
   const selectedArms = selectedArm === undefined ? ARM_IDS : [selectedArm as MillionArmId];
+  const cacheRunId = value("--cache-run-id") ?? "legacy";
+  if (!/^[A-Za-z0-9-]{1,32}$/.test(cacheRunId)) {
+    throw new Error("Invalid cache run id");
+  }
+  const compactorSafetyRaw = process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS;
+  const configuredCompactorSafeInputTokens =
+    compactorSafetyRaw === undefined ? null : Number(compactorSafetyRaw);
+  if (
+    configuredCompactorSafeInputTokens !== null &&
+    (!Number.isSafeInteger(configuredCompactorSafeInputTokens) ||
+      configuredCompactorSafeInputTokens <= 0 ||
+      configuredCompactorSafeInputTokens > runWindowTokens)
+  ) {
+    throw new Error("Invalid compactor safety limit for the declared run window");
+  }
   const minCompactions = Number(value("--min-compactions") ?? 2);
   if (!Number.isSafeInteger(minCompactions) || minCompactions < 0)
     throw new Error("Invalid minimum compaction count");
@@ -1050,6 +1066,7 @@ async function main(): Promise<void> {
       maxPromptTokens,
       maxCostUsd,
       runWindowTokens,
+      cacheRunId,
     );
     results.push(result);
     const last = result.lastFailure;
@@ -1092,7 +1109,9 @@ async function main(): Promise<void> {
       "exact marker or hidden JSON field answers per stage; external task oracle not included",
     manifestId: manifestData.manifest.id,
     manifestHash: manifestData.hash,
+    cacheRunId,
     declaredRunWindowTokens: runWindowTokens,
+    configuredCompactorSafeInputTokens,
     selectedArms,
     minCompactions,
     maxPromptTokens,
@@ -1119,6 +1138,13 @@ async function main(): Promise<void> {
         (result) =>
           result.completed && result.qualityFailed === 0 && result.compactions >= minCompactions,
       ),
+    singleArmDiagnosticPassed:
+      fullCorpus &&
+      selectedArms.length === 1 &&
+      results.length === 1 &&
+      results[0]?.completed === true &&
+      results[0].qualityFailed === 0 &&
+      results[0].compactions >= minCompactions,
     qualityRegressionsAgainstDefault,
     qualityRegressionsAgainstFixed60,
     pilotCostAndQualitySignal:
@@ -1136,7 +1162,8 @@ async function main(): Promise<void> {
   };
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   process.stdout.write(`report: ${reportPath}\n`);
-  if (!report.comparable && !report.preflightPassed) process.exitCode = 1;
+  if (!report.comparable && !report.preflightPassed && !report.singleArmDiagnosticPassed)
+    process.exitCode = 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

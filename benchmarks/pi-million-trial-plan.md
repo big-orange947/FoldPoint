@@ -6,7 +6,7 @@
 
 新执行器显式接受 `--run-window-tokens 1000000`，在报告中写入 `declaredRunWindowTokens`；旧结果仍默认 800000，不能与新结果混写。固定 60% 臂在 1M 下的 reserve 为 400000，默认和动态臂保留 Pi 的 16384。三臂共用 13107 的摘要输出上限，沿用相同的缓存隔离与计费口径，不修改 FoldPoint 核心。1M 默认臂靠近 DeepSeek 请求上限，有输入溢出风险；若发生，则记录为该配置失败，不调高 provider 上限、不删失败记录，也不把剩余两臂的局部结果称为三臂比较。
 
-先用一个独立输出名跑默认臂 70 轮、至少一次成功压缩的付费预检，限额后置检查（单轮可能越界）。前 28 轮约 46.7 万 Pi 上下文 token，预计首次阈值触发在第 60 轮附近，故 55 轮不足以保证进入压缩。只有预检完成、质量核对通过且摘要成功，才运行 140 轮三臂正式试验；正式结果至少每臂两次成功压缩，三臂完整且任务质量无明显退化时才谈费用差异。命令示例（在 FoldPoint 仓库，已由宿主设置 `PI_CLI`、`PI_NODE`、`DEEPSEEK_API_KEY`）：
+原先计划先跑默认臂 70 轮、至少一次成功压缩，再跑 140 轮三臂；实际预检证明默认臂无法完成，完整三臂不能成立。以下为已用过的历史命令，**不要原样重跑**：
 
 ```powershell
 npx tsx tools/pi-million-ledger-corpus.ts --out traces/pi-ledger-1m-v2
@@ -14,9 +14,17 @@ npx tsx tools/pi-million-rpc.ts --manifest traces/pi-ledger-1m-v2/manifest.json 
 npx tsx tools/pi-million-rpc.ts --manifest traces/pi-ledger-1m-v2/manifest.json --agent-base traces/pi-million-base --out traces/pi-ledger-1m-paid-full-01 --run-window-tokens 1000000 --min-compactions 2 --max-cost-usd 12 --max-prompt-tokens 100000000
 ```
 
-每次使用新 `--out`，工具拒绝覆盖；原始付费轨迹在 gitignore 中。预检不能证明三臂节省，正式试验也只支持这份合成任务上的结论。
+每次必须使用新 `--out`，工具拒绝覆盖；原始付费轨迹在 gitignore 中。新执行器还接受 `--cache-run-id <新标识>`，让不同轮试验的缓存命名空间独立。预算线在每轮之后检查，单轮可能超出。预检不能证明三臂节省。
 
 首轮真实 1M 声明窗口预检（`pi-ledger-1m-paid-preflight-01`）在第 29 轮因 DeepSeek HTTP 402 `insufficient-balance` 停止。前 28 轮任务答案全部通过，累计约 6,691,451 个输入 token、模型价格快照估算 $0.177797；尚无成功压缩，因此 **预检未通过，正式三臂不可启动**。第 28 轮 Pi 估计上下文约 467,645 tokens、provider prompt 约 461,467 tokens；在这份语料上目前没有重现旧源码语料的估算偏低，但仅凭半程不能推断临近 1M 上限安全。充值后必须换新的 `--out` 重新运行预检，旧失败记录不可覆盖；不要因为前 28 轮正确就宣称 1M 测试成功。
+
+余额恢复后的 1M 预检给出一个更明确的负结果。默认 Pi 组 `pi-ledger-1m-paid-preflight-02` 在第 60 轮材料请求约 988,846 provider prompt tokens、60 轮答案正确后，三次摘要调用均触及输出上限；第 61 轮停止，成功压缩 0。未加额外安全约束的 FoldPoint 动态组 `pi-ledger-1m-paid-dynamic-preflight-01` 在约 906,504 Pi 上下文 token 首次主动尝试，之后同样因摘要输出上限停止，成功压缩 0。**旧问题没有被默认策略或当前动态策略解决。**
+
+固定 60% 组 `pi-ledger-1m-paid-fixed-preflight-01` 在约 609,856 token 压缩成功，70/70 轮答题通过；说明更早压缩在本任务可行，但并不能推出精确的通用安全阈值。为表达“模型窗口 ≠ 压缩器可处理上限”，核心新增可选 `FoldPointProfile.compactorSafeInputTokens`；宿主声明后会以 `COMPACTOR_INPUT_LIMIT` 强制触发，未声明则保持旧行为。Pi 适配器通过 `FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS` 接收这一值。诊断组 `pi-ledger-1m-paid-safe-dynamic-preflight-01` 使用保守的 580,000 上限，首次约 576,892 token 成功压缩，70/70 轮答题通过。但该上限是**看过本语料失败与固定组成功之后**选的，不能用这份语料上的费用差宣传算法优于固定 60%。
+
+另外，旧试验每组使用固定 `user_id`，同一组重跑可能命中自己上一次的 KV 缓存；安全约束预检的首次压缩确实几乎全命中旧动态组的缓存。它的 $0.652056 与固定组 $0.656244 **不可作费用对照**。新的 `--cache-run-id` 同时改变 `user_id` 和系统提示标记，在一次正式试验的三组内保持各自稳定、跨试验不复用。后续完整长跑使用新的 run id；其成本仍只描述这份合成任务，不恢复已失败的三臂比较。
+
+独立缓存命名空间下的 140 轮长跑（`cacheRunId=ledger-full-01`）已完成两个可运行组，精确摘要见 [`reports/pi-million-ledger-v2-diagnostic.json`](reports/pi-million-ledger-v2-diagnostic.json)。固定 60%：140/140 正确、3 次成功压缩、0 失败、全部计价，总成本 $1.500053。设置宿主安全上限 580,000 的 FoldPoint：140/140 正确、4 次成功压缩、0 失败、全部计价，总成本 $1.634650，**比固定组贵 $0.134597（约 8.97%）**。后者普通调用节约约 $0.005，却多支付约 $0.140 压缩成本。这个上限已用本数据校准，不能从该结果推断泛化性能，更不能把默认 Pi 的失败臂按低成本纳入比较。下一步是冻结一个不同任务形态的留出集，检验安全上限是否保持可行、是否有质量退化；在这之前不发布“多数情况下更省钱”。
 
 状态：三臂执行器、缓存隔离、费用门禁和零付费环回已实现，但当前 128 阶段源码定位语料
 在真实 Pi 摘要器上**不能跑通**；四份付费记录都不可用于三臂策略比较。以下长篇记录包含

@@ -4,6 +4,7 @@ import type { FoldPointReason } from "./types";
 export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
   "HARD_WINDOW_RATIO",
   "RESERVE_TOKENS_REACHED",
+  "COMPACTOR_INPUT_LIMIT",
   "COMPACTION_DISABLED",
   "UNSAFE_BOUNDARY",
   "COOLDOWN_ACTIVE",
@@ -27,6 +28,7 @@ export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
 export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Object.freeze({
   HARD_WINDOW_RATIO: "Context utilization reached the hard window ratio.",
   RESERVE_TOKENS_REACHED: "Remaining window dropped to the configured reserve.",
+  COMPACTOR_INPUT_LIMIT: "The host-declared safe compactor input budget was reached.",
   COMPACTION_DISABLED: "The host disabled economic compaction for this step.",
   UNSAFE_BOUNDARY: "The host is not at a step boundary where compaction may run.",
   COOLDOWN_ACTIVE: "Too few model calls have passed since the last compaction attempt.",

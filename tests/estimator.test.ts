@@ -45,6 +45,17 @@ describe("17.1 basic decisions", () => {
     expect(decision.reasons).not.toContain("HARD_WINDOW_RATIO");
   });
 
+  it("forces at a host-declared compactor input budget even when the model window is far away", () => {
+    const profile = makeProfile({ compactorSafeInputTokens: 120_000 });
+    const before = decideWith({ contextTokens: 119_000, profile });
+    const atLimit = decideWith({ contextTokens: 120_000, profile });
+    expect(before.action).toBe("KEEP");
+    expect(before.nextCheckAtTokens).toBeLessThanOrEqual(120_000);
+    expect(atLimit.action).toBe("FORCE");
+    expect(atLimit.reasons).toContain("COMPACTOR_INPUT_LIMIT");
+    expect(atLimit.reasons).not.toContain("HARD_WINDOW_RATIO");
+  });
+
   it("4. positive saving that repays inside the horizon -> COMPACT", () => {
     const decision = decideWith(
       {

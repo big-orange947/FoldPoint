@@ -97,6 +97,14 @@ estimate with that bias, not as state.
 Different compactors produce very different retention ratios, and the same compactor varies
 by task and phase. State is isolated per `compactorId` for that reason.
 
+A model's context window does not imply that its compactor can summarize that much input. A
+real Pi/DeepSeek 1M-window trial failed its summary output cap near 0.9M tokens even though
+normal model requests worked; an earlier trial at about 0.61M succeeded. FoldPoint cannot infer
+the safe boundary from token pricing or one success. Hosts can supply the optional
+`compactorSafeInputTokens` safety budget, but they must validate it on their own task mix and
+leave room for growth between decisions. Without it, the default 90% hard-window guard may be
+too late for a particular summarizer.
+
 EMA learning (`alpha = 0.25`) means several successful compactions are needed before the
 estimate approaches reality, and a profile whose compactor fails often learns nothing from
 the failures at all (by design — a failure says nothing about compression quality).

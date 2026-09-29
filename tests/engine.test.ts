@@ -66,6 +66,12 @@ describe("FoldPoint engine", () => {
     expect(foldPoint.getProfileState(otherModel).retentionSamples).toBe(0);
     expect(foldPoint.getProfileState(otherWindow).retentionSamples).toBe(0);
     expect(profileKey(first)).not.toBe(profileKey(second));
+    expect(profileKey(makeProfile())).not.toBe(
+      profileKey(makeProfile({ compactorSafeInputTokens: 100_000 })),
+    );
+    expect(() =>
+      foldPoint.decide(makeInput({ profile: makeProfile({ compactorSafeInputTokens: 200_001 }) })),
+    ).toThrow(/compactorSafeInputTokens/);
   });
 
   it("returns copies of state, never live references", () => {

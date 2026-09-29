@@ -1,0 +1,66 @@
+{
+  "kind": "foldpoint.pi-million-ledger.diagnostic.v1",
+  "date": "2026-09-29",
+  "dataset": "controlled-project-ledger-1m-v2",
+  "manifestHash": "63c70f37fd5c35ebc096cc011d5f579e32b7bc054b432f7644854f983df24260",
+  "declaredWindowTokens": 1000000,
+  "model": "deepseek-flash",
+  "summaryOutputCapTokens": 13107,
+  "pricingFingerprint": "2f70f53535edfe9ae7cde33a00618e6f85c46787c16c0877c3d4bc8c442af33a",
+  "costBasis": "Pi price snapshot applied to provider usage, USD estimate; not a provider invoice",
+  "threeArmComparable": false,
+  "whyNotComparable": "Pi default and unbounded FoldPoint failed summary generation before completing the task; the 580000-token safety limit was chosen after inspecting this task's failed and successful preflights",
+  "preflights": [
+    {
+      "arm": "pi-default",
+      "stagesAnswered": 60,
+      "successfulCompactions": 0,
+      "failure": "summary-output-cap",
+      "firstFailedStage": 61,
+      "estimatedCostUsd": 0.486847332
+    },
+    {
+      "arm": "foldpoint-unbounded",
+      "stagesAnswered": 60,
+      "successfulCompactions": 0,
+      "failure": "summary-output-cap",
+      "firstFailedStage": 61,
+      "estimatedCostUsd": 0.486829032
+    }
+  ],
+  "isolatedFullDiagnostics": {
+    "cacheRunId": "ledger-full-01",
+    "stages": 140,
+    "answerFieldsPerStage": 6,
+    "arms": [
+      {
+        "arm": "fixed60",
+        "correctStages": 140,
+        "failedStages": 0,
+        "successfulCompactions": 3,
+        "failedCompactions": 0,
+        "unpricedCompactions": 0,
+        "promptTokens": 43460306,
+        "callCostUsd": 0.963861912,
+        "compactionCostUsd": 0.5361915,
+        "totalCostUsd": 1.500053412
+      },
+      {
+        "arm": "foldpoint-with-host-safety-limit",
+        "compactorSafeInputTokens": 580000,
+        "correctStages": 140,
+        "failedStages": 0,
+        "successfulCompactions": 4,
+        "failedCompactions": 0,
+        "unpricedCompactions": 0,
+        "promptTokens": 41689800,
+        "callCostUsd": 0.95876784,
+        "compactionCostUsd": 0.6758823,
+        "totalCostUsd": 1.63465014
+      }
+    ],
+    "foldpointMinusFixedCostUsd": 0.134596728,
+    "foldpointRelativeCostIncrease": 0.08972795696690818
+  },
+  "interpretation": "On this synthetic task the host safety limit prevented FoldPoint's summary-cap failure, but its extra compaction made it about 9% more expensive than fixed60. No broad cost or quality claim follows."
+}

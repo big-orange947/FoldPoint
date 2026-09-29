@@ -121,6 +121,17 @@ describe("1M Pi trial arm isolation", () => {
     // behaviour measurable. The cost is that re-running one arm can hit its own warm cache,
     // which the report has to say out loud.
     expect(millionUserId("dynamic")).toBe(millionUserId("dynamic"));
+    const firstRun = prepareMillionAgentDir(baseDir(), "dynamic", 1_000_000, "trial-a");
+    const secondRun = prepareMillionAgentDir(baseDir(), "dynamic", 1_000_000, "trial-b");
+    const firstModel = JSON.parse(readFileSync(join(firstRun.agentDir, "models.json"), "utf8"));
+    const secondModel = JSON.parse(readFileSync(join(secondRun.agentDir, "models.json"), "utf8"));
+    expect(
+      firstModel.providers.deepseek.modelOverrides["deepseek-flash"].samplingParams.user_id,
+    ).not.toBe(
+      secondModel.providers.deepseek.modelOverrides["deepseek-flash"].samplingParams.user_id,
+    );
+    expect(firstRun.systemPrompt).not.toBe(secondRun.systemPrompt);
+    expect(() => millionUserId("dynamic", "not safe text")).toThrow(/cacheRunId/);
   });
 
   it("gives every arm a system-prompt preamble that diverges at the start of the prompt", () => {

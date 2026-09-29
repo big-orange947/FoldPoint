@@ -132,6 +132,21 @@ export function validateFoldPointInput(input: FoldPointInput): void {
   assertNonEmptyString("profile.model", profile.model);
   assertNonEmptyString("profile.compactorId", profile.compactorId);
   assertFiniteNumber("profile.contextWindowTokens", profile.contextWindowTokens, Number.MIN_VALUE);
+  if (profile.compactorSafeInputTokens !== undefined) {
+    assertFiniteNumber(
+      "profile.compactorSafeInputTokens",
+      profile.compactorSafeInputTokens,
+      Number.MIN_VALUE,
+    );
+    if (
+      !Number.isSafeInteger(profile.compactorSafeInputTokens) ||
+      profile.compactorSafeInputTokens > profile.contextWindowTokens
+    ) {
+      throw new RangeError(
+        'FoldPoint input "profile.compactorSafeInputTokens" must be a positive integer no greater than the context window',
+      );
+    }
+  }
 
   assertFiniteNumber("timestamp", input.timestamp, 0);
   assertFiniteNumber("contextTokens", input.contextTokens, 0);
@@ -189,6 +204,7 @@ function computeNextCheckAtTokens(args: {
   defaults: FoldPointDefaults;
   retentionRatio: number;
   economicBoundaryTokens: number;
+  compactorSafeInputTokens?: number;
 }): number {
   const { contextTokens, windowTokens, defaults, retentionRatio, economicBoundaryTokens } = args;
 
@@ -196,6 +212,7 @@ function computeNextCheckAtTokens(args: {
   const forceBoundary = Math.min(
     Math.ceil(defaults.hardWindowRatio * windowTokens),
     windowTokens - defaults.reserveTokens,
+    args.compactorSafeInputTokens ?? Number.POSITIVE_INFINITY,
   );
   const reclaimBoundary =
     retentionRatio < 1
@@ -463,13 +480,19 @@ export function decideFoldPoint(
   // --- 1. window safety always wins ---
   const forceByRatio = utilization >= defaults.hardWindowRatio;
   const forceByReserve = remainingTokens <= defaults.reserveTokens;
-  if (forceByRatio || forceByReserve) {
+  const forceByCompactor =
+    input.profile.compactorSafeInputTokens !== undefined &&
+    contextTokens >= input.profile.compactorSafeInputTokens;
+  if (forceByRatio || forceByReserve || forceByCompactor) {
     const reasons: FoldPointReason[] = [];
     if (forceByRatio) {
       reasons.push("HARD_WINDOW_RATIO");
     }
     if (forceByReserve) {
       reasons.push("RESERVE_TOKENS_REACHED");
+    }
+    if (forceByCompactor) {
+      reasons.push("COMPACTOR_INPUT_LIMIT");
     }
     if (input.compactionAllowed === false) {
       reasons.push("COMPACTION_DISABLED");
@@ -572,6 +595,7 @@ export function decideFoldPoint(
         defaults,
         retentionRatio,
         economicBoundaryTokens,
+        compactorSafeInputTokens: input.profile.compactorSafeInputTokens,
       }),
     };
   }

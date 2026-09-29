@@ -63,8 +63,11 @@ export type MillionArmId = "default" | "fixed60" | "dynamic";
  * could read each other's cached prefixes and stop being independent. Identical within an arm -
  * that is what makes its own cache behaviour measurable - and distinct between arms.
  */
-export function millionUserId(arm: MillionArmId): string {
-  return `foldpoint-1m-${arm}`;
+export function millionUserId(arm: MillionArmId, cacheRunId = "legacy"): string {
+  if (!/^[A-Za-z0-9-]{1,32}$/.test(cacheRunId)) {
+    throw new Error("cacheRunId must be a short non-sensitive identifier");
+  }
+  return `foldpoint-1m-${cacheRunId}-${arm}`;
 }
 
 /**
@@ -89,14 +92,15 @@ export function millionUserId(arm: MillionArmId): string {
  * three arms equally. That is a deliberate, arm-symmetric change to the prompt (never to the
  * material or the questions) and it is reported as such.
  */
-export function millionSystemPromptMarker(arm: MillionArmId): string {
+export function millionSystemPromptMarker(arm: MillionArmId, cacheRunId = "legacy"): string {
   // The first character must differ between arms. DeepSeek only reports a cache hit when the
   // request matches a persisted prefix unit from token 0, so a shared opening character could
   // share the opening token - and a shared token 0 is exactly what the isolation is meant to
   // prevent. `user_id` is the documented mechanism; this is the one that holds regardless of
   // how DeepSeek splits its keys. Spelling them out beats deriving them: "default" and
   // "dynamic" share their first letter, which is how the first attempt at this failed.
-  return `${MARKER_INITIAL[arm]} / ${arm} / foldpoint-1m cache namespace.`;
+  millionUserId(arm, cacheRunId);
+  return `${MARKER_INITIAL[arm]} / ${arm} / ${cacheRunId} / foldpoint-1m cache namespace.`;
 }
 
 const MARKER_INITIAL: Readonly<Record<MillionArmId, string>> = {
@@ -112,8 +116,8 @@ const MARKER_INITIAL: Readonly<Record<MillionArmId, string>> = {
 const MILLION_SYSTEM_PROMPT_BODY =
   "Answer only from the material in this conversation: no tools, no file reads, no commands.";
 
-export function millionSystemPrompt(arm: MillionArmId): string {
-  return `${millionSystemPromptMarker(arm)}\n${MILLION_SYSTEM_PROMPT_BODY}`;
+export function millionSystemPrompt(arm: MillionArmId, cacheRunId = "legacy"): string {
+  return `${millionSystemPromptMarker(arm, cacheRunId)}\n${MILLION_SYSTEM_PROMPT_BODY}`;
 }
 
 const FIXED_RESERVE_TOKENS = Math.round(MILLION_RUN_WINDOW_TOKENS * (1 - MILLION_FIXED_RATIO));
@@ -142,6 +146,7 @@ export function prepareMillionAgentDir(
   base: string,
   arm: MillionArmId,
   runWindowTokens = MILLION_RUN_WINDOW_TOKENS,
+  cacheRunId = "legacy",
 ): {
   agentDir: string;
   systemPrompt: string;
@@ -153,6 +158,7 @@ export function prepareMillionAgentDir(
 } {
   const armConfig = MILLION_ARMS[arm];
   if (armConfig === undefined) throw new Error(`Unknown 1M trial arm: ${arm}`);
+  millionUserId(arm, cacheRunId);
   if (
     runWindowTokens !== MILLION_RUN_WINDOW_TOKENS &&
     runWindowTokens !== MILLION_MODEL_WINDOW_TOKENS
@@ -189,7 +195,7 @@ export function prepareMillionAgentDir(
   model.maxTokens = MILLION_SUMMARY_MAX_TOKENS;
   // Pi's OpenAI provider assigns `samplingParams` straight into the request body
   // (`openai-completions.ts:997`), so this is how the arm's cache namespace reaches DeepSeek.
-  model.samplingParams = { temperature: 0, user_id: millionUserId(arm) };
+  model.samplingParams = { temperature: 0, user_id: millionUserId(arm, cacheRunId) };
 
   const settingsPath = join(base, "settings.json");
   const settings = existsSync(settingsPath)
@@ -215,7 +221,7 @@ export function prepareMillionAgentDir(
   const sessionDir = join(agentDir, "sessions");
   mkdirSync(sessionDir);
   settings.sessionDir = sessionDir;
-  const systemPrompt = millionSystemPrompt(arm);
+  const systemPrompt = millionSystemPrompt(arm, cacheRunId);
   // Pi reads an agent-directory SYSTEM.md without any project-trust requirement and uses it as
   // the preamble of the system prompt, i.e. the first tokens of every request (`millionSystemPrompt`).
   writeFileSync(join(agentDir, "SYSTEM.md"), `${systemPrompt}\n`, "utf8");

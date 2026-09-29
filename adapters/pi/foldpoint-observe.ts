@@ -595,6 +595,16 @@ function profileFromModel(model: PiModel, prefixId: string | undefined): FoldPoi
     contextWindowTokens: model.contextWindow,
     compactorId: "pi-compaction",
   };
+  const safeInputRaw = process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS;
+  if (safeInputRaw !== undefined) {
+    const safeInput = Number(safeInputRaw);
+    if (!Number.isSafeInteger(safeInput) || safeInput <= 0 || safeInput > model.contextWindow) {
+      throw new Error(
+        "FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS must be a positive integer no greater than the model context window",
+      );
+    }
+    profile.compactorSafeInputTokens = safeInput;
+  }
   if (prefixId !== undefined) {
     profile.prefixId = prefixId;
   }

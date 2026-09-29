@@ -28,13 +28,17 @@ import type {
  * collide with another profile.
  */
 export function profileKey(profile: FoldPointProfile): string {
-  return JSON.stringify([
+  const key: Array<string | number> = [
     profile.provider ?? "",
     profile.model,
     profile.contextWindowTokens,
     profile.compactorId,
     profile.prefixId ?? "",
-  ]);
+  ];
+  if (profile.compactorSafeInputTokens !== undefined) {
+    key.push(profile.compactorSafeInputTokens);
+  }
+  return JSON.stringify(key);
 }
 
 /** Unambiguous state key for one session of one profile. */
@@ -58,6 +62,16 @@ function assertProfile(profile: FoldPointProfile): void {
     profile.contextWindowTokens <= 0
   ) {
     throw new RangeError('FoldPoint profile "contextWindowTokens" must be a finite number > 0');
+  }
+  if (
+    profile.compactorSafeInputTokens !== undefined &&
+    (!Number.isSafeInteger(profile.compactorSafeInputTokens) ||
+      profile.compactorSafeInputTokens <= 0 ||
+      profile.compactorSafeInputTokens > profile.contextWindowTokens)
+  ) {
+    throw new RangeError(
+      'FoldPoint profile "compactorSafeInputTokens" must be a positive integer no greater than the context window',
+    );
   }
 }
 

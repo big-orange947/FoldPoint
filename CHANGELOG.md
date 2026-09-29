@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Compactor input safety budget and 1M Pi diagnosis
+
+- Profiles may now declare an optional `compactorSafeInputTokens`, independent of the model's
+  advertised context window. Reaching it returns `FORCE` with `COMPACTOR_INPUT_LIMIT`; the Pi
+  adapter reads `FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS`. Existing profiles are unchanged when
+  the limit is absent, and different configured limits do not share learned state.
+- The Pi trial runner now accepts a per-run cache namespace to prevent reruns of one arm from
+  borrowing its old KV cache. A genuine 1M-window DeepSeek diagnostic found that Pi default
+  and unbounded FoldPoint both failed Pi's summary output cap; fixed 60% and a host-bounded
+  FoldPoint completed 140/140 stages. The bounded FoldPoint cost about 9% more than fixed 60%
+  on this synthetic task. This is a negative cost result, not a general savings claim.
+
 ### Trace v3: account for terminal compactions
 
 - A successful Pi compaction is charged even when its session ends before another model call

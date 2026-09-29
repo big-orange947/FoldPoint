@@ -82,6 +82,7 @@ export interface TraceProfile {
   model: string;
   contextWindowTokens: number;
   compactorId: string;
+  compactorSafeInputTokens?: number;
   /** Irreversible fingerprint of the host's stable prompt prefix. Never the prompt itself. */
   prefixId?: string;
   pricing?: PricingSnapshot;
@@ -515,6 +516,9 @@ function traceProfile(profile: FoldPointProfile): TraceProfile {
   };
   if (profile.provider !== undefined) {
     traced.provider = profile.provider;
+  }
+  if (profile.compactorSafeInputTokens !== undefined) {
+    traced.compactorSafeInputTokens = profile.compactorSafeInputTokens;
   }
   if (profile.prefixId !== undefined) {
     traced.prefixId = profile.prefixId;

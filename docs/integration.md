@@ -160,7 +160,8 @@ const restored = new FoldPoint({ state: await store.get("foldpoint") });
 
 ## 8. Profiles for models and compactors
 
-The learning key is the JSON tuple `[provider, model, contextWindowTokens, compactorId]`. Use
+The learning key includes provider, model, context window, compactor ID, optional stable-prefix
+fingerprint, and an optional compactor safety budget. Use
 a distinct `compactorId` for every compactor implementation *and version*: a new summary
 prompt is a new compactor, and its compression behaviour has to be learned separately.
 
@@ -172,6 +173,16 @@ const profiles = {
 ```
 
 Do not derive a profile from message content, and do not reuse one profile across compactors.
+
+If the host has independently validated that its compactor cannot reliably process a context
+near the model's advertised window, it may set `compactorSafeInputTokens` on the profile. When
+the reported context reaches that budget FoldPoint returns `FORCE` with
+`COMPACTOR_INPUT_LIMIT`, regardless of cheap cache reads. This is a **host-supplied safety
+constraint**, not a capacity FoldPoint can discover from model prices. Leave enough margin for
+one turn of context growth between checks, and do not present a successful run at a lower size
+as a universal guarantee. Pi's example adapter accepts the optional environment variable
+`FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS` and records the value in its decision trace; it is
+unset by default. Changing the bound creates a separate learning profile.
 
 ## 9. Prices
 

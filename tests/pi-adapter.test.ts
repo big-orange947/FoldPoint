@@ -272,6 +272,30 @@ describe("Pi observer adapter", () => {
     expect(events.some((event) => event.type === "session_end")).toBe(true);
   });
 
+  it("passes a host-declared compactor safety budget into decisions and the audit trace", () => {
+    const previous = process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS;
+    process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS = "60000";
+    try {
+      const path = newTracePath("compactor-budget");
+      const fake = fakePi();
+      createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+        fake.pi,
+      );
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+      fake.emit("context", { type: "context" }, fake.ctxWith(60_000));
+      const decision = readTrace(path).find((event) => event.type === "decision");
+      expect(decision?.type).toBe("decision");
+      if (decision?.type === "decision") {
+        expect(decision.profile.compactorSafeInputTokens).toBe(60_000);
+        expect(decision.decision.action).toBe("FORCE");
+        expect(decision.decision.reasons).toContain("COMPACTOR_INPUT_LIMIT");
+      }
+    } finally {
+      if (previous === undefined) delete process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS;
+      else process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS = previous;
+    }
+  });
+
   it("labels a trial price as hypothetical while retaining actual provider usage", () => {
     const previous = process.env.FOLDPOINT_PRICE_SCENARIO;
     process.env.FOLDPOINT_PRICE_SCENARIO = "cache-read-60";

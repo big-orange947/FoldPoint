@@ -24,6 +24,8 @@ export type FoldPointReason =
   | "HARD_WINDOW_RATIO"
   /** Remaining window dropped to (or below) the configured reserve. */
   | "RESERVE_TOKENS_REACHED"
+  /** A host-declared safe input budget for this compactor has been reached. */
+  | "COMPACTOR_INPUT_LIMIT"
   /** The host explicitly disabled economic compaction for this step. */
   | "COMPACTION_DISABLED"
   /** The host is not at a step boundary where compaction may run. */
@@ -96,6 +98,12 @@ export interface FoldPointProfile {
   contextWindowTokens: number;
   /** The compactor implementation this profile feeds; compaction quality differs per compactor. */
   compactorId: string;
+  /**
+   * Optional host-validated input budget for the compactor, distinct from the model's context
+   * window. The host must leave room for growth between decisions; FoldPoint cannot infer this
+   * limit from prices or a provider's advertised window.
+   */
+  compactorSafeInputTokens?: number;
   /**
    * Irreversible fingerprint of the host's stable prompt prefix — its system prompt and tool
    * schemas — when the host can name it. Part of the state key: a configuration whose prefix
