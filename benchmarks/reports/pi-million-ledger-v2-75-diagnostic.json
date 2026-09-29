@@ -1,0 +1,73 @@
+{
+  "kind": "foldpoint.pi-million-ledger.75-percent-diagnostic.v1",
+  "date": "2026-09-29",
+  "dataset": "controlled-project-ledger-1m-v2",
+  "manifestHash": "63c70f37fd5c35ebc096cc011d5f579e32b7bc054b432f7644854f983df24260",
+  "declaredWindowTokens": 1000000,
+  "intendedRule": "75% is the latest allowable compaction point, not a minimum before which compaction is forbidden",
+  "providerCacheControl": "Each new dynamic run used a fresh cacheRunId and user_id; the first request reported zero cached input tokens. No TTL wait was used.",
+  "strict75Implementation": "The host configured compactorSafeInputTokens=730000 to allow approximately one staged turn of growth before the 750000-token deadline; this margin is specific to this controlled corpus.",
+  "direct750000Probe": {
+    "cacheRunId": "ledger-75-01",
+    "firstFailedCompactionBeforeTokens": 758184,
+    "correctStagesBeforeStop": 60,
+    "successfulCompactions": 0,
+    "failure": "summary-output-cap",
+    "estimatedCostUsd": 0.486824904,
+    "interpretation": "The request crossed 75% between decisions, so this was not a strict deadline test. Summarization failed."
+  },
+  "strictDeadlinePreflight": {
+    "cacheRunId": "ledger-75-strict-01",
+    "configuredTriggerTokens": 730000,
+    "compactionBeforeTokens": 725224,
+    "correctStages": 52,
+    "failedStages": 0,
+    "successfulCompactions": 1,
+    "estimatedCostUsd": 0.576208752
+  },
+  "strictDeadlineFullDiagnostic": {
+    "cacheRunId": "ledger-75-strict-full-01",
+    "configuredTriggerTokens": 730000,
+    "correctStages": 140,
+    "failedStages": 0,
+    "successfulCompactions": 3,
+    "failedCompactions": 0,
+    "unpricedCompactions": 0,
+    "compactionBeforeTokens": [725226, 725696, 725694],
+    "promptTokens": 50040421,
+    "callCostUsd": 1.00376214,
+    "compactionCostUsd": 0.6408447,
+    "totalCostUsd": 1.64460684
+  },
+  "historicalFixed60Reference": {
+    "cacheRunId": "ledger-full-01",
+    "correctStages": 140,
+    "successfulCompactions": 3,
+    "callCostUsd": 0.963861912,
+    "compactionCostUsd": 0.5361915,
+    "totalCostUsd": 1.500053412
+  },
+  "descriptiveDifference": {
+    "foldpointMinusFixedCostUsd": 0.144553428,
+    "foldpointRelativeCostIncrease": 0.09636552061654162
+  },
+  "decisionAudit": {
+    "note": "Retrospective request counts are known only after the run; they were not available to FoldPoint at decision time. They diagnose forecast error, not an oracle policy result.",
+    "defaultExpectedFutureCalls": 3,
+    "keptNear665k": [
+      {"contextTokens": 665424, "retrospectiveRemainingRequests": 98, "estimatedBreakEvenCalls": 65.19},
+      {"contextTokens": 665892, "retrospectiveRemainingRequests": 56, "estimatedBreakEvenCalls": 51.24},
+      {"contextTokens": 665894, "retrospectiveRemainingRequests": 14, "estimatedBreakEvenCalls": 42.76}
+    ],
+    "firstForcedDecision": {
+      "contextTokens": 731346,
+      "estimatedCompactCallCostUsd": 0.324717624,
+      "estimatedPostCompactTokens": 292538.4,
+      "actualCompactionBeforeTokens": 725226,
+      "actualCompactionAfterTokens": 56112,
+      "actualCompactCallCostUsdApprox": 0.2132442
+    },
+    "interpretation": "The default three-call horizon and conservative cold-start compaction priors both favored KEEP until the safety cap. The economic comparison does not price an unavoidable later compaction. This audit does not establish which alternative policy would win on held-out tasks."
+  },
+  "limits": "The 730000-token trigger was selected after observing this corpus. The fixed60 reference was run earlier with a different cacheRunId, not as a simultaneous paired replicate. This result is a feasibility and cost diagnostic for one synthetic task, not a general timing optimum or savings claim."
+}

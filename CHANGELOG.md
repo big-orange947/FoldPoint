@@ -17,6 +17,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and unbounded FoldPoint both failed Pi's summary output cap; fixed 60% and a host-bounded
   FoldPoint completed 140/140 stages. The bounded FoldPoint cost about 9% more than fixed 60%
   on this synthetic task. This is a negative cost result, not a general savings claim.
+- A follow-up tested a 75% latest-compaction deadline. Triggering literally at 75% overshot to
+  75.8% between turns and failed summarization. With one-turn headroom the run completed
+  140/140 stages and three compactions, but its estimated cost was about 9.6% above the
+  earlier fixed-60% reference. The reference was not rerun concurrently, and the headroom was
+  calibrated on the same synthetic corpus.
+- A decision audit found a short default three-call economic horizon and conservative
+  cold-start compaction-cost/retention priors. The first two long cycles retrospectively had
+  more requests left than the estimated break-even count, yet the policy kept waiting for the
+  safety cap. This is a model/planning limitation, not a validated new policy or a reason to
+  tune defaults to this single corpus.
 
 ### Trace v3: account for terminal compactions
 
