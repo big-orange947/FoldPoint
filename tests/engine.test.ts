@@ -156,6 +156,8 @@ describe("FoldPoint engine", () => {
 
   it("exposes the resolved defaults", () => {
     expect(resolveDefaults({ emaAlpha: 0.5 }).emaAlpha).toBe(0.5);
+    expect(resolveDefaults().retentionRatio).toBe(0.1);
+    expect(resolveDefaults().hardWindowRatio).toBe(0.7);
     expect(resolveDefaults().retentionRatio).toBe(DEFAULTS.retentionRatio);
     expect(
       new FoldPoint({ defaults: { expectedFutureCalls: 9 } }).getDefaults().expectedFutureCalls,
@@ -250,8 +252,8 @@ describe("12. session isolation", () => {
       cachedTokens: 0,
     });
 
-    // retention 0.25 blended with the 0.4 prior = 0.3625
-    expect(decision.metrics.estimatedPostCompactTokens).toBeCloseTo(150_000 * 0.3625, 6);
+    // retention 0.25 blended with the 0.1 prior = 0.1375
+    expect(decision.metrics.estimatedPostCompactTokens).toBeCloseTo(150_000 * 0.1375, 6);
     expect(decision.reasons).not.toContain("COOLDOWN_ACTIVE");
     expect(decision.metrics.callsSinceLastAttempt).toBe(0);
   });

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { FoldPoint, type FoldPointProfile, profileKey, tokenOnlyPricing } from "../src/index";
+import {
+  FoldPoint,
+  type FoldPointDefaults,
+  type FoldPointProfile,
+  profileKey,
+  tokenOnlyPricing,
+} from "../src/index";
 import { BASE_TIMESTAMP, HISTORY, makeProfile } from "./helpers";
 
 const SESSION = "session-learning";
@@ -7,15 +13,17 @@ const SESSION = "session-learning";
 function seededFoldPoint(
   profile: FoldPointProfile,
   learning: Record<string, unknown> = {},
+  defaults: Partial<FoldPointDefaults> = {},
 ): FoldPoint {
   return new FoldPoint({
+    defaults,
     state: {
       version: 2,
       profiles: {
         [profileKey(profile)]: {
           version: 2,
           successfulCompactionCount: 0,
-          retentionRatioEma: 0.4,
+          retentionRatioEma: 0.1,
           retentionSamples: 0,
           compactPromptRatioEma: 1,
           compactPromptSamples: 0,
@@ -70,7 +78,7 @@ describe("17.3 online learning", () => {
     });
 
     const learning = foldPoint.getProfileState(profile);
-    expect(learning.retentionRatioEma).toBeCloseTo(0.35, 12);
+    expect(learning.retentionRatioEma).toBeCloseTo(0.125, 12);
     expect(learning.retentionSamples).toBe(1);
     expect(learning.compactPromptRatioEma).toBeCloseTo(1, 12);
     expect(learning.compactOutputRatioEma).toBeCloseTo(0.1025, 12);
@@ -97,7 +105,7 @@ describe("17.3 online learning", () => {
     });
 
     const learning = foldPoint.getProfileState(profile);
-    expect(learning.retentionRatioEma).toBeCloseTo(0.4875, 12);
+    expect(learning.retentionRatioEma).toBeCloseTo(0.31875, 12);
     expect(learning.retentionSamples).toBe(2);
   });
 
@@ -112,7 +120,7 @@ describe("17.3 online learning", () => {
       success: true,
     });
 
-    expect(foldPoint.getProfileState(profile).retentionRatioEma).toBeCloseTo(0.55, 12);
+    expect(foldPoint.getProfileState(profile).retentionRatioEma).toBeCloseTo(0.325, 12);
 
     observeCalls(foldPoint, profile, 3);
     const decision = foldPoint.decide({
@@ -123,7 +131,7 @@ describe("17.3 online learning", () => {
       cachedTokens: 0,
     });
 
-    expect(decision.metrics.estimatedReclaimRatio).toBeCloseTo(0.45, 12);
+    expect(decision.metrics.estimatedReclaimRatio).toBeCloseTo(0.675, 12);
   });
 
   it("learns the cache coverage ratio from request observations", () => {
@@ -361,7 +369,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
     const profile = makeProfile({ cachePolicy: { ttlMs: 1_000 } });
 
     // Control: the same session state without the failed attempt compacts.
-    const control = seededFoldPoint(profile, HISTORY);
+    const control = seededFoldPoint(profile, HISTORY, { hardWindowRatio: 0.9 });
     observeCalls(control, profile, 10);
     const wouldCompact = control.decide({
       sessionId: SESSION,
@@ -374,7 +382,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
     expect(wouldCompact.action).toBe("COMPACT");
 
     // With a failed attempt, the same decision must be blocked by the cooldown.
-    const foldPoint = seededFoldPoint(profile, HISTORY);
+    const foldPoint = seededFoldPoint(profile, HISTORY, { hardWindowRatio: 0.9 });
     observeCalls(foldPoint, profile, 10);
     foldPoint.recordCompaction(SESSION, profile, {
       timestamp: BASE_TIMESTAMP + 11_000,
@@ -442,7 +450,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
 
     const learning = foldPoint.getProfileState(profile);
     expect(learning.retentionSamples).toBe(0);
-    expect(learning.retentionRatioEma).toBeCloseTo(0.4, 12);
+    expect(learning.retentionRatioEma).toBeCloseTo(0.1, 12);
     expect(learning.compactPromptSamples).toBe(0);
     expect(learning.compactOutputSamples).toBe(0);
     expect(learning.compactCostScaleSamples).toBe(0);

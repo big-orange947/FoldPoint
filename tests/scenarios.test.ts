@@ -199,13 +199,13 @@ describe("simulated sessions", () => {
     expect(session.maxUtilization).toBeLessThan(0.65);
   });
 
-  it("defers compaction while the cache keeps replay cheap, unlike a fixed 70% threshold", () => {
+  it("defers economic compaction while cache replay is cheap, then honors the 70% quality boundary", () => {
     const { hooks } = foldPointHooks(CACHE_ALIVE);
     const foldPointSession = runSession(CACHE_ALIVE, hooks);
     const fixedSession = runSession(CACHE_ALIVE, fixedThresholdHooks(0.7));
 
     expect(foldPointSession.compactions.length).toBeGreaterThan(0);
-    expect(foldPointSession.compactions.length).toBeLessThan(fixedSession.compactions.length);
+    expect(foldPointSession.compactions.length).toBe(fixedSession.compactions.length);
     for (const compaction of foldPointSession.compactions) {
       expect(compaction.action).toBe("FORCE");
     }
@@ -223,7 +223,7 @@ describe("simulated sessions", () => {
     const economic = session.compactions.filter((entry) => entry.action === "COMPACT");
     expect(economic.length).toBeGreaterThan(0);
     for (const compaction of economic) {
-      expect(compaction.beforeTokens / WINDOW).toBeLessThan(0.9);
+      expect(compaction.beforeTokens / WINDOW).toBeLessThan(0.7);
     }
     const firstEconomic = session.decisions.find((entry) => entry.action === "COMPACT");
     expect(firstEconomic?.reasons).toContain("ECONOMIC_TRIGGER");
@@ -286,7 +286,7 @@ describe("simulated sessions", () => {
 
   it("a failed compaction keeps the session in cooldown but window safety still forces", () => {
     const profile = makeProfile({ cachePolicy: { ttlMs: CACHE_TTL_MS } });
-    const foldPoint = new FoldPoint();
+    const foldPoint = new FoldPoint({ defaults: { hardWindowRatio: 0.9 } });
     const sessionId = "failure-session";
     const timestamp = BASE_TIMESTAMP;
 
@@ -345,8 +345,8 @@ describe("simulated sessions", () => {
       success: true,
     });
 
-    expect(foldPoint.getProfileState(good).retentionRatioEma).toBeCloseTo(0.375, 12);
-    expect(foldPoint.getProfileState(bad).retentionRatioEma).toBeCloseTo(0.5475, 12);
+    expect(foldPoint.getProfileState(good).retentionRatioEma).toBeCloseTo(0.15, 12);
+    expect(foldPoint.getProfileState(bad).retentionRatioEma).toBeCloseTo(0.3225, 12);
     expect(foldPoint.getProfileState(good).retentionSamples).toBe(1);
     expect(foldPoint.getProfileState(bad).retentionSamples).toBe(1);
   });

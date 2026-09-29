@@ -55,9 +55,21 @@
     "note": "Retrospective request counts are known only after the run; they were not available to FoldPoint at decision time. They diagnose forecast error, not an oracle policy result.",
     "defaultExpectedFutureCalls": 3,
     "keptNear665k": [
-      {"contextTokens": 665424, "retrospectiveRemainingRequests": 98, "estimatedBreakEvenCalls": 65.19},
-      {"contextTokens": 665892, "retrospectiveRemainingRequests": 56, "estimatedBreakEvenCalls": 51.24},
-      {"contextTokens": 665894, "retrospectiveRemainingRequests": 14, "estimatedBreakEvenCalls": 42.76}
+      {
+        "contextTokens": 665424,
+        "retrospectiveRemainingRequests": 98,
+        "estimatedBreakEvenCalls": 65.19
+      },
+      {
+        "contextTokens": 665892,
+        "retrospectiveRemainingRequests": 56,
+        "estimatedBreakEvenCalls": 51.24
+      },
+      {
+        "contextTokens": 665894,
+        "retrospectiveRemainingRequests": 14,
+        "estimatedBreakEvenCalls": 42.76
+      }
     ],
     "firstForcedDecision": {
       "contextTokens": 731346,

@@ -43,7 +43,7 @@ defaults** in force, so a trace can be tied back to the model that produced its 
 ```json
 {"v":3,"type":"header","seq":0,"timestamp":1700000000000,
  "library":{"name":"foldpoint","version":"0.1.0"},
- "defaults":{"retentionRatio":0.4,"...":"..."},"producer":"my-agent@1.2.3"}
+ "defaults":{"retentionRatio":0.1,"...":"..."},"producer":"my-agent@1.2.3"}
 ```
 
 `decision` — one per `decide()` call, written **before** the request. Carries the session id, a

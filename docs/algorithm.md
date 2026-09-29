@@ -390,7 +390,7 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 
 | Default | Value | Why this value |
 | --- | --- | --- |
-| `retentionRatio` | 0.40 | generic "summarize to 40%" prior, replaced by real data after the first success |
+| `retentionRatio` | 0.10 | modern agent-harness prior; replaced by compactor-specific data after the first success |
 | `compactPromptRatio` | 1.00 | the compaction call reads the context it compacts |
 | `compactOutputRatio` | 0.12 | a summary is much shorter than the context it summarizes |
 | `compactCachedInputRatio` | 0 | cold start assumes the compaction call cannot read a cache |
@@ -402,7 +402,7 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 | `minReclaimRatio` | 0.20 | relative floor: a compactor reclaiming under 20% is not earning its call |
 | `softWindowRatio` | 0.65 | below this the window is not scarce |
 | `softWindowBreakEvenCalls` | 3 | the quick-payback policy guard below the soft window |
-| `hardWindowRatio` | 0.90 | window-safety boundary → `FORCE` |
+| `hardWindowRatio` | 0.70 | conservative quality and window-safety boundary → `FORCE`; not a universal attention threshold |
 | `reserveTokens` | 8,192 | absolute safety margin |
 | `emaAlpha` | 0.25 | adapts within a handful of events without over-reacting to one outlier |
 | `minNetSaving` | 0 | compaction must save something after the uncertainty penalty |
@@ -412,6 +412,12 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 | `confidenceHalfSaturationSamples` | 2 | the evidence curve reaches half its range after 2 samples |
 | `cacheAliveThreshold` | 0.50 | above this alive probability the cache counts as still valuable (the name matches what it compares) |
 | `lowConfidenceThreshold` | 0.50 | below this evidence score, `KEEP` is annotated `LOW_CONFIDENCE` |
+
+The 70% hard boundary is a product-quality policy, not a universal threshold established by
+long-context research. Public evaluations consistently show degradation as contexts grow, but
+the effective length depends on the model, task and evidence position: [RULER](https://arxiv.org/abs/2404.06654),
+[NoLiMa](https://arxiv.org/abs/2502.05167), and [Lost in the Middle](https://arxiv.org/abs/2307.03172).
+Hosts with model-specific evaluation may override `hardWindowRatio`.
 
 Numeric bounds (`NUMERIC_BOUNDS`): `retentionRatio ∈ [0.05, 1]`, `compactPromptRatio ∈ [0, 2]`,
 `compactOutputRatio ∈ [0, 1]`, `compactCostScale ∈ [0.1, 10]`. These are numerical safety

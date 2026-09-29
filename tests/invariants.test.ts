@@ -328,7 +328,7 @@ describe("17.6 monotonicity", () => {
         },
         HISTORY,
         SESSION_HISTORY,
-        { defaults: { minReclaimTokens } },
+        { defaults: { minReclaimTokens, hardWindowRatio: 0.9 } },
       ).action === "COMPACT"
         ? 1
         : 0,

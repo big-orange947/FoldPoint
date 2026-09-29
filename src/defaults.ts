@@ -10,7 +10,10 @@ import type { FoldPointDefaults } from "./types";
  * Every value is overridable through `FoldPointOptions.defaults`.
  */
 export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
-  retentionRatio: 0.4,
+  // Modern agent harnesses commonly replace a long transcript with a compact summary plus
+  // a small protected prefix. Start from a 10% retained-context prior; real observations are
+  // still isolated by compactorId and replace this prior through the learner.
+  retentionRatio: 0.1,
 
   // Compaction call usage ratios, relative to the context being compacted.
   compactPromptRatio: 1,
@@ -28,7 +31,9 @@ export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
 
   softWindowRatio: 0.65,
   softWindowBreakEvenCalls: 3,
-  hardWindowRatio: 0.9,
+  // A conservative quality boundary, not a claim that every model has a universal 70%
+  // attention cliff. Hosts can override it after model- and task-specific evaluation.
+  hardWindowRatio: 0.7,
 
   reserveTokens: 8192,
 

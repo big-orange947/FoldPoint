@@ -102,7 +102,7 @@ real Pi/DeepSeek 1M-window trial failed its summary output cap near 0.9M tokens 
 normal model requests worked; an earlier trial at about 0.61M succeeded. FoldPoint cannot infer
 the safe boundary from token pricing or one success. Hosts can supply the optional
 `compactorSafeInputTokens` safety budget, but they must validate it on their own task mix and
-leave room for growth between decisions. Without it, the default 90% hard-window guard may be
+leave room for growth between decisions. Without it, even the default 70% hard-window guard may be
 too late for a particular summarizer.
 
 EMA learning (`alpha = 0.25`) means several successful compactions are needed before the
@@ -111,12 +111,13 @@ the failures at all (by design — a failure says nothing about compression qual
 
 ## 6. The cold-start prior can be wrong
 
-The default `retentionRatio = 0.40` assumes a decent compactor. With a bad one, the first
-economic compactions are justified by an assumption that turns out to be false. The
+The default `retentionRatio = 0.10` reflects the short summaries produced by modern agent
+harnesses, but it is still only a prior. A compactor that retains substantially more context can
+make the first economic compactions look more attractive than they really are. The
 uncertainty penalty, the confidence floor and the minimum reclaim gate make that window as
 small as possible without making FoldPoint useless on a fresh profile, but they do not
-eliminate it. Benchmark scenario `F` shows it: FoldPoint keeps compacting while its learned
-retention ratio walks from 0.40 towards the real 0.95.
+eliminate it. Benchmark scenario `F` shows the general failure mode: FoldPoint keeps compacting
+while its learned retention ratio walks towards the real 0.95.
 
 The first real trace (Pi + DeepSeek, 7 compactions in one session) shows the same walk in the
 other direction: the learned reclaim ratio fell from 0.60 to 0.489 over seven samples, against

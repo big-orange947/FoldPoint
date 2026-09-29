@@ -196,7 +196,7 @@ describe("17.16 state v2 serialization", () => {
     });
 
     const learning = foldPoint.getProfileState(profile);
-    expect(learning.retentionRatioEma).toBe(0.4);
+    expect(learning.retentionRatioEma).toBe(0.1);
     expect(learning.retentionSamples).toBe(0);
     expect(learning.compactCostScaleEma).toBe(10);
     expect(foldPoint.getSessionState(SESSION_A, profile).requestCount).toBe(0);

@@ -66,6 +66,7 @@ describe("17.1 basic decisions", () => {
       },
       HISTORY,
       SESSION_HISTORY,
+      { defaults: { hardWindowRatio: 0.9 } },
     );
 
     expect(decision.action).toBe("COMPACT");
@@ -89,7 +90,7 @@ describe("17.1 basic decisions", () => {
       },
       { ...HISTORY, retentionSamples: 3, retentionRatioEma: 1, cacheCoverageRatioEma: 1 },
       SESSION_HISTORY,
-      { defaults: { minReclaimTokens: 0, minReclaimRatio: 0 } },
+      { defaults: { minReclaimTokens: 0, minReclaimRatio: 0, hardWindowRatio: 0.9 } },
     );
 
     expect(decision.metrics.estimatedReclaimTokens).toBe(0);
@@ -113,6 +114,7 @@ describe("decision output shape", () => {
         },
         HISTORY,
         SESSION_HISTORY,
+        { defaults: { hardWindowRatio: 0.9 } },
       ),
       decideWith({ contextTokens: 195_000 }, {}, {}),
     ];
@@ -437,7 +439,7 @@ describe("soft-window quick-payback policy guard", () => {
       HISTORY,
       SESSION_HISTORY,
       {
-        defaults: { softWindowRatio: 0.8 },
+        defaults: { softWindowRatio: 0.8, hardWindowRatio: 0.9 },
       },
     );
     const aboveSoft = decideWith(
@@ -445,7 +447,7 @@ describe("soft-window quick-payback policy guard", () => {
       HISTORY,
       SESSION_HISTORY,
       {
-        defaults: { softWindowRatio: 0.5 },
+        defaults: { softWindowRatio: 0.5, hardWindowRatio: 0.9 },
       },
     );
 

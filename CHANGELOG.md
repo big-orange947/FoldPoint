@@ -401,6 +401,11 @@ rather than reinterpreted.
 
 ### Changed
 
+- Changed the generic cold-start retained-context prior from 40% to 10%, matching the behavior
+  of modern agent-harness compactors more closely while retaining per-`compactorId` learning.
+- Changed the default hard-window boundary from 90% to 70%. This is a conservative quality and
+  safety policy that hosts may override, not a claim of a universal attention cliff at 70%.
+
 - **State is split in two.** `FoldPointProfileLearningState` (shared by every session of a
   profile) now holds only scale-free ratios and counts; `FoldPointSessionState` (one
   `sessionId`) holds request counts, attempt counters, cooldowns, timestamps and the exact
