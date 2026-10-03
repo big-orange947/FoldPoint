@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi preflight execution timing
+
+- Replace detached idle polling with an awaited `before_agent_start` preflight. Fresh
+  metadata is evaluated only when Pi explicitly reports idle; active context handlers never
+  invoke manual `compact()`. Callback or synchronous failures release the startup hook.
+- Real local Pi 0.87 source smoke uses in-memory model streams and blocked network APIs:
+  compaction completes before agent_start and two successive tasks finish normally.
+  This verifies scheduling, not paid-provider savings or task quality.
+- Within a runtime, native threshold checks plus act-mode vetoes remain the supported path.
+  Auto mode alone does not provide arbitrary mid-loop compaction.
+
 ### Economic sensitivity and short/medium runtime diagnostics
 
 - Economic acceptance now requires a price-scaled margin and positive saving with a shorter

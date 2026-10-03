@@ -376,7 +376,7 @@ timing is genuinely available to an extension:
 | --- | --- | --- |
 | `session_before_compact` returning `{ cancel: true }` | Pi throws `Compaction cancelled` internally, emits `session_compact_failed` with `aborted: true` and continues the session (`_runAutoCompaction` returns false) | **does**: `FOLDPOINT_MODE=act` vetoes a threshold compaction FoldPoint does not want |
 | `session_before_compact` returning `{ compaction }` | the extension supplies the summary, `fromExtension: true` | **never** — that would be taking over the strategy |
-| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **only in `FOLDPOINT_COMPACTION=auto`**, and only from an idle boundary: awaiting it inside a handler deadlocks (Pi waits for the handler, the manual compaction calls `abort()` and waits for the agent to go idle, and the agent is waiting for the handler), so the call is detached and fired once `ctx.isIdle()` is true. It still cannot promise "compacted before the next request" — see §5.1.1 |
+| `ctx.compact(options?)` | triggers a compaction, `reason: "manual"` | **only in `FOLDPOINT_COMPACTION=auto`**, in the awaited `before_agent_start` hook when `isIdle() === true`. Never dispatched from an active context handler; see §5.1.1 |
 | `settings.compaction.enabled = false` | Pi stops compacting on the threshold | not reachable: the extension context exposes no settings (13 capabilities, no `setAutoCompactionEnabled`) |
 
 ### 5.1 High-frequency control of Pi's threshold, and what it is not
@@ -418,7 +418,7 @@ is delivered:
 | mode | what happens | risk |
 | --- | --- | --- |
 | `suggest` (default) | FoldPoint's "compact now" answer is put on Pi's status line, and the user is notified once per episode (again only after the context grows 20%) | none: the session is untouched |
-| `auto` | the adapter asks Pi to compact via `ctx.compact()`, as soon as the agent is idle | the compaction aborts the current turn if a new one starts first; see below |
+| `auto` | fresh preflight before a new runtime; awaits Pi compaction before starting it | active tool loops still need native threshold checks with act-mode vetoes |
 | `off` | neither | none |
 
 **The two are mutually exclusive by construction**, and `/foldpoint auto|suggest|off` switches
@@ -428,37 +428,30 @@ of adding to it. Neither path runs below `FOLDPOINT_MIN_COMPACT_TOKENS` (default
 reserve's worth of context there is nothing to reclaim, and the floor is a policy choice rather
 than a measurement — the same reason the library's own window guard is a policy guard.
 
-Why `auto` waits for idle: `ctx.compact()` starts with `await abort()`, and `abort()` waits for the
-agent to go idle. Called from inside a handler the agent is blocked on, that wait never ends — the
-agent is waiting for the handler to return. This is the deadlock that makes the naive version of
-this unusable. Detaching the call and firing only once `ctx.isIdle()` is true avoids the cycle.
+`ctx.compact()` starts with `await abort()`. Awaiting it inside an active context handler can
+deadlock; detaching it creates a race with subsequent requests. The old polling implementation
+also cancelled its request at agent_end, before Pi actually became idle. Its earlier smoke
+result did not establish correct execution after runtime-end cancellation was introduced.
 
-**Verified against a running Pi**, not just reasoned about: `tools/pi-compact-trigger-smoke.ts`
-drives three arms through a loopback provider (zero paid calls) and reports the raw event stream.
-Detaching the call, polling `isIdle()`, and compacting at an idle boundary completes the
-compaction with no deadlock and no interrupted turn, consistently across runs; `onComplete` fires,
-`session_compact` arrives with `reason: "manual"`, and every assistant message in the session file
-keeps `stopReason: "stop"`. With `compaction.enabled: false` in that fixture, the compaction can
-only have come from the extension — and Pi still wrote the summary (`fromExtension: false`), which
-is the "when, never how" boundary holding in practice.
+The replacement subscribes to `before_agent_start` but ignores its prompt/images payload.
+It recomputes from metadata, requires explicit `isIdle() === true`, and awaits the compact
+callback before returning. Unknown context size, unknown idle, or a pending native compaction
+causes a skip. Failure callbacks and synchronous rejection release the hook. No timer waits
+until a task has ended just to perform an economically stale compaction.
 
-Two things that verification changed, both worth knowing before turning `auto` on:
+Run `npx tsx tools/pi-runtime-smoke.mjs D:/pi` against the local source checkout. This uses
+Pi's actual AgentSession/event runner and an in-memory model stream, with network APIs blocked
+and isolated fake credentials. Native auto-compaction is disabled in the fixture: the observed
+order is preflight idle → compaction start → summary stream → compaction end → agent start →
+normal response → agent end. A second small-context task completes without another compaction.
+Synthetic usage deliberately exercises the scheduling boundary; it is not a cost/quality test.
 
-- **`auto` acts at run boundaries, not mid-run.** `isIdle()` is false for as long as the agent run
-  is active, so the wait ends when the turn settles — not in the middle of a long tool call. If the
-  wait expires first, the advice simply fires again at the next model-call boundary; it is a retry,
-  not a lost compaction.
-- **A compaction is not invisible to the user.** While one is in progress Pi rejects a submitted
-  prompt outright — `Cannot submit a prompt while compaction is in progress. Wait for compaction to
-  finish and retry.` (`agent-session.ts:1627`) — and that check sits *before* the steer/follow-up
-  queueing branches, so the message is refused rather than queued. The adapter therefore cannot
-  promise "compacted before the next request", only "compacted while the session was idle".
-  `suggest` has no such window because it never starts anything.
-
-`agent_settled` (an extension event, `extensions/types.ts:824`) is the cleaner trigger: Pi clears
-`_isAgentRunActive` *before* emitting it, so `isIdle()` is already true in the handler and no
-polling is needed. It fires once per run, so it cannot compact mid-run either — the same boundary
-this adapter reaches by waiting, without the wait.
+**Within an active runtime**, auto mode does not invoke manual compact. Use the earlier
+high-frequency native checks plus act-mode vetoes for per-call timing. A preflight check cannot
+promise a hard context bound for an entire long tool loop, and it does not yet know tokens from
+the incoming user message. Pi's subsequent native checks still cover that request projection.
+Concurrent external prompts during any compaction remain subject to Pi's own rejection/queueing
+behavior; this change only orders the prompt whose startup hook it is handling.
 
 ### 5.2 Policy checks are not decisions
 

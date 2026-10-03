@@ -22,15 +22,16 @@
  * `FOLDPOINT_COMPACTION` decides what the adapter does with FoldPoint's "compact now" answer at
  * a model-call boundary. `suggest` (the default) never touches the session: it puts the advice
  * on Pi's status line and, once per episode, notifies the user to run `/compact`. `auto` drops
- * the advice and instead asks Pi to compact as soon as the agent goes idle — the user opted in,
+ * the advice and instead checks again before the next agent runtime starts — the user opted in,
  * so a reminder for something already being done is noise. **The two are mutually exclusive by
  * construction**, and `/foldpoint auto|suggest|off` switches between them at runtime. `off`
  * leaves the adapter a pure observer.
  *
- * In `auto` mode the adapter does start compactions, but only at an idle boundary: `ctx.compact()`
+ * In `auto` mode the adapter does start compactions, but only in `before_agent_start`: `ctx.compact()`
  * begins with `await abort()`, which waits for the agent to go idle, so a call made from inside a
- * handler the agent is blocked on would wait forever. The call is detached from the handler and
- * made only once `ctx.isIdle()` says there is nothing to interrupt. It never runs below
+ * active handler would wait forever. The startup hook explicitly requires idle and awaits
+ * completion before Pi starts the runtime. Active loops use native threshold checks, not a
+ * detached manual compaction. It never runs below
  * `FOLDPOINT_MIN_COMPACT_TOKENS` (default 8192).
  *
  * Either way it never reads a request payload: it does not subscribe to
@@ -66,7 +67,7 @@ import {
  * Bumped to 0.2.0 when the prompt accounting changed: 0.1.0 recorded Pi's uncached input as the
  * whole prompt, so a 0.1.0 trace under-counts every call by its cache hits.
  */
-export const ADAPTER_VERSION = "0.3.0";
+export const ADAPTER_VERSION = "0.3.1";
 
 // ============================================================================
 // The slice of Pi's extension API this adapter uses (structural, not imported)
@@ -152,6 +153,7 @@ export interface PiExtensionContext {
 export type PiCompactionReason = "manual" | "threshold" | "overflow";
 
 export interface PiEventMap {
+  before_agent_start: { type: "before_agent_start" };
   agent_start: { type: "agent_start" };
   agent_end: { type: "agent_end" };
   session_start: { type: "session_start"; reason: string };
@@ -178,7 +180,10 @@ export interface PiEventMap {
 export interface PiExtensionAPI {
   on<K extends keyof PiEventMap>(
     event: K,
-    handler: (event: PiEventMap[K], ctx: PiExtensionContext) => PiEventResult<K> | undefined,
+    handler: (
+      event: PiEventMap[K],
+      ctx: PiExtensionContext,
+    ) => PiEventResult<K> | undefined | Promise<PiEventResult<K> | undefined>,
   ): () => void;
   /** Optional so the adapter still loads on a Pi build without command registration. */
   registerCommand?(
@@ -202,6 +207,7 @@ export type PiEventResult<K extends keyof PiEventMap> = K extends "session_befor
 
 /** Exactly the events this adapter subscribes to. Nothing else is read. */
 export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
+  "before_agent_start",
   "agent_start",
   "agent_end",
   "session_start",
@@ -271,8 +277,6 @@ const STATUS_KEY = "foldpoint";
 const SUGGESTION_REFRESH_RATIO = 1.2;
 
 /** How long to wait for the agent to go idle before giving up on an automatic compaction. */
-const AUTO_IDLE_POLL_MS = 250;
-const AUTO_IDLE_MAX_POLLS = 120;
 
 function modeFromEnv(): "observe" | "act" {
   return process.env.FOLDPOINT_MODE === "act" ? "act" : "observe";
@@ -299,12 +303,6 @@ function minCompactTokensFromEnv(): number {
     throw new Error("FOLDPOINT_MIN_COMPACT_TOKENS must be a non-negative integer");
   }
   return parsed;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 interface PendingDecision {
@@ -783,65 +781,37 @@ export function createFoldPointObserver(
       }
     };
 
-    const startAutoCompaction = (ctx: PiExtensionContext, tokens: number): void => {
-      if (state.autoInFlight || state.pendingCompaction !== null || ctx.compact === undefined) {
+    const startAutoCompaction = async (ctx: PiExtensionContext, tokens: number): Promise<void> => {
+      if (
+        state.autoInFlight ||
+        state.pendingCompaction !== null ||
+        ctx.compact === undefined ||
+        ctx.isIdle?.() !== true
+      ) {
         return;
       }
       state.autoInFlight = true;
-      state.autoDispatched = false;
+      state.autoDispatched = true;
       state.autoCompactions += 1;
-      const sessionAtRequest = state.sessionKey;
-      const runtimeAtRequest = runtimeId;
       log(`[foldpoint] asking Pi to compact at ${tokens} tokens`);
-      // `ctx.compact()` starts with `await abort()`, and `abort()` waits for the agent to go
-      // idle. Called from inside a handler the agent is blocked on, that wait cannot end: the
-      // agent is waiting for this handler to return. So the call is detached from the handler
-      // and only made once the agent really is idle, where the abort has nothing to interrupt.
-      void (async () => {
-        let polls = 0;
-        while (ctx.isIdle?.() === false && polls < AUTO_IDLE_MAX_POLLS) {
-          polls += 1;
-          await delay(AUTO_IDLE_POLL_MS);
-        }
-        if (
-          state.sessionKey !== sessionAtRequest ||
-          runtimeId !== runtimeAtRequest ||
-          runtimeStatus === "idle"
-        ) {
-          state.autoInFlight = false;
-          state.autoDispatched = false;
-          return;
-        }
-        if (ctx.isIdle?.() === false) {
-          state.autoInFlight = false;
-          state.autoDispatched = false;
-          warnOnce(
-            "auto-no-idle",
-            "the agent never went idle, so the compaction this adapter asked for was skipped",
-          );
-          return;
-        }
-        // A Pi threshold/overflow compaction may have completed while the detached task
-        // waited for idle. Its result supersedes the earlier FoldPoint request; asking again
-        // would fail with "Already compacted" and pollute the cost/quality trace.
-        if (state.pendingCompaction !== null) {
-          state.autoInFlight = false;
-          state.autoDispatched = false;
-          return;
-        }
-        state.autoDispatched = true;
-        ctx.compact?.({
-          onComplete: () => {
-            state.autoInFlight = false;
-            state.autoDispatched = false;
-          },
-          onError: (error: Error) => {
-            state.autoInFlight = false;
-            state.autoDispatched = false;
-            log(`[foldpoint] the compaction this adapter asked for failed: ${error.message}`);
-          },
+      // Only called from the awaited, idle before_agent_start hook. Never abort a running
+      // tool loop or race the next request with a detached manual compaction.
+      try {
+        await new Promise<void>((resolve) => {
+          ctx.compact?.({
+            onComplete: () => resolve(),
+            onError: (error: Error) => {
+              log(`[foldpoint] the compaction this adapter asked for failed: ${error.message}`);
+              resolve();
+            },
+          });
         });
-      })();
+      } catch (error) {
+        log(`[foldpoint] Pi rejected the preflight compaction: ${String(error)}`);
+      } finally {
+        state.autoInFlight = false;
+        state.autoDispatched = false;
+      }
     };
 
     const applyCompactionPolicy = (
@@ -859,7 +829,8 @@ export function createFoldPointObserver(
       }
       if (state.compactionMode === "auto") {
         dropSuggestion(ctx);
-        startAutoCompaction(ctx, tokens);
+        // Active requests use Pi's native threshold check. Manual compact() aborts the
+        // agent, so it must not be dispatched here, even if a fake context claims idle.
         return;
       }
       suggestCompaction(ctx, tokens);
@@ -1008,6 +979,46 @@ export function createFoldPointObserver(
       }
     };
 
+    pi.on("before_agent_start", async (_event, ctx) => {
+      collectCacheWarms(ctx);
+      const tokens = ctx.getContextUsage()?.tokens;
+      if (
+        state.compactionMode !== "auto" ||
+        state.sessionKey === null ||
+        ctx.model === undefined ||
+        tokens == null ||
+        tokens < state.minCompactTokens ||
+        ctx.isIdle?.() !== true
+      ) {
+        return;
+      }
+      // Fresh preflight, not the previous runtime's stale decision. Do not create a
+      // request-paired trace decision: this hook is not itself a model request.
+      const timestamp = now();
+      const idleMs = idleSinceCacheRefresh(timestamp, ctx.model);
+      const prefixId = prefixIdFromSystemPrompt(readSystemPrompt(ctx)) ?? state.prefixId;
+      const fixedPrefixTokens =
+        prefixId === undefined
+          ? undefined
+          : (state.prefixStore[prefixId] ??
+            (prefixId === state.prefixId ? state.fixedPrefixTokens : undefined));
+      const decision = foldPoint.decide({
+        sessionId: state.sessionKey,
+        runtimeStatus: "active",
+        profile: profileFromModel(ctx.model, prefixId),
+        timestamp,
+        contextTokens: tokens,
+        safeBoundary: true,
+        compactionAllowed: true,
+        ...(idleMs === undefined ? {} : { idleMs }),
+        ...(fixedPrefixTokens !== undefined && fixedPrefixTokens < tokens
+          ? { fixedPrefixTokens }
+          : {}),
+      });
+      if (decision.action !== "KEEP") {
+        await startAutoCompaction(ctx, tokens);
+      }
+    });
     pi.on("agent_start", () => {
       runtimeCount += 1;
       runtimeId = `run-${runtimeStartSeconds}-${runtimeCount}`;

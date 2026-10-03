@@ -244,6 +244,7 @@ describe("Pi observer adapter", () => {
     createFoldPointObserver({ tracePath: newTracePath("events"), now: () => 1_000_000 })(fake.pi);
 
     expect(fake.registered).toEqual([
+      "before_agent_start",
       "agent_start",
       "agent_end",
       "session_start",
@@ -1079,7 +1080,7 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     expect(fake.statuses).toHaveLength(0);
   });
 
-  it("asks Pi to compact instead of advising, when automatic compaction is on", () => {
+  it("awaits Pi compaction before starting the next runtime", async () => {
     const fake = fakePi();
     const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
     createFoldPointObserver({
@@ -1088,15 +1089,24 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
       log: () => undefined,
     })(fake.pi);
     fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
-    fake.emit("context", { type: "context" }, ctx);
-
+    let finished = false;
+    const pending = Promise.resolve(
+      fake.emit("before_agent_start", { type: "before_agent_start" }, ctx),
+    ).then(() => {
+      finished = true;
+    });
     expect(fake.compactions).toHaveLength(1);
     expect(fake.compactions[0]?.idle).toBe(true);
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    fake.completeCompaction();
+    await pending;
+    expect(finished).toBe(true);
     // The two modes are exclusive: an automatic compaction leaves nothing to remind about.
     expect(fake.notifications).toHaveLength(0);
   });
 
-  it("drops a queued automatic request when its runtime has ended", async () => {
+  it("never queues manual compaction from an active context or agent_end", async () => {
     const fake = fakePi();
     let idle = false;
     const ctx = { ...fake.ctxWith(CONTEXT_WINDOW * 0.95), isIdle: () => idle };
@@ -1110,11 +1120,81 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     fake.emit("context", { type: "context" }, ctx);
     fake.emit("agent_end", { type: "agent_end" }, ctx);
     idle = true;
-    await new Promise<void>((done) => setTimeout(done, 300));
+    await Promise.resolve();
     expect(fake.compactions).toHaveLength(0);
   });
 
-  it("drops a queued automatic request if Pi compacted while the adapter waited for idle", async () => {
+  it("requires explicit idle and ignores startup prompt payloads", async () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("preflight-idle"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    const event = {
+      type: "before_agent_start" as const,
+      get prompt() {
+        throw new Error("must not read prompt");
+      },
+    };
+    await fake.emit("before_agent_start", event, { ...ctx, isIdle: undefined });
+    await fake.emit("before_agent_start", event, { ...ctx, isIdle: () => false });
+    expect(fake.compactions).toHaveLength(0);
+    fake.emit("agent_end", { type: "agent_end" }, ctx);
+    const pending = fake.emit("before_agent_start", event, ctx);
+    expect(fake.compactions).toHaveLength(1);
+    fake.completeCompaction();
+    await pending;
+  });
+
+  it("releases preflight on errors and allows a subsequent attempt", async () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("preflight-error"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    await fake.emit(
+      "before_agent_start",
+      { type: "before_agent_start" },
+      { ...ctx, compact: (options) => options?.onError?.(new Error("synthetic failure")) },
+    );
+    await fake.emit(
+      "before_agent_start",
+      { type: "before_agent_start" },
+      {
+        ...ctx,
+        compact: () => {
+          throw new Error("synthetic synchronous failure");
+        },
+      },
+    );
+    const pending = fake.emit("before_agent_start", { type: "before_agent_start" }, ctx);
+    expect(fake.compactions).toHaveLength(1);
+    fake.completeCompaction();
+    await pending;
+  });
+
+  it("does not act on a prior runtime's stale suggestion", async () => {
+    const fake = fakePi();
+    const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
+    createFoldPointObserver({
+      tracePath: newTracePath("preflight-fresh"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    fake.emit("agent_end", { type: "agent_end" }, ctx);
+    await fake.emit("before_agent_start", { type: "before_agent_start" }, fake.ctxWith(20_000));
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it("does not dispatch stale advice after a native compaction", async () => {
     const path = newTracePath("auto-native-race");
     const fake = fakePi();
     let idle = false;
@@ -1145,7 +1225,14 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
       ctx,
     );
     idle = true;
-    await new Promise<void>((done) => setTimeout(done, 300));
+    await fake.emit(
+      "before_agent_start",
+      { type: "before_agent_start" },
+      {
+        ...ctx,
+        getContextUsage: () => ({ tokens: null, contextWindow: CONTEXT_WINDOW, percent: null }),
+      },
+    );
     expect(fake.compactions).toHaveLength(0);
     fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" }, ctx);
     const compactions = readTrace(path).filter((event) => event.type === "compaction");
@@ -1154,7 +1241,7 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     expect(compactions[0]?.success).toBe(true);
   });
 
-  it("records an automatic compaction as policy-initiated, not as the user's", () => {
+  it("records an automatic compaction as policy-initiated, not as the user's", async () => {
     const path = newTracePath("auto-trace");
     const fake = fakePi();
     const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
@@ -1164,7 +1251,7 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
       log: () => undefined,
     })(fake.pi);
     fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
-    fake.emit("context", { type: "context" }, ctx);
+    const pending = fake.emit("before_agent_start", { type: "before_agent_start" }, ctx);
     expect(fake.compactions).toHaveLength(1);
 
     // Pi runs the compaction the adapter asked for and reports it as `manual`, exactly as it
@@ -1184,6 +1271,8 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
       },
       ctx,
     );
+    fake.completeCompaction();
+    await pending;
     // The post-compaction size is only known on the next call, which is where the record lands.
     fake.emit("context", { type: "context" }, fake.ctxWith(20_000));
 
@@ -1210,7 +1299,7 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     expect(fake.compactions).toHaveLength(0);
   });
 
-  it("turns automatic compaction on and back off from /foldpoint", () => {
+  it("turns automatic compaction on and back off from /foldpoint", async () => {
     const fake = fakePi();
     const ctx = fake.ctxWith(CONTEXT_WINDOW * 0.95);
     createFoldPointObserver({
@@ -1221,9 +1310,11 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
 
     fake.runCommand("foldpoint", "auto", ctx);
-    fake.emit("context", { type: "context" }, ctx);
+    const pending = fake.emit("before_agent_start", { type: "before_agent_start" }, ctx);
     expect(fake.compactions).toHaveLength(1);
     expect(fake.notifications).toHaveLength(1); // only the confirmation from the command
+    fake.completeCompaction();
+    await pending;
 
     fake.runCommand("foldpoint", "suggest", ctx);
     fake.emit("context", { type: "context" }, ctx);
