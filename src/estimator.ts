@@ -554,6 +554,38 @@ export function decideFoldPoint(
     : compactCallCost;
   const adjustedDecisionNetSaving =
     estimatedDecisionNetSaving * confidence - uncertaintyPenalty * decisionUncertaintyCost;
+  const requiredEconomicSaving =
+    defaults.minNetSaving + defaults.economicSavingMargin * compactCallCost;
+  let stressedAdjustedNetSaving = adjustedDecisionNetSaving;
+  if (defaults.economicHorizonDiscount > 0 || defaults.economicRetentionStress > 0) {
+    const stressedRetention = Math.min(1, retentionRatio + defaults.economicRetentionStress);
+    // Exactly one bounded second evaluation. Stress is disabled inside it; no unbounded
+    // recursion, learned-state mutation, scenario matching or provider calls.
+    const stressed = decideFoldPoint(
+      {
+        ...input,
+        expectedFutureCalls: Math.max(
+          1,
+          expectedFutureCalls * (1 - defaults.economicHorizonDiscount),
+        ),
+      },
+      { ...learning, retentionRatioEma: stressedRetention },
+      session,
+      {
+        defaults: {
+          ...defaults,
+          retentionRatio: stressedRetention,
+          economicSavingMargin: 0,
+          economicHorizonDiscount: 0,
+          economicRetentionStress: 0,
+        },
+      },
+    );
+    // A previously unknown horizon must not gain confidence from our artificial stress input.
+    stressedAdjustedNetSaving =
+      stressed.metrics.estimatedDecisionNetSaving * confidence -
+      uncertaintyPenalty * compactCallCost;
+  }
 
   // Cache reasons only make sense when the profile actually has a cache candidate.
   const hasCacheEvidence =
@@ -586,6 +618,8 @@ export function decideFoldPoint(
     estimatedDecisionNetSaving,
     estimatedNetSaving,
     adjustedNetSaving: adjustedDecisionNetSaving,
+    stressedAdjustedNetSaving,
+    requiredEconomicSaving,
     estimatedSavingPerFutureCall,
     breakEvenCalls,
     expectedFutureCalls,
@@ -673,7 +707,8 @@ export function decideFoldPoint(
   // --- 6. economics ---
   const breakEvenWithinHorizon = breakEvenCalls !== null && breakEvenCalls <= effectiveHorizonCalls;
   if (
-    adjustedDecisionNetSaving > defaults.minNetSaving &&
+    adjustedDecisionNetSaving > requiredEconomicSaving &&
+    stressedAdjustedNetSaving > requiredEconomicSaving &&
     (deferApplicable || breakEvenWithinHorizon)
   ) {
     const reasons: FoldPointReason[] = ["ECONOMIC_TRIGGER"];
@@ -690,6 +725,16 @@ export function decideFoldPoint(
 
   // --- 7. KEEP, with the diagnosis that explains why ---
   const reasons: FoldPointReason[] = [];
+  if (
+    adjustedDecisionNetSaving > defaults.minNetSaving &&
+    adjustedDecisionNetSaving <= requiredEconomicSaving
+  )
+    reasons.push("ECONOMIC_MARGIN_TOO_SMALL");
+  if (
+    adjustedDecisionNetSaving > requiredEconomicSaving &&
+    stressedAdjustedNetSaving <= requiredEconomicSaving
+  )
+    reasons.push("ECONOMIC_ESTIMATE_FRAGILE");
   if (hasCacheEvidence) {
     reasons.push(
       cache.aliveProbability >= defaults.cacheAliveThreshold

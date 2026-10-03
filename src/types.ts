@@ -60,7 +60,9 @@ export type FoldPointReason =
   | "DEFERRED_COMPACTION_COSTLIER"
   /** Nothing else applied; the conservative default is to keep. */
   | "DEFAULT_KEEP"
-  | "RUNTIME_IDLE";
+  | "RUNTIME_IDLE"
+  | "ECONOMIC_ESTIMATE_FRAGILE"
+  | "ECONOMIC_MARGIN_TOO_SMALL";
 
 /**
  * Model price snapshot. Prices are always supplied by the host (config, adapter or user);
@@ -267,6 +269,10 @@ export interface FoldPointDecisionMetrics {
    * penalized; with NOW vs KEEP, the whole compaction call remains at risk.
    */
   adjustedNetSaving: number;
+  /** Adjusted saving when the runtime horizon is shorter and compaction retains more. */
+  stressedAdjustedNetSaving: number;
+  /** Absolute minimum plus a price-scaled fraction of the compaction call cost. */
+  requiredEconomicSaving: number;
 
   estimatedSavingPerFutureCall: number;
   /** null when there is no positive per-call saving. */
@@ -442,6 +448,12 @@ export interface FoldPointDefaults {
   emaAlpha: number;
   /** Minimum adjusted net saving required for COMPACT. */
   minNetSaving: number;
+  /** Fraction of compaction-call cost required as an additional economic margin. */
+  economicSavingMargin: number;
+  /** Fraction removed from host horizon in the economic sensitivity check. */
+  economicHorizonDiscount: number;
+  /** Retention ratio points added in the economic sensitivity check. */
+  economicRetentionStress: number;
   /** Cost-uncertainty penalty coefficient applied to the compaction call cost. */
   uncertaintyPenalty: number;
   /** Multiplier applied to `uncertaintyPenalty` below the soft window. */

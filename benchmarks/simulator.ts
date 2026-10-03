@@ -159,8 +159,14 @@ export interface SessionRun {
  * call observed, every compaction attempt recorded (successful or not), and the session
  * ended at the end so the reuse horizon can be learned.
  */
-export function createFoldPointStrategy(scenario: Scenario): Strategy {
-  const foldPoint = new FoldPoint();
+export function createFoldPointStrategy(
+  scenario: Scenario,
+  options: {
+    defaults?: import("../src/index").FoldPointOptions["defaults"];
+    uncappedHostHorizon?: boolean;
+  } = {},
+): Strategy {
+  const foldPoint = new FoldPoint({ defaults: options.defaults });
   const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
@@ -190,7 +196,9 @@ export function createFoldPointStrategy(scenario: Scenario): Strategy {
         // session can still have, so the estimate shrinks as the session proceeds.
         input.expectedFutureCalls = Math.max(
           1,
-          Math.min(scenario.hostHorizon, scenario.steps - request.step),
+          options.uncappedHostHorizon
+            ? scenario.hostHorizon
+            : Math.min(scenario.hostHorizon, scenario.steps - request.step),
         );
       }
 

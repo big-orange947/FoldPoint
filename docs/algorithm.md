@@ -345,6 +345,18 @@ a binary modeled-horizon indicator, not a statistical probability. It remains O(
 
 ## 12. Decision gates
 
+Before economic acceptance, one bounded sensitivity evaluation shortens the host horizon
+by `economicHorizonDiscount` (default 0.5, minimum one call) and raises retained ratio by
+`economicRetentionStress` (default 0.05, capped at 1). It uses the same path-cost computation
+but retains the original confidence and charges a full compaction uncertainty penalty.
+Both nominal and stressed adjusted gains must exceed `minNetSaving +
+economicSavingMargin * compactCallCost` (margin default 0.1). This is a configurable
+conservative heuristic, not a calibrated probability or quality guarantee. Inaccurate horizons
+can still pass; it cannot discover that a claimed 30 calls is really only three.
+`stressedAdjustedNetSaving` and `requiredEconomicSaving` expose the checks in metrics/traces.
+The kernel performs at most two evaluations, still O(1) without external calls. Window safety
+is unaffected. Setting all three parameters to zero reproduces nominal-only economics.
+
 All metrics are computed before the gates, so every branch returns the same complete metrics
 block. The first matching gate wins.
 
@@ -426,6 +438,9 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 | `minCallsBetweenCompactions` | 3 | cooldown between attempts |
 | `minReclaimTokens` | 4,096 | absolute floor: compacting for a few hundred tokens is never worth a call |
 | `minReclaimRatio` | 0.20 | relative floor: a compactor reclaiming under 20% is not earning its call |
+| `economicSavingMargin` | 0.10 | extra margin as a fraction of the compaction-call cost |
+| `economicHorizonDiscount` | 0.50 | shorten horizon in the sensitivity evaluation |
+| `economicRetentionStress` | 0.05 | add retention ratio points in sensitivity evaluation |
 | `softWindowRatio` | 0 | optional floor; no default percentage exclusion |
 | `softWindowBreakEvenCalls` | 3 | conservative reporting horizon below the economic band |
 | `hardWindowRatio` | 0.70 | conservative quality and window-safety boundary → `FORCE`; not a universal attention threshold |

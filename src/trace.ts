@@ -64,6 +64,8 @@ export interface TracePrediction {
   estimatedDecisionNetSaving: number;
   estimatedNetSaving: number;
   adjustedNetSaving: number;
+  stressedAdjustedNetSaving?: number;
+  requiredEconomicSaving?: number;
   breakEvenCalls: number | null;
   expectedFutureCalls: number;
   effectiveHorizonCalls: number;
@@ -612,6 +614,8 @@ function tracePrediction(decision: FoldPointDecision): TracePrediction {
     estimatedDecisionNetSaving: metrics.estimatedDecisionNetSaving,
     estimatedNetSaving: metrics.estimatedNetSaving,
     adjustedNetSaving: metrics.adjustedNetSaving,
+    stressedAdjustedNetSaving: metrics.stressedAdjustedNetSaving,
+    requiredEconomicSaving: metrics.requiredEconomicSaving,
     breakEvenCalls: metrics.breakEvenCalls,
     expectedFutureCalls: metrics.expectedFutureCalls,
     effectiveHorizonCalls: metrics.effectiveHorizonCalls,

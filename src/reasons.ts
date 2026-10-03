@@ -54,6 +54,9 @@ export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Ob
   DEFERRED_COMPACTION_COSTLIER:
     "Waiting for the later mandatory compaction is estimated to cost more than compacting now.",
   DEFAULT_KEEP: "No rule applied; the conservative default is to keep the context.",
+  ECONOMIC_ESTIMATE_FRAGILE:
+    "Economic saving disappears under a shorter runtime and higher retained context.",
+  ECONOMIC_MARGIN_TOO_SMALL: "Adjusted saving does not cover the price-scaled economic margin.",
   RUNTIME_IDLE:
     "The current agent runtime has ended; do not finance compaction with unknown future commands.",
 });

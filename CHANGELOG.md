@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Economic sensitivity and short/medium runtime diagnostics
+
+- Economic acceptance now requires a price-scaled margin and positive saving with a shorter
+  runtime / higher retained-context stress. Defaults: 10% compaction-cost margin, 50% horizon
+  discount, +5 retention percentage points. These are configurable conservative heuristics,
+  not trained optima. Safety FORCE is unaffected. Nominal-only behavior remains reproducible
+  by setting all three knobs to zero. New reasons/metrics expose margin and fragile forecasts.
+- Synthetic aggregate: cost 134.68 (previous 131.41), attempts 162 (203), unneeded 34/104
+  (73/145), no overflows. Less churn is bought with slightly higher modeled cost; warm-cache
+  and fast-growth timing are still unresolved.
+- New deterministic 36-case short/medium matrix separates unknown, bounded and intentionally
+  overstated horizons. The guard costs more in declared-horizon groups; it cannot repair
+  grossly overstated remaining work. No paid API or task-quality claim.
+
 ### Runtime-scoped economics (behavior change)
 
 - Unknown remaining calls now mean one current request; session age and legacy learned

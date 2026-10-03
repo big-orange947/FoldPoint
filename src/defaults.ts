@@ -42,6 +42,9 @@ export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
   emaAlpha: 0.25,
 
   minNetSaving: 0,
+  economicSavingMargin: 0.1,
+  economicHorizonDiscount: 0.5,
+  economicRetentionStress: 0.05,
 
   uncertaintyPenalty: 0.15,
   softWindowPenaltyMultiplier: 2,
@@ -71,6 +74,9 @@ export const NUMERIC_BOUNDS = Object.freeze({
 });
 
 const RATIO_KEYS = [
+  "economicSavingMargin",
+  "economicHorizonDiscount",
+  "economicRetentionStress",
   "retentionRatio",
   "compactOutputRatio",
   "compactCachedInputRatio",

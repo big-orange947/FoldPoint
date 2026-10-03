@@ -325,7 +325,7 @@ describe("17.6 monotonicity", () => {
           cachedTokens: 140_000,
           idleMs: 600_000,
           profile: profileWithCacheTtl(300_000),
-          expectedFutureCalls: 10,
+          expectedFutureCalls: 30,
         },
         HISTORY,
         SESSION_HISTORY,

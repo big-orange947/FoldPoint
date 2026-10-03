@@ -225,17 +225,18 @@ Two runs produce identical costs, token counts, attempt counts and decision outc
 | Fixed 70% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
 | Fixed 80% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
 | Fixed 90% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
-| **FoldPoint** | **131.41** | 203 | 188 | 15 | 158 | 45 | 145 | **73** | **0** | 60,187 | 0.313 |
+| **FoldPoint** | **134.68** | 162 | 154 | 8 | 108 | 54 | 104 | **34** | **0** | 49,218 | 0.384 |
 
 Read that honestly:
 
-- FoldPoint never overflows and costs 131.41 in aggregate versus raw 50% at 170.93 and
+- FoldPoint never overflows and costs 134.68 in aggregate versus raw 50% at 170.93 and
   guarded 70% at 189.33. These are simulated units, not a real provider saving claim.
-- Removing the percentage floor exposes early compaction again: 203 attempts, 158 economic
-  and 45 forced, average utilization 0.313. The prior 182.13 / 92-attempt result belongs to
+- Removing the percentage floor exposes early compaction again. The sensitivity guard now
+  makes 162 attempts, 108 economic and 54 forced, average utilization 0.384. The prior 182.13 / 92-attempt result belongs to
   the old 60%-floor policy and must not describe this revision.
-- 73 of 145 judged compactions (50.3%) do not repay within their settlement intervals. All
-  21 warm-cache `C` and 17 churn `I` compactions are unneeded by this measure. A lower total
+- 34 of 104 judged compactions (32.7%) do not repay within their settlement intervals, versus
+  73/145 (50.3%) before the sensitivity guard. Total cost rises from 131.41 to 134.68 and
+  attempts fall from 203 to 162. All 8 warm-cache `C` and 16 churn `I` compactions remain unneeded. A lower total
   cost does not establish good timing or preserved quality. Churn and optimistic horizon
   assumptions remain unresolved and must be addressed before a paid superiority claim.
 - Scenarios with `hostHorizon` provide a bounded synthetic runtime estimate, capped by their
@@ -246,8 +247,8 @@ Read that honestly:
   Their zero `judged` count means their compactions are safety operations, not that every one
   was economically necessary. The three duplicate rows are retained for report-schema
   continuity, not treated as independent evidence.
-- The policy remains strongest in the cold/no-discount cases: `D` costs 9.57 versus fixed-70's
-  31.56, `E` 5.88 versus 23.19, and `J` 7.30 versus 21.80. Scenario `F` remains the honest
+- The policy remains strongest in the cold/no-discount cases: `D` costs 9.70 versus fixed-70's
+  31.56, `E` 6.01 versus 23.19, and `J` 7.63 versus 21.80. Scenario `F` remains the honest
   cold-start counter-example: a compactor that really retains 95% defeats the optimistic 10%
   retention prior until learning catches up. Scenario `K` shows that a failing compactor can
   still make FoldPoint more expensive than the fixed baselines despite cooldown.
