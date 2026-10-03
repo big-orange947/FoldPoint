@@ -177,20 +177,47 @@ export function validateFoldPointInput(input: FoldPointInput): void {
   }
 }
 
-/** Future-call horizon: host input, then learned horizon, then cold start. */
+/**
+ * Future-call horizon: host input first, otherwise combine completed-session learning with
+ * right-censored evidence from the live session. Every request already observed in an active
+ * session is evidence that a three-call cold-start prior is too short, but elapsed calls are
+ * not remaining calls. A square-root update lets that evidence grow sublinearly instead of
+ * assuming that every completed call implies one additional future call. The multiplier is a
+ * product prior: a 36-call session reaches roughly 21 forecast calls, not 39. It is not a
+ * fitted survival model; hosts with a real horizon should provide it.
+ */
 function resolveExpectedFutureCalls(
   input: FoldPointInput,
   horizonSamples: number,
   reuseHorizonEma: number,
+  sessionRequestCount: number,
   defaults: FoldPointDefaults,
 ): number {
   if (input.expectedFutureCalls !== undefined) {
     return input.expectedFutureCalls;
   }
+  const activeSessionHorizon =
+    defaults.expectedFutureCalls +
+    defaults.activeHorizonSqrtMultiplier * Math.sqrt(sessionRequestCount);
   if (horizonSamples > 0) {
-    return clamp(reuseHorizonEma, 1, Number.MAX_SAFE_INTEGER);
+    return clamp(Math.max(reuseHorizonEma, activeSessionHorizon), 1, Number.MAX_SAFE_INTEGER);
   }
-  return defaults.expectedFutureCalls;
+  return clamp(activeSessionHorizon, 1, Number.MAX_SAFE_INTEGER);
+}
+
+function rawForceBoundaryTokens(
+  windowTokens: number,
+  defaults: FoldPointDefaults,
+  compactorSafeInputTokens?: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(
+      Math.ceil(defaults.hardWindowRatio * windowTokens),
+      windowTokens - defaults.reserveTokens,
+      compactorSafeInputTokens ?? Number.POSITIVE_INFINITY,
+    ),
+  );
 }
 
 /**
@@ -204,16 +231,12 @@ function computeNextCheckAtTokens(args: {
   defaults: FoldPointDefaults;
   retentionRatio: number;
   economicBoundaryTokens: number;
-  compactorSafeInputTokens?: number;
+  guardedForceBoundaryTokens: number;
 }): number {
   const { contextTokens, windowTokens, defaults, retentionRatio, economicBoundaryTokens } = args;
 
   const softBoundary = Math.ceil(defaults.softWindowRatio * windowTokens);
-  const forceBoundary = Math.min(
-    Math.ceil(defaults.hardWindowRatio * windowTokens),
-    windowTokens - defaults.reserveTokens,
-    args.compactorSafeInputTokens ?? Number.POSITIVE_INFINITY,
-  );
+  const forceBoundary = args.guardedForceBoundaryTokens;
   const reclaimBoundary =
     retentionRatio < 1
       ? Math.ceil(defaults.minReclaimTokens / (1 - retentionRatio))
@@ -266,7 +289,41 @@ export function decideFoldPoint(
   );
   const compactionAttemptCount = readStateNumber(session?.compactionAttemptCount, 0);
   const callsSinceLastAttempt = readStateNumber(session?.callsSinceLastAttempt, 0);
-
+  const requestCount = readStateNumber(session?.requestCount, 0);
+  const growthSamples = readStateNumber(session?.growthSamples, 0);
+  const estimatedGrowthTokensPerCall =
+    growthSamples > 0 ? readStateNumber(session?.growthTokensEma, 0) : 0;
+  const estimatedGrowthDeviation =
+    growthSamples > 0 ? readStateNumber(session?.growthDeviationEma, 0) : 0;
+  const rawForceBoundary = rawForceBoundaryTokens(
+    windowTokens,
+    defaults,
+    input.profile.compactorSafeInputTokens,
+  );
+  const uncappedGrowthGuard =
+    growthSamples > 0
+      ? Math.ceil(
+          estimatedGrowthTokensPerCall +
+            defaults.growthGuardDeviationMultiplier * estimatedGrowthDeviation,
+        )
+      : 0;
+  // Never let one outlier move the force point below the soft boundary. If growth itself is
+  // larger than that whole policy band, the next decision will still FORCE after the jump;
+  // hosts that require a stronger guarantee must provide a lower compactor input budget.
+  const growthGuardTokens = Math.min(
+    uncappedGrowthGuard,
+    Math.max(rawForceBoundary - defaults.softWindowRatio * windowTokens, 0),
+  );
+  const guardedForceBoundary = Math.max(0, rawForceBoundary - growthGuardTokens);
+  const callsUntilForce =
+    contextTokens >= guardedForceBoundary
+      ? 0
+      : estimatedGrowthTokensPerCall > 0
+        ? Math.min(
+            Math.ceil((guardedForceBoundary - contextTokens) / estimatedGrowthTokensPerCall),
+            Number.MAX_SAFE_INTEGER,
+          )
+        : Number.MAX_SAFE_INTEGER;
   const retentionRatio = clamp(
     retentionSamples > 0
       ? readStateNumber(learning?.retentionRatioEma, defaults.retentionRatio)
@@ -410,8 +467,17 @@ export function decideFoldPoint(
     input,
     horizonSamples,
     reuseHorizonEma,
+    requestCount,
     defaults,
   );
+  // Treat the estimated horizon as the mean of a geometric continuation model solely for
+  // this reachability blend. This keeps the probability and the cost horizon internally
+  // consistent; it does not claim that real agent lifetimes are geometrically distributed.
+  const continuationProbability = clamp((expectedFutureCalls - 1) / expectedFutureCalls, 0, 1);
+  const probabilityReachForce =
+    callsUntilForce === Number.MAX_SAFE_INTEGER
+      ? 0
+      : clamp(continuationProbability ** callsUntilForce, 0, 1);
 
   const estimatedKeepCost =
     currentReplayCost + Math.max(expectedFutureCalls - 1, 0) * laterReplayCost;
@@ -433,13 +499,65 @@ export function decideFoldPoint(
   const belowSoftWindow = utilization < defaults.softWindowRatio;
   const uncertaintyPenalty =
     defaults.uncertaintyPenalty * (belowSoftWindow ? defaults.softWindowPenaltyMultiplier : 1);
-  const adjustedNetSaving = estimatedNetSaving * confidence - uncertaintyPenalty * compactCallCost;
-
-  // The quick-payback policy guard: below the soft window the window is not scarce, so a
-  // compaction must repay itself within a few calls. A policy, not a mathematical optimum.
+  // Keep a short diagnostic horizon below the economic band. The gate below refuses economic
+  // compaction there; this metric still makes local break-even auditable.
   const effectiveHorizonCalls = belowSoftWindow
     ? Math.min(expectedFutureCalls, defaults.softWindowBreakEvenCalls)
     : expectedFutureCalls;
+
+  // If the guarded force boundary is likely to arrive inside the horizon, KEEP is not a
+  // physically possible whole-horizon alternative: it means "keep for a while, then pay for
+  // a larger mandatory compaction". Estimate that path with one bounded look-ahead. Token
+  // growth and all cost components are linearized from current measured ratios, so the hot
+  // path remains O(1) and content-free.
+  const deferApplicable =
+    !belowSoftWindow &&
+    callsUntilForce > 0 &&
+    callsUntilForce < Number.MAX_SAFE_INTEGER &&
+    callsUntilForce < expectedFutureCalls;
+  let estimatedDeferCost = estimatedKeepCost;
+  let deferredCompactionScale = 1;
+  if (deferApplicable) {
+    const deferCalls = callsUntilForce;
+    const laterCallsBeforeForce = Math.max(deferCalls - 1, 0);
+    const laterReplayPerToken = safeDivide(laterReplayCost, contextTokens, 0);
+    const growthSumBeforeForce =
+      laterCallsBeforeForce * contextTokens +
+      (estimatedGrowthTokensPerCall * laterCallsBeforeForce * deferCalls) / 2;
+    const keepUntilForceCost = currentReplayCost + laterReplayPerToken * growthSumBeforeForce;
+    const deferredContextTokens = Math.min(
+      rawForceBoundary,
+      contextTokens + deferCalls * estimatedGrowthTokensPerCall,
+    );
+    const deferredScale = safeDivide(deferredContextTokens, contextTokens, 1);
+    deferredCompactionScale = deferredScale;
+    const callsAfterDeferredCompaction = Math.max(expectedFutureCalls - deferCalls, 0);
+    const reachedForceCost =
+      keepUntilForceCost +
+      compactCallCost * deferredScale +
+      firstPostCompactReplayCost * deferredScale +
+      Math.max(callsAfterDeferredCompaction - 1, 0) * laterPostCompactReplayCost * deferredScale;
+    const endBeforeForceCalls = Math.min(expectedFutureCalls, deferCalls);
+    const endBeforeForceLaterCalls = Math.max(endBeforeForceCalls - 1, 0);
+    const endBeforeForceGrowthSum =
+      endBeforeForceLaterCalls * contextTokens +
+      (estimatedGrowthTokensPerCall * endBeforeForceLaterCalls * endBeforeForceCalls) / 2;
+    const endBeforeForceCost = currentReplayCost + laterReplayPerToken * endBeforeForceGrowthSum;
+    estimatedDeferCost =
+      probabilityReachForce * reachedForceCost + (1 - probabilityReachForce) * endBeforeForceCost;
+  }
+  const estimatedEconomicAlternativeCost = deferApplicable ? estimatedDeferCost : estimatedKeepCost;
+  const estimatedDecisionNetSaving = estimatedEconomicAlternativeCost - estimatedCompactCost;
+  // With NOW vs DEFER, both surviving paths pay the same kind of compaction. Penalize only
+  // the timing difference plus the chance that the session ends before DEFER pays anything;
+  // charging the full compaction uncertainty on both sides systematically biases toward late
+  // forced compaction. The original full penalty remains for COMPACT vs pure KEEP.
+  const decisionUncertaintyCost = deferApplicable
+    ? compactCallCost *
+      (1 - probabilityReachForce + probabilityReachForce * Math.max(deferredCompactionScale - 1, 0))
+    : compactCallCost;
+  const adjustedDecisionNetSaving =
+    estimatedDecisionNetSaving * confidence - uncertaintyPenalty * decisionUncertaintyCost;
 
   // Cache reasons only make sense when the profile actually has a cache candidate.
   const hasCacheEvidence =
@@ -467,12 +585,21 @@ export function decideFoldPoint(
     estimatedCompactCallCost: compactCallCost,
     estimatedFirstPostCompactReplayCost: firstPostCompactReplayCost,
     estimatedCompactCost,
+    estimatedDeferCost,
+    estimatedEconomicAlternativeCost,
+    estimatedDecisionNetSaving,
     estimatedNetSaving,
-    adjustedNetSaving,
+    adjustedNetSaving: adjustedDecisionNetSaving,
     estimatedSavingPerFutureCall,
     breakEvenCalls,
     expectedFutureCalls,
     effectiveHorizonCalls,
+    estimatedGrowthTokensPerCall,
+    growthGuardTokens,
+    rawForceBoundaryTokens: rawForceBoundary,
+    guardedForceBoundaryTokens: guardedForceBoundary,
+    callsUntilForce,
+    probabilityReachForce,
     callsSinceLastAttempt,
     retentionSamples,
   };
@@ -483,7 +610,11 @@ export function decideFoldPoint(
   const forceByCompactor =
     input.profile.compactorSafeInputTokens !== undefined &&
     contextTokens >= input.profile.compactorSafeInputTokens;
-  if (forceByRatio || forceByReserve || forceByCompactor) {
+  const forceByProjectedGrowth =
+    growthGuardTokens > 0 &&
+    contextTokens < rawForceBoundary &&
+    contextTokens >= guardedForceBoundary;
+  if (forceByRatio || forceByReserve || forceByCompactor || forceByProjectedGrowth) {
     const reasons: FoldPointReason[] = [];
     if (forceByRatio) {
       reasons.push("HARD_WINDOW_RATIO");
@@ -493,6 +624,9 @@ export function decideFoldPoint(
     }
     if (forceByCompactor) {
       reasons.push("COMPACTOR_INPUT_LIMIT");
+    }
+    if (forceByProjectedGrowth) {
+      reasons.push("PROJECTED_WINDOW_GROWTH");
     }
     if (input.compactionAllowed === false) {
       reasons.push("COMPACTION_DISABLED");
@@ -532,13 +666,25 @@ export function decideFoldPoint(
     return keepDecision(reasons);
   }
 
+  // Do not spend quality or summary calls on tiny contexts merely because a cold cache makes
+  // the next few replays look expensive. The band begins at softWindowRatio and ends at the
+  // guarded force boundary; inside it NOW vs DEFER chooses the timing.
+  if (belowSoftWindow) {
+    return keepDecision(["BELOW_SOFT_WINDOW"]);
+  }
+
   // --- 6. economics ---
+  const breakEvenWithinHorizon = breakEvenCalls !== null && breakEvenCalls <= effectiveHorizonCalls;
   if (
-    adjustedNetSaving > defaults.minNetSaving &&
-    breakEvenCalls !== null &&
-    breakEvenCalls <= effectiveHorizonCalls
+    adjustedDecisionNetSaving > defaults.minNetSaving &&
+    (deferApplicable || breakEvenWithinHorizon)
   ) {
-    const reasons: FoldPointReason[] = ["ECONOMIC_TRIGGER", "BREAK_EVEN_WITHIN_HORIZON"];
+    const reasons: FoldPointReason[] = ["ECONOMIC_TRIGGER"];
+    if (deferApplicable) {
+      reasons.push("DEFERRED_COMPACTION_COSTLIER");
+    } else {
+      reasons.push("BREAK_EVEN_WITHIN_HORIZON");
+    }
     if (hasCacheEvidence && cache.aliveProbability < defaults.cacheAliveThreshold) {
       reasons.push("CACHE_LIKELY_EXPIRED");
     }
@@ -559,7 +705,7 @@ export function decideFoldPoint(
   } else if (breakEvenCalls > effectiveHorizonCalls) {
     reasons.push("BREAK_EVEN_BEYOND_HORIZON");
   }
-  if (adjustedNetSaving <= defaults.minNetSaving) {
+  if (adjustedDecisionNetSaving <= defaults.minNetSaving) {
     reasons.push("NO_POSITIVE_SAVING");
     if (confidence < defaults.lowConfidenceThreshold) {
       reasons.push("LOW_CONFIDENCE");
@@ -595,7 +741,7 @@ export function decideFoldPoint(
         defaults,
         retentionRatio,
         economicBoundaryTokens,
-        compactorSafeInputTokens: input.profile.compactorSafeInputTokens,
+        guardedForceBoundaryTokens: guardedForceBoundary,
       }),
     };
   }

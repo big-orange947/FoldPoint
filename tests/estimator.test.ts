@@ -14,11 +14,66 @@ import {
 } from "./helpers";
 
 describe("17.1 basic decisions", () => {
+  it("acts before the hard boundary when learned growth predicts a one-call overshoot", () => {
+    const session = {
+      requestCount: 40,
+      growthTokensEma: 16_000,
+      growthDeviationEma: 2_000,
+      growthSamples: 10,
+    };
+    const before = decideWith({ contextTokens: 119_000, compactionAllowed: false }, {}, session, {
+      defaults: { softWindowRatio: 0.5 },
+    });
+    const guarded = decideWith({ contextTokens: 121_000, compactionAllowed: false }, {}, session, {
+      defaults: { softWindowRatio: 0.5 },
+    });
+
+    expect(before.action).toBe("KEEP");
+    expect(guarded.metrics.rawForceBoundaryTokens).toBe(140_000);
+    expect(guarded.metrics.growthGuardTokens).toBe(20_000);
+    expect(guarded.metrics.guardedForceBoundaryTokens).toBe(120_000);
+    expect(guarded.action).toBe("FORCE");
+    expect(guarded.reasons).toContain("PROJECTED_WINDOW_GROWTH");
+  });
+
+  it("compares NOW with the later mandatory compaction when static break-even is too far away", () => {
+    const profile = makeProfile({
+      contextWindowTokens: 1_000_000,
+      pricing: {
+        inputPerMillion: 0.3,
+        outputPerMillion: 1.2,
+        cacheReadPerMillion: 0.006,
+      },
+    });
+    const decision = decideWith(
+      {
+        profile,
+        contextTokens: 616_000,
+        cachedTokens: 600_000,
+      },
+      { cacheCoverageSamples: 40, cacheCoverageRatioEma: 0.97 },
+      {
+        requestCount: 40,
+        growthTokensEma: 16_000,
+        growthDeviationEma: 2_000,
+        growthSamples: 10,
+      },
+      { defaults: { compactOutputRatio: 0.002, uncertaintyPenalty: 0 } },
+    );
+
+    expect(decision.metrics.breakEvenCalls ?? 0).toBeGreaterThan(
+      decision.metrics.effectiveHorizonCalls,
+    );
+    expect(decision.metrics.estimatedDecisionNetSaving).toBeGreaterThan(0);
+    expect(decision.action).toBe("COMPACT");
+    expect(decision.reasons).toContain("DEFERRED_COMPACTION_COSTLIER");
+  });
+
   it("1. low utilization with no meaningful gain -> KEEP", () => {
     const decision = decideWith({ contextTokens: 20_000, cachedTokens: 0 });
 
     expect(decision.action).toBe("KEEP");
-    expect(decision.reasons).toContain("NO_POSITIVE_SAVING");
+    expect(decision.reasons).toEqual(["BELOW_SOFT_WINDOW"]);
     expect(decision.metrics.utilization).toBeCloseTo(0.1, 10);
   });
 
@@ -414,7 +469,7 @@ describe("confidence", () => {
   });
 });
 
-describe("soft-window quick-payback policy guard", () => {
+describe("economic decision band", () => {
   it("caps the effective horizon below the soft window and relaxes it above", () => {
     const belowSoft = decideWith(
       { contextTokens: 100_000, cachedTokens: 0 },
@@ -427,10 +482,19 @@ describe("soft-window quick-payback policy guard", () => {
       SESSION_HISTORY,
     );
 
-    expect(belowSoft.metrics.utilization).toBeLessThan(0.65);
-    expect(belowSoft.metrics.expectedFutureCalls).toBe(10);
+    expect(belowSoft.metrics.utilization).toBeLessThan(0.6);
+    expect(belowSoft.metrics.expectedFutureCalls).toBeCloseTo(12.486832980505138, 12);
     expect(belowSoft.metrics.effectiveHorizonCalls).toBe(3);
-    expect(aboveSoft.metrics.effectiveHorizonCalls).toBe(10);
+    expect(aboveSoft.metrics.effectiveHorizonCalls).toBeCloseTo(12.486832980505138, 12);
+  });
+
+  it("uses active-session survival as sublinear rather than one-for-one future calls", () => {
+    const early = decideWith({}, {}, { requestCount: 1 });
+    const long = decideWith({}, {}, { requestCount: 100 });
+
+    expect(early.metrics.expectedFutureCalls).toBe(6);
+    expect(long.metrics.expectedFutureCalls).toBe(33);
+    expect(long.metrics.expectedFutureCalls).toBeLessThan(100);
   });
 
   it("doubles the uncertainty penalty below the soft window", () => {
@@ -458,14 +522,15 @@ describe("soft-window quick-payback policy guard", () => {
     expect(belowSoft.metrics.adjustedNetSaving).toBeLessThan(aboveSoft.metrics.adjustedNetSaving);
   });
 
-  it("does not use a context-regrowth heuristic any more", () => {
+  it("uses growth for the force/defer boundary, not the removed refill horizon", () => {
     const decision = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
+      { contextTokens: 130_000, cachedTokens: 0 },
       HISTORY,
       SESSION_HISTORY,
     );
 
     expect("callsUntilRefill" in decision.metrics).toBe(false);
+    expect(decision.metrics.callsUntilForce).toBe(Number.MAX_SAFE_INTEGER);
     expect(decision.metrics.effectiveHorizonCalls).toBe(decision.metrics.expectedFutureCalls);
   });
 

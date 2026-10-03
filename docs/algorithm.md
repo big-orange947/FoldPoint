@@ -10,8 +10,8 @@ This document is the reference for what `decide()` computes. The implementation 
   and counts: retention, compaction usage ratios, an actual-cost *scale*, cache coverage,
   the reuse horizon. No absolute amount is ever stored.
 - **Session runtime state** (`FoldPointSessionState`) belongs to one `sessionId` of one
-  profile: request count, attempt counts, the call counters, timestamps and the exact cache
-  expiry of the current prefix. `endSession` deletes it.
+  profile: request count, attempt counts, call counters, prompt-growth statistics, timestamps
+  and the exact cache expiry of the current prefix. `endSession` deletes it.
 
 Keys are JSON tuples, so a `|` inside a field cannot collide:
 
@@ -32,7 +32,7 @@ The content order below is the order of the computation.
 8. [Later post-compaction replay](#8-later-post-compaction-replay)
 9. [Break-even](#9-break-even)
 10. [Confidence](#10-confidence)
-11. [The quick-payback policy guard](#11-the-quick-payback-policy-guard)
+11. [Economic band, live horizon and deferred compaction](#11-economic-band-live-horizon-and-deferred-compaction)
 12. [Decision gates](#12-decision-gates)
 13. [Reason codes](#13-reason-codes)
 14. [nextCheckAtTokens](#14-nextcheckattokens)
@@ -302,34 +302,50 @@ that reported usage, which is what prices the compaction call. Confidence starts
 floor, is monotone non-decreasing in every sample count, and never affects `FORCE`.
 
 ```
-penalty = uncertaintyPenalty * (utilization < softWindowRatio ? softWindowPenaltyMultiplier : 1)
-adjustedNetSaving = estimatedNetSaving * confidence - penalty * compactCallCost
+decisionNetSaving = economicAlternativeCost - compactNowCost
+adjustedNetSaving = decisionNetSaving * confidence - penalty * decisionUncertaintyCost
 ```
 
-## 11. The quick-payback policy guard
+For `COMPACT` versus pure `KEEP`, `decisionUncertaintyCost` is the whole compaction call. For
+`COMPACT NOW` versus `DEFER`, both surviving paths use the same compactor, so only the timing
+difference and the chance of the session ending before the deferred call are penalized.
+
+## 11. Economic band, live horizon and deferred compaction
 
 ```
-effectiveHorizonCalls = utilization < softWindowRatio
-  ? min(expectedFutureCalls, softWindowBreakEvenCalls)     (default 3)
-  : expectedFutureCalls
+expectedFutureCalls = host value, when present
+                    = max(reuseHorizonEma, coldStartHorizon + 3*sqrt(requestCount)), otherwise
 ```
 
-Below the soft window the window is not scarce, so a compaction has to repay itself within a
-few calls instead of over the whole session. This is a **quality-oriented policy guard, not a
-mathematical optimum**: it is the encoded form of "below the soft window, only a quick
-payback justifies compacting". It is configurable, and it is not the only trigger — an
-overwhelming economic win below the soft window still produces `COMPACT`.
+Below `softWindowRatio` FoldPoint never performs an economic compaction. This prevents a cold
+cache or optimistic summary prior from repeatedly compacting a small context. Between the
+default 60% soft boundary and the guarded 70% force boundary, it compares two feasible paths:
 
-`expectedFutureCalls` is the host value, else the learned `reuseHorizonEma`, else the
-cold-start default. There is no context-regrowth heuristic in the model.
+```
+NOW   = compact at T, then replay
+DEFER = keep while the context grows, then compact no later than the guarded force boundary
+```
+
+Per-call prompt growth is learned as an EMA plus an EMA absolute deviation. The raw force
+boundary is reduced by `mean + growthGuardDeviationMultiplier * deviation`, capped so one
+outlier cannot move it below the soft boundary. The active session is right-censored evidence:
+completed requests raise the cold-start horizon sublinearly through `3*sqrt(requestCount)` rather
+than being mistaken one-for-one for calls that remain. The probability of reaching the force
+boundary uses the same horizon as a geometric approximation, so the probability blend and cost
+horizon cannot contradict each other. Neither assumption is a fitted survival model. A
+host-supplied horizon still has highest priority.
+
+The DEFER estimate is a one-boundary look-ahead, not an optimal-control solver. It blends the
+cost of ending before the boundary with the probability of reaching it and paying a larger
+compaction there. It remains O(1), metadata-only and auditable through the returned metrics.
 
 ## 12. Decision gates
 
 All metrics are computed before the gates, so every branch returns the same complete metrics
 block. The first matching gate wins.
 
-1. **Window safety → `FORCE`** if `utilization >= hardWindowRatio` **or**
-   `remainingTokens <= reserveTokens`. If the host has disabled compaction or is not at a
+1. **Window safety → `FORCE`** if the raw boundary is reached, or learned one-call growth
+   reaches its guarded boundary. If the host has disabled compaction or is not at a
    safe boundary, `COMPACTION_DISABLED` / `UNSAFE_BOUNDARY` are added to `reasons`.
 2. **Host opt-out → `KEEP`** if `compactionAllowed === false`.
 3. **Step boundary → `KEEP`** if `safeBoundary === false`.
@@ -340,21 +356,25 @@ block. The first matching gate wins.
    that remains the host's responsibility.
 5. **Minimum reclaim → `KEEP`** if `estimatedReclaimTokens < minReclaimTokens` or
    `estimatedReclaimRatio < minReclaimRatio`.
-6. **Economics → `COMPACT`** if `adjustedNetSaving > minNetSaving` **and**
-   `breakEvenCalls !== null` **and** `breakEvenCalls <= effectiveHorizonCalls`.
-7. **Otherwise → `KEEP`**, annotated with the diagnosis.
+6. **Economic floor → `KEEP`** below `softWindowRatio`.
+7. **Economics → `COMPACT`** when adjusted saving is positive against either pure KEEP or
+   the later mandatory compaction.
+8. **Otherwise → `KEEP`**, annotated with the diagnosis.
 
 ## 13. Reason codes
 
 | Code | Emitted when |
 | --- | --- |
 | `HARD_WINDOW_RATIO` | utilization reached `hardWindowRatio` |
+| `PROJECTED_WINDOW_GROWTH` | recent growth predicts a one-call crossing of the raw force boundary |
 | `RESERVE_TOKENS_REACHED` | remaining window dropped to `reserveTokens` |
+| `COMPACTOR_INPUT_LIMIT` | host-declared compactor input boundary reached |
 | `COMPACTION_DISABLED` | host opt-out (also annotates a `FORCE`) |
 | `UNSAFE_BOUNDARY` | host is not at a step boundary (also annotates a `FORCE`) |
 | `COOLDOWN_ACTIVE` | too few calls since the last compaction attempt |
 | `INSUFFICIENT_RECLAIM_TOKENS` | estimated reclaim below `minReclaimTokens` |
 | `INSUFFICIENT_RECLAIM_RATIO` | estimated reclaim ratio below `minReclaimRatio` |
+| `BELOW_SOFT_WINDOW` | context has not entered the economic decision band |
 | `CACHE_STILL_VALUABLE` | cache evidence exists and `aliveProbability >= cacheAliveThreshold` |
 | `CACHE_LIKELY_EXPIRED` | cache evidence exists and `aliveProbability < cacheAliveThreshold` |
 | `NO_POSITIVE_SAVING` | adjusted net saving did not clear `minNetSaving` |
@@ -363,6 +383,7 @@ block. The first matching gate wins.
 | `LOW_CONFIDENCE` | evidence score below `lowConfidenceThreshold`, with no positive saving |
 | `ECONOMIC_TRIGGER` | the economics gate passed |
 | `BREAK_EVEN_WITHIN_HORIZON` | `breakEvenCalls <= effectiveHorizonCalls` |
+| `DEFERRED_COMPACTION_COSTLIER` | waiting for the later mandatory compaction costs more than NOW |
 | `DEFAULT_KEEP` | no other reason applied |
 
 Codes are stable and machine-readable; `REASON_DESCRIPTIONS` provides log text but hosts must
@@ -380,7 +401,7 @@ It is the smallest of:
   penalty * perTokenCompactCost` and `H = effectiveHorizonCalls` (and `Infinity` when
   `slope <= 0`);
 
-clamped so that it never exceeds the force boundary and is always greater than the current
+clamped so that it never exceeds the growth-guarded force boundary and is always greater than the current
 `contextTokens`. It is a hint, not a promise.
 
 ## 15. Defaults
@@ -392,18 +413,20 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 | --- | --- | --- |
 | `retentionRatio` | 0.10 | modern agent-harness prior; replaced by compactor-specific data after the first success |
 | `compactPromptRatio` | 1.00 | the compaction call reads the context it compacts |
-| `compactOutputRatio` | 0.12 | a summary is much shorter than the context it summarizes |
+| `compactOutputRatio` | 0.12 | conservative generic output prior; the Pi adapter overrides it with its measured 0.002 |
 | `compactCachedInputRatio` | 0 | cold start assumes the compaction call cannot read a cache |
 | `compactCacheWriteRatio` | 0 | cold start assumes no cache writes on the compaction call |
 | `compactCostScale` | 1.00 | the modeled cost is the estimate until real costs say otherwise |
 | `expectedFutureCalls` | 3 | used when neither the host nor history provides a horizon |
+| `activeHorizonSqrtMultiplier` | 3 | conservative, sublinear use of active-session survival evidence |
 | `minCallsBetweenCompactions` | 3 | cooldown between attempts |
 | `minReclaimTokens` | 4,096 | absolute floor: compacting for a few hundred tokens is never worth a call |
 | `minReclaimRatio` | 0.20 | relative floor: a compactor reclaiming under 20% is not earning its call |
-| `softWindowRatio` | 0.65 | below this the window is not scarce |
-| `softWindowBreakEvenCalls` | 3 | the quick-payback policy guard below the soft window |
+| `softWindowRatio` | 0.60 | start of the economic decision band; below it FoldPoint keeps |
+| `softWindowBreakEvenCalls` | 3 | conservative reporting horizon below the economic band |
 | `hardWindowRatio` | 0.70 | conservative quality and window-safety boundary → `FORCE`; not a universal attention threshold |
 | `reserveTokens` | 8,192 | absolute safety margin |
+| `growthGuardDeviationMultiplier` | 2 | mean growth plus two EMA deviations is reserved before the raw force boundary |
 | `emaAlpha` | 0.25 | adapts within a handful of events without over-reacting to one outlier |
 | `minNetSaving` | 0 | compaction must save something after the uncertainty penalty |
 | `uncertaintyPenalty` | 0.15 | discounts an unproven benefit by 15% of the compaction call cost |
@@ -439,6 +462,7 @@ newEstimate = alpha * observation + (1 - alpha) * oldEstimate
 | actual-cost scale | `clamp(actualCost / modeledCost, 0.1, 10)` | profile | success, real currency, complete usage |
 | cache coverage | `cachedInputTokens / promptTokens` | profile | `promptTokens > 0` |
 | reuse horizon | calls between the last successful compaction and session end | profile | `endSession` after a success |
+| prompt growth and absolute deviation | positive change in prompt tokens | session | successful requests |
 | request count, call counters, expiry | — | session | every observation |
 
 Failed attempts increment `compactionAttemptCount` and `failedCompactionCount`, reset the
@@ -503,23 +527,29 @@ changes is listed here so a reviewer can accept or reject it explicitly.
 **Extra defaults** (all overridable, all documented in §15): `softWindowBreakEvenCalls`,
 `softWindowPenaltyMultiplier`, `confidenceFloor`, `confidenceHalfSaturationSamples`,
 `cacheAliveThreshold` (renamed from `cacheValuableThreshold` so the name matches what it
-compares), `lowConfidenceThreshold`.
+compares), `lowConfidenceThreshold`, `activeHorizonSqrtMultiplier`, and
+`growthGuardDeviationMultiplier`.
 
 **Extra state fields:** the per-ratio sample counters (`compactPromptSamples`,
 `compactOutputSamples`, `compactCachedInputSamples`, `compactCacheWriteSamples`,
 `compactCostScaleSamples`), `successfulCompactionCount` on both profile and session, and
-`failedCompactionCount` on the session.
+`failedCompactionCount`, `lastPromptTokens`, `growthTokensEma`, `growthDeviationEma`, and
+`growthSamples` on the session.
 
 **Extra metrics:** `adjustedNetSaving`, `effectiveHorizonCalls`, `estimatedCompactCallCost`,
 `estimatedCurrentCallReplayCost`, `estimatedLaterCallReplayCost`,
-`estimatedCacheLaterAliveProbability` and `estimatedCacheLaterCandidateTokens` — the last three
-exist so the current-call/later-call split is auditable from a decision log.
+`estimatedCacheLaterAliveProbability`, `estimatedCacheLaterCandidateTokens`,
+`estimatedDeferCost`, `estimatedEconomicAlternativeCost`, `estimatedDecisionNetSaving`, and the
+growth/force-boundary metrics. They make the current/later call split and NOW/DEFER comparison
+auditable from a decision log.
 
-**Extra reason code:** `BREAK_EVEN_BEYOND_HORIZON`, so "no positive saving" and "a saving
-that is too slow" are distinguishable. The task book's list is a minimum.
+**Extra reason codes:** `BREAK_EVEN_BEYOND_HORIZON`, `BELOW_SOFT_WINDOW`,
+`PROJECTED_WINDOW_GROWTH`, and `DEFERRED_COMPACTION_COSTLIER`. They distinguish a saving that
+is too slow, the economic floor, the growth guard, and NOW beating a later forced compaction.
 
-**Removed by this revision:** `growthPerCallEma`, `growthSamples`, `lastPromptTokens`,
-`callsUntilRefill`, `compactionCostEma`, `compactionCostSamples`, `lastCacheExpiresAt`,
+**Removed or replaced by this revision:** the old `growthPerCallEma` and `callsUntilRefill`
+shape (replaced by the session-local growth fields above), `compactionCostEma`,
+`compactionCostSamples`, `lastCacheExpiresAt`,
 `callsSinceLastCompaction`, `lastCompactionAt`, `compactionSamples`, `estimatedCacheSurvival`
 and the state version 1 shape. Version 1 snapshots are rejected with an explicit error rather
 than reinterpreted.

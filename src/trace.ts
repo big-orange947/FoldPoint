@@ -59,11 +59,20 @@ export interface TracePrediction {
   /** Cost of the first replay after a compaction: the compacted context is written. */
   estimatedFirstPostCompactReplayCost: number;
   estimatedCompactCost: number;
+  estimatedDeferCost: number;
+  estimatedEconomicAlternativeCost: number;
+  estimatedDecisionNetSaving: number;
   estimatedNetSaving: number;
   adjustedNetSaving: number;
   breakEvenCalls: number | null;
   expectedFutureCalls: number;
   effectiveHorizonCalls: number;
+  estimatedGrowthTokensPerCall: number;
+  growthGuardTokens: number;
+  rawForceBoundaryTokens: number;
+  guardedForceBoundaryTokens: number;
+  callsUntilForce: number;
+  probabilityReachForce: number;
   /** Where the model expects the context to land after a compaction. */
   estimatedPostCompactTokens: number;
   estimatedReclaimRatio: number;
@@ -569,11 +578,20 @@ function tracePrediction(decision: FoldPointDecision): TracePrediction {
     estimatedCompactCallCost: metrics.estimatedCompactCallCost,
     estimatedFirstPostCompactReplayCost: metrics.estimatedFirstPostCompactReplayCost,
     estimatedCompactCost: metrics.estimatedCompactCost,
+    estimatedDeferCost: metrics.estimatedDeferCost,
+    estimatedEconomicAlternativeCost: metrics.estimatedEconomicAlternativeCost,
+    estimatedDecisionNetSaving: metrics.estimatedDecisionNetSaving,
     estimatedNetSaving: metrics.estimatedNetSaving,
     adjustedNetSaving: metrics.adjustedNetSaving,
     breakEvenCalls: metrics.breakEvenCalls,
     expectedFutureCalls: metrics.expectedFutureCalls,
     effectiveHorizonCalls: metrics.effectiveHorizonCalls,
+    estimatedGrowthTokensPerCall: metrics.estimatedGrowthTokensPerCall,
+    growthGuardTokens: metrics.growthGuardTokens,
+    rawForceBoundaryTokens: metrics.rawForceBoundaryTokens,
+    guardedForceBoundaryTokens: metrics.guardedForceBoundaryTokens,
+    callsUntilForce: metrics.callsUntilForce,
+    probabilityReachForce: metrics.probabilityReachForce,
     estimatedPostCompactTokens: metrics.estimatedPostCompactTokens,
     estimatedReclaimRatio: metrics.estimatedReclaimRatio,
     estimatedCacheCoverageRatio: metrics.estimatedCacheCoverageRatio,

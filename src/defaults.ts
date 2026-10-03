@@ -23,19 +23,21 @@ export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
   compactCostScale: 1,
 
   expectedFutureCalls: 3,
+  activeHorizonSqrtMultiplier: 3,
 
   minCallsBetweenCompactions: 3,
 
   minReclaimTokens: 4096,
   minReclaimRatio: 0.2,
 
-  softWindowRatio: 0.65,
+  softWindowRatio: 0.6,
   softWindowBreakEvenCalls: 3,
   // A conservative quality boundary, not a claim that every model has a universal 70%
   // attention cliff. Hosts can override it after model- and task-specific evaluation.
   hardWindowRatio: 0.7,
 
   reserveTokens: 8192,
+  growthGuardDeviationMultiplier: 2,
 
   emaAlpha: 0.25,
 
@@ -84,9 +86,11 @@ const RATIO_KEYS = [
 const NON_NEGATIVE_KEYS = [
   "compactPromptRatio",
   "compactCostScale",
+  "activeHorizonSqrtMultiplier",
   "minCallsBetweenCompactions",
   "minReclaimTokens",
   "reserveTokens",
+  "growthGuardDeviationMultiplier",
   "minNetSaving",
   "uncertaintyPenalty",
 ] as const;

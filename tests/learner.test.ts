@@ -64,6 +64,38 @@ function observeCalls(
 }
 
 describe("17.3 online learning", () => {
+  it("learns positive per-call prompt growth without treating a compaction drop as growth", () => {
+    const profile = makeProfile();
+    const foldPoint = new FoldPoint();
+
+    for (const [index, promptTokens] of [100_000, 110_000, 125_000].entries()) {
+      foldPoint.observeRequest(SESSION, profile, {
+        timestamp: BASE_TIMESTAMP + index,
+        promptTokens,
+      });
+    }
+
+    let session = foldPoint.getSessionState(SESSION, profile);
+    expect(session.growthSamples).toBe(2);
+    expect(session.growthTokensEma).toBeCloseTo(11_250, 12);
+    expect(session.growthDeviationEma).toBeCloseTo(1_250, 12);
+
+    foldPoint.recordCompaction(SESSION, profile, {
+      timestamp: BASE_TIMESTAMP + 10,
+      beforeTokens: 125_000,
+      afterTokens: 12_500,
+      success: true,
+    });
+    foldPoint.observeRequest(SESSION, profile, {
+      timestamp: BASE_TIMESTAMP + 11,
+      promptTokens: 20_000,
+    });
+
+    session = foldPoint.getSessionState(SESSION, profile);
+    expect(session.growthSamples).toBe(3);
+    expect(session.lastPromptTokens).toBe(20_000);
+  });
+
   it("learns the retention ratio only from successful compactions", () => {
     const profile = makeProfile();
     const foldPoint = new FoldPoint();

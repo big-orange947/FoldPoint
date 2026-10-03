@@ -3,6 +3,7 @@ import type { FoldPointReason } from "./types";
 /** Every reason code FoldPoint can emit, in documentation order. */
 export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
   "HARD_WINDOW_RATIO",
+  "PROJECTED_WINDOW_GROWTH",
   "RESERVE_TOKENS_REACHED",
   "COMPACTOR_INPUT_LIMIT",
   "COMPACTION_DISABLED",
@@ -10,6 +11,7 @@ export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
   "COOLDOWN_ACTIVE",
   "INSUFFICIENT_RECLAIM_TOKENS",
   "INSUFFICIENT_RECLAIM_RATIO",
+  "BELOW_SOFT_WINDOW",
   "CACHE_STILL_VALUABLE",
   "CACHE_LIKELY_EXPIRED",
   "NO_POSITIVE_SAVING",
@@ -18,6 +20,7 @@ export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
   "LOW_CONFIDENCE",
   "ECONOMIC_TRIGGER",
   "BREAK_EVEN_WITHIN_HORIZON",
+  "DEFERRED_COMPACTION_COSTLIER",
   "DEFAULT_KEEP",
 ]);
 
@@ -27,6 +30,8 @@ export const ALL_REASONS: readonly FoldPointReason[] = Object.freeze([
  */
 export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Object.freeze({
   HARD_WINDOW_RATIO: "Context utilization reached the hard window ratio.",
+  PROJECTED_WINDOW_GROWTH:
+    "Recent prompt growth predicts that the next request could cross the force boundary.",
   RESERVE_TOKENS_REACHED: "Remaining window dropped to the configured reserve.",
   COMPACTOR_INPUT_LIMIT: "The host-declared safe compactor input budget was reached.",
   COMPACTION_DISABLED: "The host disabled economic compaction for this step.",
@@ -34,6 +39,7 @@ export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Ob
   COOLDOWN_ACTIVE: "Too few model calls have passed since the last compaction attempt.",
   INSUFFICIENT_RECLAIM_TOKENS: "Estimated reclaim is below the minimum reclaim token floor.",
   INSUFFICIENT_RECLAIM_RATIO: "Estimated reclaim is below the minimum reclaim ratio.",
+  BELOW_SOFT_WINDOW: "Context utilization has not reached the economic decision band yet.",
   CACHE_STILL_VALUABLE:
     "The candidate cached prefix is probably still usable, so keeping the context is cheap.",
   CACHE_LIKELY_EXPIRED:
@@ -42,7 +48,10 @@ export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Ob
   NO_BREAK_EVEN: "There is no positive per-call saving, so compaction can never repay itself.",
   BREAK_EVEN_BEYOND_HORIZON: "Break-even needs more future calls than the horizon provides.",
   LOW_CONFIDENCE: "The estimate is not backed by enough observed samples.",
-  ECONOMIC_TRIGGER: "Adjusted net saving is positive and break-even fits inside the horizon.",
+  ECONOMIC_TRIGGER:
+    "Adjusted net saving is positive against the applicable keep-or-defer alternative.",
   BREAK_EVEN_WITHIN_HORIZON: "Break-even calls fit inside the expected future calls.",
+  DEFERRED_COMPACTION_COSTLIER:
+    "Waiting for the later mandatory compaction is estimated to cost more than compacting now.",
   DEFAULT_KEEP: "No rule applied; the conservative default is to keep the context.",
 });

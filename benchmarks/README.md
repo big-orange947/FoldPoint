@@ -222,37 +222,38 @@ Two runs produce identical costs, token counts, attempt counts and decision outc
 | Fixed 70% raw | 189.33 | 81 | 76 | 5 | 81 | 0 | 76 | 44 | 0 | 43,114 | 0.722 |
 | Fixed 80% raw | 197.73 | 66 | 64 | 2 | 66 | 0 | 64 | 35 | 0 | 25,106 | 0.823 |
 | Fixed 90% raw | 208.35 | 55 | 53 | 2 | 55 | 0 | 53 | 29 | 0 | 6,618 | 0.922 |
-| Fixed 70% guarded | 191.32 | 66 | 64 | 2 | 39 | 27 | 37 | 7 | 0 | 20,149 | 0.807 |
-| Fixed 80% guarded | 199.07 | 60 | 58 | 2 | 31 | 29 | 30 | 4 | 0 | 18,996 | 0.869 |
-| Fixed 90% guarded | 208.35 | 55 | 53 | 2 | 0 | 55 | 0 | 0 | 0 | 6,618 | 0.922 |
-| **FoldPoint** | **136.37** | 121 | 119 | 2 | 80 | 41 | 80 | **7** | **0** | 6,618 | 0.434 |
+| Fixed 70% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
+| Fixed 80% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
+| Fixed 90% guarded | 189.33 | 81 | 76 | 5 | 0 | 81 | 0 | 0 | 0 | 43,114 | 0.722 |
+| **FoldPoint** | **182.13** | 92 | 84 | 8 | 30 | 62 | 28 | **11** | **0** | 37,572 | 0.671 |
 
 Read that honestly:
 
-- FoldPoint is the cheapest strategy in aggregate, and it never overflows. The cost advantage
-  comes from the scenarios where the cache does not save the session (`D`, `E`, `J`), where
-  every call replays the whole context and keeping the context small is directly cheaper: in
-  `D` FoldPoint spends 9.57 against 23.67 for the cheapest fixed threshold, in `E` 5.90 against
-  18.16, in `J` 7.30 against 17.09.
-- **FoldPoint also compacts more often than the 70/80/90% baselines** (121 attempts against
-  55–81). In the cold-cache scenarios it keeps the context near 12–15% of the window and
-  compacts roughly every cooldown period, because each of those compactions repays itself.
-  Fewer compactions would cost more tokens; more compactions mean more exposure to potential
-  information loss. The knobs that trade this back are `minCallsBetweenCompactions`,
-  `minReclaimRatio` and `softWindowBreakEvenCalls`; the trade-off is documented rather than
-  hidden, and the algorithm was not tuned per scenario to change it.
-- The guarded baselines isolate the effect of the guards: guarded 70% compacts 66 times instead
-  of 81 and cuts unnecessary compactions from 44 to 7 at the same cost, so most of the raw
-  baselines' churn was the missing cooldown, not the threshold.
-- FoldPoint's 7 unnecessary compactions out of 80 judged (9%) compare with 29–89 out of 53–109
-  (55–82%) for the raw baselines and 4–7 out of 30–37 (11–19%) for the guarded ones.
-- Scenario `F` (a compactor that reclaims 5%) is the honest counter-example for the cold-start
-  prior: FoldPoint still compacts while its learned retention ratio is walking from the 0.40
-  default towards the real 0.95, and it is not the cheapest strategy there (59.20 against 53.24
-  for the 50% baseline). It is also not the cheapest in `B` (6.45 against 6.21), `G` (21.05
-  against 19.10) or `K` (9.37 against 8.92 for the guarded 70% baseline). In `B`, `C`, `G`, `H`
-  and `K` every compaction it runs is a window-safety `FORCE`: the model judges that the cache
-  makes keeping cheap enough that no economic compaction is repaid.
+- FoldPoint never overflows and costs 182.13 in aggregate, 3.8% below the fixed 70% safety
+  policy (189.33). It does **not** beat the aggressive raw 50% threshold on modeled cost
+  (170.93). That baseline makes 117 attempts and 89 of its 109 judged successful compactions
+  fail to repay within their intervals, so it is a useful lower-cost/higher-compaction-risk
+  comparison rather than evidence that 50% is generally better.
+- The 60% economic floor deliberately removes the old strategy's repeated 12–15% utilization
+  compactions. FoldPoint now averages 0.671 utilization at compaction and makes 92 attempts:
+  30 economic decisions and 62 safety decisions. The previous 136.37 total depended on 121
+  much earlier attempts and is withdrawn as the default policy because the simulator cannot
+  measure the semantic damage of that extra summarization.
+- 11 of 28 judged FoldPoint compactions (39%) do not repay within their counterfactual
+  settlement interval. This is better than raw 70% (44 of 76, 58%) but is not an excellent
+  calibration result. Six of the eleven come from churn scenario `I`, three from warm-cache
+  scenario `C`, and one each from the bad and flaky compactors (`F`, `K`). A paid validation
+  must check these failure modes rather than quote only the aggregate saving.
+- With the default hard boundary now at 70%, the 70/80/90 guarded baselines all collapse to the
+  same policy: their requested threshold is never reached before the shared 70% force guard.
+  Their zero `judged` count means their compactions are safety operations, not that every one
+  was economically necessary. The three duplicate rows are retained for report-schema
+  continuity, not treated as independent evidence.
+- The policy remains strongest in the cold/no-discount cases: `D` costs 27.87 versus fixed-70's
+  31.56, `E` 21.31 versus 23.19, and `J` 19.75 versus 21.80. Scenario `F` remains the honest
+  cold-start counter-example: a compactor that really retains 95% defeats the optimistic 10%
+  retention prior until learning catches up. Scenario `K` shows that a failing compactor can
+  still make FoldPoint more expensive than the fixed baselines despite cooldown.
 - Scenario `K` is where the failure handling shows: half of all attempts fail, and the cooldown
   keeps the retries from turning into a storm.
 
@@ -293,15 +294,16 @@ attempts, 6 → 7 unneeded of 80 judged):
   recurring saving" as "never worth it" even when the compaction was already cheaper than the
   current call alone. Immediate repayment is now checked first.
 
-The corrected economics make FoldPoint compact less often in the warm scenarios (`B`, `C`,
-`H`, `K` now run no economic compaction at all) and more often in the churn scenario `I`. The
-numbers in the table above are the current ones; the earlier 136.00 / 6 of 82 rows are
-withdrawn with the bugs.
+At that revision the corrected economics made FoldPoint compact less often in several warm
+scenarios and more often in churn scenario `I`. Those 136.37 / 7-of-80 numbers are now also
+superseded by the 60% economic floor, 70% safety boundary, online growth guard and NOW/DEFER
+model. The table above is the current report; this section remains only as an audit trail of
+withdrawn claims.
 
 ## Conclusion discipline
 
 These results may be described as **a reproducible cost comparison over synthetic scenarios**.
-7 of 80 judged compactions did not repay themselves *within these scenarios and their
+11 of 28 judged compactions did not repay themselves *within these scenarios and their
 settlement intervals*; the costs, counts and overflows reproduce exactly from the committed
 seeds.
 

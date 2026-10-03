@@ -254,6 +254,22 @@ export function normalizeSessionState(raw: unknown): FoldPointSessionState {
   if (cacheExpiresAt !== undefined) {
     session.cacheExpiresAt = cacheExpiresAt;
   }
+  const lastPromptTokens = readOptionalTimestamp(source.lastPromptTokens);
+  if (lastPromptTokens !== undefined) {
+    session.lastPromptTokens = lastPromptTokens;
+  }
+  const growthTokensEma = readOptionalTimestamp(source.growthTokensEma);
+  if (growthTokensEma !== undefined) {
+    session.growthTokensEma = growthTokensEma;
+  }
+  const growthDeviationEma = readOptionalTimestamp(source.growthDeviationEma);
+  if (growthDeviationEma !== undefined) {
+    session.growthDeviationEma = growthDeviationEma;
+  }
+  const growthSamples = readCount(source.growthSamples);
+  if (growthSamples > 0) {
+    session.growthSamples = growthSamples;
+  }
 
   return session;
 }
@@ -302,6 +318,22 @@ export function applyRequestObservation(
       defaults.emaAlpha,
     );
     nextLearning.cacheCoverageSamples = learning.cacheCoverageSamples + 1;
+
+    const previousPromptTokens = session.lastPromptTokens;
+    if (previousPromptTokens !== undefined && observation.promptTokens > previousPromptTokens) {
+      const growth = observation.promptTokens - previousPromptTokens;
+      const samples = session.growthSamples ?? 0;
+      const previousMean = session.growthTokensEma ?? growth;
+      const previousDeviation = session.growthDeviationEma ?? 0;
+      nextSession.growthTokensEma =
+        samples > 0 ? emaUpdate(previousMean, growth, defaults.emaAlpha) : growth;
+      nextSession.growthDeviationEma =
+        samples > 0
+          ? emaUpdate(previousDeviation, Math.abs(growth - previousMean), defaults.emaAlpha)
+          : 0;
+      nextSession.growthSamples = samples + 1;
+    }
+    nextSession.lastPromptTokens = observation.promptTokens;
   }
 
   return { learning: nextLearning, session: nextSession };
@@ -341,6 +373,9 @@ export function applyCompactionObservation(
   nextSession.successfulCompactionCount = session.successfulCompactionCount + 1;
   nextSession.callsSinceLastSuccessfulCompaction = 0;
   nextSession.lastSuccessfulCompactionAt = observation.timestamp;
+  // The next normal request grows from the compacted context. Keeping this baseline preserves
+  // the session's growth estimate without mistaking the compaction drop for negative growth.
+  nextSession.lastPromptTokens = observation.afterTokens;
   nextLearning.successfulCompactionCount = learning.successfulCompactionCount + 1;
 
   const beforeTokens = observation.beforeTokens;

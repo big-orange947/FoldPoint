@@ -405,6 +405,16 @@ rather than reinterpreted.
   of modern agent-harness compactors more closely while retaining per-`compactorId` learning.
 - Changed the default hard-window boundary from 90% to 70%. This is a conservative quality and
   safety policy that hosts may override, not a claim of a universal attention cliff at 70%.
+- The default economic decision band is now 60-70%: below 60% FoldPoint keeps, within the band
+  it compares COMPACT NOW with a later mandatory compaction, and at the guarded upper boundary
+  it forces. The Pi adapter uses its measured short-summary prior (`compactOutputRatio=0.002`).
+- Active-session request count now supplies conservative, sublinear right-censored horizon
+  evidence (`activeHorizonSqrtMultiplier`, default 3), while positive prompt growth supplies
+  an EMA plus deviation guard before the raw force boundary. Both are metadata-only,
+  serialized with session state and updated in O(1).
+- Added `npm run trace:shadow -- <trace.jsonl>` for non-causal policy auditing against an old
+  trace. It deliberately preserves the original compactions and therefore never claims a
+  counterfactual cost.
 
 - **State is split in two.** `FoldPointProfileLearningState` (shared by every session of a
   profile) now holds only scale-free ratios and counts; `FoldPointSessionState` (one

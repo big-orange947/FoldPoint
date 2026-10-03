@@ -133,7 +133,7 @@ cold-start default of 3.
 | State | Scope | Contents |
 | --- | --- | --- |
 | Profile learning | shared by every session of the same `provider + model + window + compactorId` | retention, compaction usage ratios, actual-cost scale, cache coverage, reuse horizon |
-| Session runtime | one `sessionId` of one profile | request count, attempt counts, `callsSinceLastAttempt`, `callsSinceLastSuccessfulCompaction`, timestamps, exact cache expiry |
+| Session runtime | one `sessionId` of one profile | request count, attempt counts, cooldowns, prompt-growth EMA/deviation, timestamps, exact cache expiry |
 
 So a second session immediately benefits from what the first one learned about the compactor
 and the cache, but starts with its own cooldown, its own request timing and no inherited cache

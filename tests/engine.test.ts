@@ -158,6 +158,7 @@ describe("FoldPoint engine", () => {
     expect(resolveDefaults({ emaAlpha: 0.5 }).emaAlpha).toBe(0.5);
     expect(resolveDefaults().retentionRatio).toBe(0.1);
     expect(resolveDefaults().hardWindowRatio).toBe(0.7);
+    expect(resolveDefaults().activeHorizonSqrtMultiplier).toBe(3);
     expect(resolveDefaults().retentionRatio).toBe(DEFAULTS.retentionRatio);
     expect(
       new FoldPoint({ defaults: { expectedFutureCalls: 9 } }).getDefaults().expectedFutureCalls,

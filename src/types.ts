@@ -22,6 +22,8 @@ export type FoldPointAction = "KEEP" | "COMPACT" | "FORCE";
 export type FoldPointReason =
   /** Window pressure reached the hard window ratio. */
   | "HARD_WINDOW_RATIO"
+  /** Recent per-call growth predicts that the next request could cross the force boundary. */
+  | "PROJECTED_WINDOW_GROWTH"
   /** Remaining window dropped to (or below) the configured reserve. */
   | "RESERVE_TOKENS_REACHED"
   /** A host-declared safe input budget for this compactor has been reached. */
@@ -36,6 +38,8 @@ export type FoldPointReason =
   | "INSUFFICIENT_RECLAIM_TOKENS"
   /** Estimated reclaim is below the minimum reclaim ratio. */
   | "INSUFFICIENT_RECLAIM_RATIO"
+  /** Context utilization has not reached the economic decision band yet. */
+  | "BELOW_SOFT_WINDOW"
   /** The cached prefix is probably still usable, so keeping the context is cheap. */
   | "CACHE_STILL_VALUABLE"
   /** The cached prefix is probably gone, so replaying the current context is expensive. */
@@ -52,6 +56,8 @@ export type FoldPointReason =
   | "ECONOMIC_TRIGGER"
   /** Break-even calls fit inside the expected future calls. */
   | "BREAK_EVEN_WITHIN_HORIZON"
+  /** Waiting for the later mandatory compaction is estimated to cost more than compacting now. */
+  | "DEFERRED_COMPACTION_COSTLIER"
   /** Nothing else applied; the conservative default is to keep. */
   | "DEFAULT_KEEP";
 
@@ -243,10 +249,17 @@ export interface FoldPointDecisionMetrics {
    */
   estimatedFirstPostCompactReplayCost: number;
   estimatedCompactCost: number;
+  /** Expected cost of waiting and compacting at the guarded force boundary, when reachable. */
+  estimatedDeferCost: number;
+  /** Cost of the alternative actually compared with compact-now: KEEP or deferred compaction. */
+  estimatedEconomicAlternativeCost: number;
+  /** alternative cost - compact-now cost. Positive means compacting now is cheaper. */
+  estimatedDecisionNetSaving: number;
   estimatedNetSaving: number;
   /**
-   * `estimatedNetSaving * confidence - uncertaintyPenalty * estimatedCompactCallCost`.
-   * This is the value compared against `minNetSaving`; it is exposed for explainability.
+   * Confidence-adjusted `estimatedDecisionNetSaving` minus the applicable uncertainty
+   * penalty. With NOW vs DEFER, only the difference between the two compaction paths is
+   * penalized; with NOW vs KEEP, the whole compaction call remains at risk.
    */
   adjustedNetSaving: number;
 
@@ -260,6 +273,19 @@ export interface FoldPointDecisionMetrics {
    * `softWindowBreakEvenCalls` while utilization is below the soft window.
    */
   effectiveHorizonCalls: number;
+
+  /** EMA estimate of prompt growth per model call in this live session. */
+  estimatedGrowthTokensPerCall: number;
+  /** One-call growth allowance subtracted from the raw force boundary. */
+  growthGuardTokens: number;
+  /** Unadjusted token boundary from hard ratio, reserve and compactor capability. */
+  rawForceBoundaryTokens: number;
+  /** Boundary at which FoldPoint acts early enough to avoid crossing the raw boundary. */
+  guardedForceBoundaryTokens: number;
+  /** Estimated model calls before the guarded boundary is reached. */
+  callsUntilForce: number;
+  /** Estimated probability that the active session survives until that boundary. */
+  probabilityReachForce: number;
 
   /** Calls since the last compaction attempt in this session. */
   callsSinceLastAttempt: number;
@@ -353,6 +379,14 @@ export interface FoldPointSessionState {
 
   /** Exact expiry of the prefix the most recent request of this session built. */
   cacheExpiresAt?: number;
+
+  /** Prompt size of the previous successful request, used only to estimate growth. */
+  lastPromptTokens?: number;
+  /** EMA of positive prompt-token growth between successful requests. */
+  growthTokensEma?: number;
+  /** EMA absolute deviation around `growthTokensEma`. */
+  growthDeviationEma?: number;
+  growthSamples?: number;
 }
 
 /** Whole-engine state. Keys are produced by `profileKey` and `sessionKey`. */
@@ -378,23 +412,27 @@ export interface FoldPointDefaults {
   compactCostScale: number;
   /** Cold-start reuse horizon, in future model calls. */
   expectedFutureCalls: number;
+  /** Multiplier on sqrt(active request count) for right-censored horizon evidence. */
+  activeHorizonSqrtMultiplier: number;
   /** Minimum model calls between two compaction attempts. */
   minCallsBetweenCompactions: number;
   /** Minimum reclaim, in tokens, for an economic compaction to be considered. */
   minReclaimTokens: number;
   /** Minimum reclaim ratio, for an economic compaction to be considered. */
   minReclaimRatio: number;
-  /** Below this utilization, the quick-payback policy guard applies. */
+  /** Below this utilization, economic compaction is not allowed. */
   softWindowRatio: number;
   /**
-   * Below the soft window, break-even must fit inside this many calls.
-   * A quality-oriented policy guard, not a mathematical optimum.
+   * Conservative reporting horizon below the economic band. Economic compaction itself is
+   * disabled there; the metric remains useful for hosts comparing local break-even.
    */
   softWindowBreakEvenCalls: number;
   /** At or above this utilization, FoldPoint returns FORCE. */
   hardWindowRatio: number;
   /** Minimum free window that must remain; otherwise FoldPoint returns FORCE. */
   reserveTokens: number;
+  /** Deviations added to mean per-call growth when reserving room before the force boundary. */
+  growthGuardDeviationMultiplier: number;
   /** EMA smoothing factor for every online estimate. */
   emaAlpha: number;
   /** Minimum adjusted net saving required for COMPACT. */

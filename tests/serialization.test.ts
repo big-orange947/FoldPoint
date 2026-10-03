@@ -98,6 +98,11 @@ describe("17.16 state v2 serialization", () => {
     expect(exported.version).toBe(2);
     expect(Object.keys(exported.profiles)).toHaveLength(1);
     expect(Object.keys(exported.sessions)).toHaveLength(2);
+    const sessionA = exported.sessions[sessionKey(SESSION_A, profile)];
+    expect(sessionA?.lastPromptTokens).toBe(120_000);
+    expect(sessionA?.growthSamples).toBe(1);
+    expect(sessionA?.growthTokensEma).toBeGreaterThan(0);
+    expect(sessionA?.growthDeviationEma).toBeGreaterThanOrEqual(0);
     expect(restored.exportState()).toEqual(exported);
 
     const inputA = makeInput({
@@ -173,6 +178,8 @@ describe("17.16 state v2 serialization", () => {
 
     expect(session.requestCount).toBe(7);
     expect(session.compactionAttemptCount).toBe(0);
+    expect(session.growthSamples).toBeUndefined();
+    expect(session.growthTokensEma).toBeUndefined();
     expect("anotherUnknownField" in session).toBe(false);
   });
 

@@ -30,32 +30,36 @@ insist that the window itself is at risk.
 
 ## 2. The future is estimated, not known
 
-`expectedFutureCalls` is the host's claim about the calls that remain. FoldPoint can learn a
-rough horizon from `endSession`, but inside a single session it cannot know whether the task
-has 3 calls or 300 left, and it is explicitly forbidden from guessing that from content.
+`expectedFutureCalls` is the host's claim about the calls that remain. Without it, FoldPoint
+combines completed-session learning with a deliberately simple heuristic for right-censored
+evidence from the active request count. That distinguishes a fresh three-call task from a
+session that has already continued for dozens of calls, but it is not a fitted survival model
+and still cannot know whether the current call is the last one.
 
 Two consequences:
 
-- with no host horizon and no history, the default horizon is 3 calls, so FoldPoint behaves
-  conservatively and mostly waits for the window guard;
+- at cold start the horizon is 3 calls and grows only with three times the square root of calls the
+  session demonstrably survived; this avoids treating elapsed calls as remaining calls but is
+  still a heuristic;
 - a host that overstates its horizon (for example by reporting a constant "20 calls remain"
-  for a session with 200 steps left) makes every compaction look more valuable than it is,
+  when only 2 calls remain) makes every compaction look more valuable than it is,
   and FoldPoint will compact more often. The benchmark's simulator caps the declared horizon
   by the steps the session really has left for exactly this reason.
 
 ## 3. The cost model is a short-horizon approximation
 
-FoldPoint compares "keep for R calls" against "compact now, then replay for R calls". It does
-not solve an optimal control problem:
+FoldPoint compares COMPACT NOW with pure KEEP or one deferred compaction at the guarded force
+boundary. It does not solve an optimal control problem:
 
 - it does not model what happens after those R calls;
-- it does not model further compactions inside the horizon (the quick-payback guard limits
-  how far a compaction may look below the soft window, but nothing bounds it above);
+- it does not recursively model a second or third compaction after that boundary;
 - it assumes the cached share of the context stays roughly what it is now;
 - it does not model the output tokens of the agent's future calls, only replay cost.
 
-The formulas are published in [algorithm.md](algorithm.md) so a host can disagree with them
-and tune the defaults.
+Per-call growth is an EMA plus an EMA deviation, capped so an outlier cannot pull the force
+point below the soft boundary. A single larger-than-band tool result can therefore still jump
+past the raw boundary before the next decision. The formulas are published in
+[algorithm.md](algorithm.md) so a host can disagree with them and tune the defaults.
 
 ## 4. Provider cache behaviour is a probability
 
@@ -111,8 +115,8 @@ the failures at all (by design — a failure says nothing about compression qual
 
 ## 6. The cold-start prior can be wrong
 
-The default `retentionRatio = 0.10` reflects the short summaries produced by modern agent
-harnesses, but it is still only a prior. A compactor that retains substantially more context can
+The default `retentionRatio = 0.10` is an intentionally compact generic prior, not a published
+cross-harness measurement. A compactor that retains substantially more context can
 make the first economic compactions look more attractive than they really are. The
 uncertainty penalty, the confidence floor and the minimum reclaim gate make that window as
 small as possible without making FoldPoint useless on a fresh profile, but they do not
@@ -147,14 +151,15 @@ context size until that call has already been made.
 FoldPoint optimises *when* to compact, not what the summary contains, and "fewer tokens" is
 not "better task outcome". Two honest caveats from the benchmark:
 
-- in the cold-cache scenarios FoldPoint keeps the context near 12–15% of the window and
-  compacts roughly every cooldown period. Each of those compactions repays itself within
-  about two calls, and the session is about 2.3x cheaper than the best fixed threshold — but
-  it is also **more** compactions than the 70/80/90% baselines make, which means more
-  exposures to potential information loss;
-- a host that prefers fewer compactions should raise `minCallsBetweenCompactions` or
-  `minReclaimRatio`, lower `softWindowBreakEvenCalls`, or set `compactionAllowed: false` in
-  the phases where context matters most. All of those are configuration, not new code.
+- the default 60% economic floor prevents the earlier cost-minimizing behavior that repeatedly
+  compacted contexts near 12–15% utilization. The current synthetic total is therefore higher
+  (182.13 rather than 136.37), but the old result exposed the session to 121 compaction attempts
+  and the simulator cannot score the semantic damage that may cause;
+- even with the floor, 11 of 28 judged economic compactions fail to repay within their
+  intervals. A host that prefers fewer compactions should raise `softWindowRatio`,
+  `minCallsBetweenCompactions` or `minReclaimRatio`, reduce
+  `activeHorizonSqrtMultiplier`, or set `compactionAllowed: false` in phases where context
+  matters most. All of those are configuration, not proof that the default is optimal.
 
 ## 8. Session identity is the host's responsibility
 

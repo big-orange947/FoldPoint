@@ -158,6 +158,36 @@ function newPrefixStorePath(name: string): string {
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
 describe("Pi observer adapter", () => {
+  it("records Pi's measured short-summary prior and honors an explicit override", () => {
+    const defaultPath = newTracePath("pi-summary-prior");
+    createFoldPointObserver({
+      tracePath: defaultPath,
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fakePi().pi);
+    const defaultHeader = readTrace(defaultPath)[0];
+    expect(defaultHeader?.type).toBe("header");
+    if (defaultHeader?.type === "header") {
+      expect(defaultHeader.defaults.compactOutputRatio).toBe(0.002);
+      expect(defaultHeader.defaults.retentionRatio).toBe(0.1);
+      expect(defaultHeader.defaults.softWindowRatio).toBe(0.6);
+      expect(defaultHeader.defaults.hardWindowRatio).toBe(0.7);
+    }
+
+    const overridePath = newTracePath("pi-summary-override");
+    createFoldPointObserver({
+      tracePath: overridePath,
+      defaults: { compactOutputRatio: 0.01 },
+      now: () => 1_000_000,
+      log: () => undefined,
+    })(fakePi().pi);
+    const overrideHeader = readTrace(overridePath)[0];
+    expect(overrideHeader?.type).toBe("header");
+    if (overrideHeader?.type === "header") {
+      expect(overrideHeader.defaults.compactOutputRatio).toBe(0.01);
+    }
+  });
+
   it("prices successful Pi cache warming separately and uses its refresh time for TTL", () => {
     const path = newTracePath("cache-warming");
     const fake = fakePi();

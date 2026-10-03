@@ -630,6 +630,14 @@ function readDefaultsFromEnv(): Partial<FoldPointDefaults> | undefined {
   return JSON.parse(raw) as Partial<FoldPointDefaults>;
 }
 
+/** Pi's compactor emits a very short summary even when the retained context also contains
+ * protected host material. Keep this adapter-specific: other harnesses can have very different
+ * summary usage, while real observations still replace the prior through FoldPoint's learner.
+ */
+const PI_COMPACTOR_DEFAULTS: Partial<FoldPointDefaults> = {
+  compactOutputRatio: 0.002,
+};
+
 /**
  * What Pi says happened to the call. `error` and `aborted` calls never reached the cache and
  * report zeroed usage, so they are recorded but never used to teach FoldPoint anything.
@@ -668,9 +676,17 @@ export function createFoldPointObserver(
     const mode = options.mode ?? modeFromEnv();
     const compactionModeFromOptions = options.compaction ?? compactionFromEnv();
     const minCompactTokensFromOptions = options.minCompactTokens ?? minCompactTokensFromEnv();
-    const defaults = options.defaults ?? readDefaultsFromEnv();
-    const trace = new TraceRecorder({ producer: `pi-observer@${ADAPTER_VERSION}`, now });
-    const foldPoint = new FoldPoint(defaults === undefined ? undefined : { defaults });
+    const configuredDefaults = options.defaults ?? readDefaultsFromEnv();
+    const defaults: Partial<FoldPointDefaults> = {
+      ...PI_COMPACTOR_DEFAULTS,
+      ...configuredDefaults,
+    };
+    const trace = new TraceRecorder({
+      producer: `pi-observer@${ADAPTER_VERSION}`,
+      defaults,
+      now,
+    });
+    const foldPoint = new FoldPoint({ defaults });
     const runtimeStartSeconds = Math.floor(now() / 1_000);
     let sessionCount = 0;
 

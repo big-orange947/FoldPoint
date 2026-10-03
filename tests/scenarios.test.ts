@@ -109,7 +109,10 @@ function runSession(config: SessionConfig, hooks: StrategyHooks): SessionResult 
       callCachedTokens = 0;
     }
 
-    hooks.onRequest?.(view, Math.min(callCachedTokens, contextTokens));
+    hooks.onRequest?.(
+      { ...view, contextTokens, utilization: contextTokens / WINDOW },
+      Math.min(callCachedTokens, contextTokens),
+    );
     lastPromptTokens = contextTokens;
     contextTokens += config.growthPerStep;
     if (config.suddenGrowthAtStep && config.suddenGrowthAtStep.step === step) {
@@ -196,22 +199,23 @@ describe("simulated sessions", () => {
 
     expect(session.compactions).toHaveLength(0);
     expect(session.decisions.every((entry) => entry.action === "KEEP")).toBe(true);
-    expect(session.maxUtilization).toBeLessThan(0.65);
+    expect(session.maxUtilization).toBeLessThan(0.6);
   });
 
-  it("defers economic compaction while cache replay is cheap, then honors the 70% quality boundary", () => {
+  it("uses the 60-70% decision band while cache replay remains cheap", () => {
     const { hooks } = foldPointHooks(CACHE_ALIVE);
     const foldPointSession = runSession(CACHE_ALIVE, hooks);
     const fixedSession = runSession(CACHE_ALIVE, fixedThresholdHooks(0.7));
 
     expect(foldPointSession.compactions.length).toBeGreaterThan(0);
     expect(foldPointSession.compactions.length).toBe(fixedSession.compactions.length);
-    for (const compaction of foldPointSession.compactions) {
-      expect(compaction.action).toBe("FORCE");
-    }
+    expect(foldPointSession.compactions.every((entry) => entry.beforeTokens / WINDOW <= 0.7)).toBe(
+      true,
+    );
+    expect(foldPointSession.compactions.some((entry) => entry.action === "COMPACT")).toBe(true);
     expect(
       foldPointSession.decisions.some(
-        (entry) => entry.action === "KEEP" && entry.reasons.includes("CACHE_STILL_VALUABLE"),
+        (entry) => entry.action === "KEEP" && entry.reasons.includes("BELOW_SOFT_WINDOW"),
       ),
     ).toBe(true);
   });
@@ -257,7 +261,7 @@ describe("simulated sessions", () => {
     expect(learning.retentionSamples).toBeGreaterThanOrEqual(3);
 
     const economic = session.compactions.filter((entry) => entry.action === "COMPACT");
-    // The cold-start prior (retention 0.40) allows a few early economic compactions before
+    // The cold-start prior allows a few early economic compactions before
     // the EMA has seen enough real results; the observed number is 5, and every compaction
     // after them is a window-safety FORCE. (A lapsed cache is billed at the cache-write
     // price, which makes the saving per kept call slightly larger than the input-price
