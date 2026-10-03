@@ -40,8 +40,8 @@ import type {
 import { FOLDPOINT_VERSION } from "./version";
 
 /** Bumped whenever the event shape changes in a way a reader has to know about. */
-export const TRACE_FORMAT_VERSION = 3;
-type TraceVersion = 1 | 2 | typeof TRACE_FORMAT_VERSION;
+export const TRACE_FORMAT_VERSION = 4;
+type TraceVersion = 1 | 2 | 3 | typeof TRACE_FORMAT_VERSION;
 
 /** What happened to the call a decision was about. */
 export type TraceOutcome = "ok" | "error" | "overflow" | "aborted";
@@ -100,6 +100,8 @@ export interface TraceProfile {
 
 /** The decision input, minus anything the reader does not need to reconstruct the call. */
 export interface TraceInput {
+  runtimeId?: string;
+  runtimeStatus?: "active" | "idle";
   contextTokens: number;
   cachedTokens?: number;
   /** Leading tokens the host declared stable (system prompt and tool schemas). */
@@ -168,7 +170,7 @@ export interface TraceRequestEvent {
 
 /** A host-side cache refresh is a paid call, but not an agent turn or a decision/request pair. */
 export interface TraceCacheWarmEvent {
-  v: 2 | typeof TRACE_FORMAT_VERSION;
+  v: 2 | 3 | typeof TRACE_FORMAT_VERSION;
   type: "cache_warm";
   seq: number;
   timestamp: number;
@@ -243,7 +245,17 @@ export type TraceEvent =
   | TraceRequestEvent
   | TraceCacheWarmEvent
   | TraceCompactionEvent
-  | TraceSessionEndEvent;
+  | TraceSessionEndEvent
+  | TraceRuntimeEndEvent;
+
+export interface TraceRuntimeEndEvent {
+  v: TraceVersion;
+  type: "runtime_end";
+  seq: number;
+  timestamp: number;
+  sessionId: string;
+  runtimeId: string;
+}
 
 export type TraceEventType = TraceEvent["type"];
 
@@ -511,6 +523,20 @@ export class TraceRecorder {
     return event;
   }
 
+  runtimeEnd(sessionId: string, runtimeId: string, timestamp: number): TraceRuntimeEndEvent {
+    assertTraceLabel("sessionId", sessionId);
+    assertTraceLabel("runtimeId", runtimeId);
+    assertFinite("timestamp", timestamp, 0);
+    return {
+      v: TRACE_FORMAT_VERSION,
+      type: "runtime_end",
+      seq: this.#nextSeq(),
+      timestamp,
+      sessionId,
+      runtimeId,
+    };
+  }
+
   #nextSeq(): number {
     this.#seq += 1;
     return this.#seq;
@@ -542,7 +568,10 @@ function traceProfile(profile: FoldPointProfile): TraceProfile {
 }
 
 function traceInput(input: FoldPointInput): TraceInput {
+  if (input.runtimeId !== undefined) assertTraceLabel("runtimeId", input.runtimeId);
   const traced: TraceInput = { contextTokens: input.contextTokens };
+  if (input.runtimeId !== undefined) traced.runtimeId = input.runtimeId;
+  if (input.runtimeStatus !== undefined) traced.runtimeStatus = input.runtimeStatus;
   if (input.cachedTokens !== undefined) {
     traced.cachedTokens = input.cachedTokens;
   }
@@ -609,6 +638,7 @@ const TRACE_EVENT_TYPES: readonly TraceEventType[] = [
   "cache_warm",
   "compaction",
   "session_end",
+  "runtime_end",
 ];
 
 /**
@@ -646,10 +676,11 @@ export function isTraceEvent(value: unknown): value is TraceEvent {
   }
   const event = value as { v?: unknown; type?: unknown };
   return (
-    (event.v === 1 || event.v === 2 || event.v === TRACE_FORMAT_VERSION) &&
+    (event.v === 1 || event.v === 2 || event.v === 3 || event.v === TRACE_FORMAT_VERSION) &&
     typeof event.type === "string" &&
     (TRACE_EVENT_TYPES as readonly string[]).includes(event.type) &&
-    (event.v !== 1 || event.type !== "cache_warm")
+    (event.v !== 1 || event.type !== "cache_warm") &&
+    (event.type !== "runtime_end" || event.v === TRACE_FORMAT_VERSION)
   );
 }
 
@@ -666,10 +697,11 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       version !== undefined &&
       version !== 1 &&
       version !== 2 &&
+      version !== 3 &&
       version !== TRACE_FORMAT_VERSION
     ) {
       throw new RangeError(
-        `Trace event version ${String(version)} is not supported (expected 1, 2 or ${TRACE_FORMAT_VERSION})`,
+        `Trace event version ${String(version)} is not supported (expected 1, 2, 3 or ${TRACE_FORMAT_VERSION})`,
       );
     }
     throw new RangeError("Trace event must carry a supported `v` and a known `type`");
@@ -690,6 +722,15 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       }
       return event;
     case "decision": {
+      if (event.input?.runtimeId !== undefined)
+        assertTraceLabel("runtimeId", event.input.runtimeId);
+      if (
+        event.input?.runtimeStatus !== undefined &&
+        event.input.runtimeStatus !== "active" &&
+        event.input.runtimeStatus !== "idle"
+      ) {
+        throw new RangeError("Invalid trace runtimeStatus");
+      }
       assertTraceLabel("callId", event.callId);
       assertNonEmptyString("profile.model", event.profile?.model);
       if (event.profile?.prefixId !== undefined) {
@@ -765,6 +806,9 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       }
       return event;
     }
+    case "runtime_end":
+      assertTraceLabel("runtimeId", event.runtimeId);
+      return event;
     case "session_end":
       if (event.reason !== undefined) {
         assertTraceLabel("reason", event.reason, TRACE_SHORT_LABEL_MAX);

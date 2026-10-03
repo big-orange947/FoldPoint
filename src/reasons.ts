@@ -54,4 +54,6 @@ export const REASON_DESCRIPTIONS: Readonly<Record<FoldPointReason, string>> = Ob
   DEFERRED_COMPACTION_COSTLIER:
     "Waiting for the later mandatory compaction is estimated to cost more than compacting now.",
   DEFAULT_KEEP: "No rule applied; the conservative default is to keep the context.",
+  RUNTIME_IDLE:
+    "The current agent runtime has ended; do not finance compaction with unknown future commands.",
 });

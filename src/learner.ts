@@ -320,7 +320,7 @@ export function applyRequestObservation(
     nextLearning.cacheCoverageSamples = learning.cacheCoverageSamples + 1;
 
     const previousPromptTokens = session.lastPromptTokens;
-    if (previousPromptTokens !== undefined && observation.promptTokens > previousPromptTokens) {
+    if (previousPromptTokens !== undefined && observation.promptTokens >= previousPromptTokens) {
       const growth = observation.promptTokens - previousPromptTokens;
       const samples = session.growthSamples ?? 0;
       const previousMean = session.growthTokensEma ?? growth;

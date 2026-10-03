@@ -79,14 +79,20 @@ provider usage/cost, duration and a short `errorCode`. A veto has no model call.
 attempts may have used tokens even when the host did not report usage; the analyzer counts
 these as `unpricedCompactions` and marks the observed session cost as a lower bound. When a
 failed attempt *does* report complete usage or `actualCost`, its cost is included.
-In v3, a successful compaction may have `afterTokens: null` when the session ends before Pi
+In v4, `decision.input` may carry `runtimeId` / `runtimeStatus` and `runtime_end` records a
+completed agent loop without ending its session. Horizon calibration uses only matched
+requests in that runtime. An unfinished runtime is censored even if its session ends;
+legacy v1/v2/v3 traces without runtime identifiers retain session-level calibration.
+Identifiers receive the same privacy validation as session IDs.
+
+In v3 and later, a successful compaction may have `afterTokens: null` when the session ends before Pi
 reports the size of a subsequent context. Its known usage is still billed, but it contributes
 no retention-calibration sample. v1/v2 traces remain readable; neither permits this null value.
 `usableForCalibration: true` only means the prediction-calibration samples are structurally
 usable; it does not turn a lower-bound session cost into a complete bill.
 
-`session_end` — closes a session. Without it, the session is right-censored and its remaining
-call horizon cannot be measured reliably.
+`session_end` — closes a session. Legacy session-scoped horizons need this end marker.
+Runtime-scoped horizons instead need `runtime_end`; a session may contain many runtimes.
 
 ## 2. Wiring a host
 
@@ -162,8 +168,8 @@ predict them. A positive signed error means the model **under**-predicted.
 
 Four rules keep the numbers honest, and each one is visible in the report:
 
-- **A session without a `session_end` event is right-censored.** Its last recorded call is not
-  known to be the last call of the session, so it is excluded from the horizon error and from
+- **An unfinished session/runtime is right-censored.** Legacy session traces need `session_end`;
+  runtime traces need their own `runtime_end`. The unfinished unit is excluded from horizon error and from
   the near-end class — a long session exported halfway through would otherwise make the horizon
   look over-predicted. The other metrics still use the calls that were recorded.
 - **An unreported cache usage is unknown, not a miss.** A request without `cachedInputTokens`

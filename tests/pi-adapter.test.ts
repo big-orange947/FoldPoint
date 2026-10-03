@@ -170,7 +170,7 @@ describe("Pi observer adapter", () => {
     if (defaultHeader?.type === "header") {
       expect(defaultHeader.defaults.compactOutputRatio).toBe(0.002);
       expect(defaultHeader.defaults.retentionRatio).toBe(0.1);
-      expect(defaultHeader.defaults.softWindowRatio).toBe(0.6);
+      expect(defaultHeader.defaults.softWindowRatio).toBe(0);
       expect(defaultHeader.defaults.hardWindowRatio).toBe(0.7);
     }
 
@@ -244,6 +244,8 @@ describe("Pi observer adapter", () => {
     createFoldPointObserver({ tracePath: newTracePath("events"), now: () => 1_000_000 })(fake.pi);
 
     expect(fake.registered).toEqual([
+      "agent_start",
+      "agent_end",
       "session_start",
       "context",
       "message_end",
@@ -255,6 +257,27 @@ describe("Pi observer adapter", () => {
     // `before_provider_request` carries the payload; the observer must not see it at all.
     expect(fake.registered).not.toContain("before_provider_request");
     expect(fake.registered).not.toContain("context_with_system");
+  });
+
+  it("records independent runtime identities without resetting session cache learning", () => {
+    const path = newTracePath("runtime");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("agent_start", { type: "agent_start" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("agent_end", { type: "agent_end" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("agent_start", { type: "agent_start" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions).toHaveLength(3);
+    expect(decisions[0]?.input.runtimeId).not.toBe(decisions[2]?.input.runtimeId);
+    expect(decisions[0]?.sessionId).toBe(decisions[2]?.sessionId);
+    expect(decisions[1]?.decision.reasons).toEqual(["RUNTIME_IDLE"]);
+    expect(decisions.every((event) => event.prediction.expectedFutureCalls === 1)).toBe(true);
   });
 
   it("records the decision before the call and the usage after it", () => {
@@ -1071,6 +1094,24 @@ describe("Pi adapter compaction advice and automatic compaction", () => {
     expect(fake.compactions[0]?.idle).toBe(true);
     // The two modes are exclusive: an automatic compaction leaves nothing to remind about.
     expect(fake.notifications).toHaveLength(0);
+  });
+
+  it("drops a queued automatic request when its runtime has ended", async () => {
+    const fake = fakePi();
+    let idle = false;
+    const ctx = { ...fake.ctxWith(CONTEXT_WINDOW * 0.95), isIdle: () => idle };
+    createFoldPointObserver({
+      tracePath: newTracePath("runtime-auto"),
+      compaction: "auto",
+      log: () => undefined,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" }, ctx);
+    fake.emit("agent_start", { type: "agent_start" }, ctx);
+    fake.emit("context", { type: "context" }, ctx);
+    fake.emit("agent_end", { type: "agent_end" }, ctx);
+    idle = true;
+    await new Promise<void>((done) => setTimeout(done, 300));
+    expect(fake.compactions).toHaveLength(0);
   });
 
   it("drops a queued automatic request if Pi compacted while the adapter waited for idle", async () => {

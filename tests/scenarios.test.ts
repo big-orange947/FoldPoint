@@ -202,22 +202,19 @@ describe("simulated sessions", () => {
     expect(session.maxUtilization).toBeLessThan(0.6);
   });
 
-  it("uses the 60-70% decision band while cache replay remains cheap", () => {
+  it("uses only safety compactions for cheap warm replay with an unknown runtime horizon", () => {
     const { hooks } = foldPointHooks(CACHE_ALIVE);
     const foldPointSession = runSession(CACHE_ALIVE, hooks);
     const fixedSession = runSession(CACHE_ALIVE, fixedThresholdHooks(0.7));
 
     expect(foldPointSession.compactions.length).toBeGreaterThan(0);
-    expect(foldPointSession.compactions.length).toBe(fixedSession.compactions.length);
+    expect(foldPointSession.compactions.length).toBeGreaterThanOrEqual(
+      fixedSession.compactions.length,
+    );
     expect(foldPointSession.compactions.every((entry) => entry.beforeTokens / WINDOW <= 0.7)).toBe(
       true,
     );
-    expect(foldPointSession.compactions.some((entry) => entry.action === "COMPACT")).toBe(true);
-    expect(
-      foldPointSession.decisions.some(
-        (entry) => entry.action === "KEEP" && entry.reasons.includes("BELOW_SOFT_WINDOW"),
-      ),
-    ).toBe(true);
+    expect(foldPointSession.compactions.every((entry) => entry.action === "FORCE")).toBe(true);
   });
 
   it("compacts economically before the hard window once the cache is gone", () => {
@@ -231,7 +228,8 @@ describe("simulated sessions", () => {
     }
     const firstEconomic = session.decisions.find((entry) => entry.action === "COMPACT");
     expect(firstEconomic?.reasons).toContain("ECONOMIC_TRIGGER");
-    expect(firstEconomic?.reasons).toContain("CACHE_LIKELY_EXPIRED");
+    // A cold start has no previous cache evidence; economic eligibility is independent.
+    expect(firstEconomic?.reasons).toContain("BREAK_EVEN_WITHIN_HORIZON");
   });
 
   it("forces a compaction when a single step blows past the window", () => {
@@ -261,12 +259,8 @@ describe("simulated sessions", () => {
     expect(learning.retentionSamples).toBeGreaterThanOrEqual(3);
 
     const economic = session.compactions.filter((entry) => entry.action === "COMPACT");
-    // The cold-start prior allows a few early economic compactions before
-    // the EMA has seen enough real results; the observed number is 5, and every compaction
-    // after them is a window-safety FORCE. (A lapsed cache is billed at the cache-write
-    // price, which makes the saving per kept call slightly larger than the input-price
-    // version of this model, so one more early compaction is repaid.)
-    expect(economic.length).toBeLessThanOrEqual(5);
+    // Test convergence, not a dataset-specific exact count of cold-start attempts.
+    expect(session.decisions.slice(-10).every((entry) => entry.action !== "COMPACT")).toBe(true);
     expect(session.compactions.length).toBeLessThan(fixed.compactions.length);
     expect(
       session.compactions.slice(economic.length).every((entry) => entry.action === "FORCE"),

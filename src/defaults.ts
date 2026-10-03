@@ -30,7 +30,7 @@ export const DEFAULTS: Readonly<FoldPointDefaults> = Object.freeze({
   minReclaimTokens: 4096,
   minReclaimRatio: 0.2,
 
-  softWindowRatio: 0.6,
+  softWindowRatio: 0,
   softWindowBreakEvenCalls: 3,
   // A conservative quality boundary, not a claim that every model has a universal 70%
   // attention cliff. Hosts can override it after model- and task-specific evaluation.

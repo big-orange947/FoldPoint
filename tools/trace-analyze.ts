@@ -123,6 +123,8 @@ export interface TraceAnalysis {
   completeSessions: number;
   /** Sessions without a `session_end` event: right-censored, excluded from horizon metrics. */
   censoredSessions: number;
+  completeRuntimes: number;
+  censoredRuntimes: number;
   decisions: number;
   requests: number;
   compactions: number;
@@ -157,6 +159,7 @@ export interface TraceAnalysis {
 }
 
 interface SessionIndex {
+  runtimeEnds: Map<string, number>;
   sessionId: string;
   decisions: TraceDecisionEvent[];
   requests: TraceRequestEvent[];
@@ -383,11 +386,30 @@ export function analyzeTraceEvents(
         (request) => request.callId === decision.callId,
       );
       const request = requestIndex >= 0 ? session.requests[requestIndex] : undefined;
+      const runtimeId = decision.input.runtimeId;
+      const runtimeEnd = runtimeId === undefined ? undefined : session.runtimeEnds.get(runtimeId);
+      const runtimeRequests =
+        runtimeId === undefined
+          ? undefined
+          : session.requests.filter((candidate) =>
+              session.decisions.some(
+                (item) => item.callId === candidate.callId && item.input.runtimeId === runtimeId,
+              ),
+            );
+      const actualRemainingCalls =
+        runtimeRequests === undefined
+          ? session.requests.length - requestIndex
+          : runtimeRequests.length -
+            runtimeRequests.findIndex((candidate) => candidate.callId === decision.callId);
+      const horizonComplete =
+        runtimeId === undefined ? session.endedAt !== null : runtimeEnd !== undefined;
       const decisionClasses = classesForDecision(
         sessionClasses,
         requestIndex,
         session,
         nearEndCalls,
+        horizonComplete,
+        actualRemainingCalls,
       );
 
       overall.decisions += 1;
@@ -401,8 +423,8 @@ export function analyzeTraceEvents(
       // what `C_now + (N - 1) * C_later` assumes. Only a session that ended can answer it:
       // a trace exported mid-session is right-censored, and its last recorded call is not
       // the last call of the session.
-      if (requestIndex >= 0 && session.endedAt !== null) {
-        const actualRemaining = session.requests.length - requestIndex;
+      if (requestIndex >= 0 && horizonComplete) {
+        const actualRemaining = actualRemainingCalls;
         const predicted = decision.prediction.expectedFutureCalls;
         overall.horizon.add(predicted, actualRemaining, session.sessionId, decision.callId);
         split.horizon.add(predicted, actualRemaining, session.sessionId, decision.callId);
@@ -585,9 +607,27 @@ export function analyzeTraceEvents(
   const censoredSessions = [...sessions.values()].filter(
     (session) => session.endedAt === null,
   ).length;
+  let completeRuntimes = 0;
+  let censoredRuntimes = 0;
+  for (const session of sessions.values()) {
+    const ids = new Set(
+      session.decisions.flatMap((decision) =>
+        decision.input.runtimeId === undefined ? [] : [decision.input.runtimeId],
+      ),
+    );
+    for (const id of ids) {
+      if (session.runtimeEnds.has(id)) completeRuntimes += 1;
+      else censoredRuntimes += 1;
+    }
+  }
+  if (completeRuntimes + censoredRuntimes > 0) {
+    notes.push(
+      `${completeRuntimes} completed runtime(s), ${censoredRuntimes} censored runtime(s). Runtime horizon calibration excludes later user commands and unfinished loops.`,
+    );
+  }
   if (censoredSessions > 0) {
     notes.push(
-      `${censoredSessions} session(s) have no session_end event and are treated as right-censored: they are excluded from the horizon error and from the near-end class, because their last recorded call is not known to be the last call.`,
+      `${censoredSessions} session(s) have no session_end event: legacy session-level horizons are right-censored. Runtime-scoped horizons instead require their own runtime_end, regardless of session completeness.`,
     );
   }
 
@@ -610,6 +650,8 @@ export function analyzeTraceEvents(
     sessions: sessions.size,
     completeSessions: sessions.size - censoredSessions,
     censoredSessions,
+    completeRuntimes,
+    censoredRuntimes,
     decisions: overall.decisions,
     requests: [...sessions.values()].reduce((total, session) => total + session.requests.length, 0),
     compactions: [...sessions.values()].reduce(
@@ -773,15 +815,13 @@ function classesForDecision(
   requestIndex: number,
   session: SessionIndex,
   nearEndCalls: number,
+  horizonComplete = session.endedAt !== null,
+  actualRemaining = session.requests.length - requestIndex,
 ): TraceClass[] {
   const result: TraceClass[] = sessionClasses.filter((traceClass) => traceClass !== "near-end");
   // "Near end" needs a real end: a session without a `session_end` event is right-censored,
   // so its last recorded call is not the last call of the session.
-  if (
-    session.endedAt !== null &&
-    requestIndex >= 0 &&
-    requestIndex >= session.requests.length - nearEndCalls
-  ) {
+  if (horizonComplete && requestIndex >= 0 && actualRemaining <= nearEndCalls) {
     result.push("near-end");
   }
   return result;
@@ -834,6 +874,7 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
       return existing;
     }
     const created: SessionIndex = {
+      runtimeEnds: new Map(),
       sessionId,
       decisions: [],
       requests: [],
@@ -870,6 +911,9 @@ function indexSessions(events: readonly TraceEvent[]): Map<string, SessionIndex>
         break;
       case "cache_warm":
         ensure(event.sessionId).cacheWarms.push(event);
+        break;
+      case "runtime_end":
+        ensure(event.sessionId).runtimeEnds.set(event.runtimeId, event.timestamp);
         break;
       case "session_end":
         ensure(event.sessionId).endedAt = event.timestamp;

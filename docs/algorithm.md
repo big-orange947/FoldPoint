@@ -299,7 +299,9 @@ confidence = clamp(confidenceFloor + (1 - confidenceFloor) * evidence, 0, 1)   (
 The weights sum to 1. `compactionUsageSamples` is the largest of the compaction usage sample
 counts (prompt, output, cached-input, cache-write, cost scale): it counts compaction calls
 that reported usage, which is what prices the compaction call. Confidence starts at the
-floor, is monotone non-decreasing in every sample count, and never affects `FORCE`.
+floor and never affects `FORCE`. `horizonSamples` in this formula is now an input evidence
+indicator: 1 if the host supplied a runtime horizon, otherwise 0. Stored legacy horizon
+samples do not raise confidence; host presence does not certify forecast accuracy.
 
 ```
 decisionNetSaving = economicAlternativeCost - compactNowCost
@@ -314,12 +316,14 @@ difference and the chance of the session ending before the deferred call are pen
 
 ```
 expectedFutureCalls = host value, when present
-                    = max(reuseHorizonEma, coldStartHorizon + 3*sqrt(requestCount)), otherwise
+                    = 1 (the current request only), otherwise
 ```
 
-Below `softWindowRatio` FoldPoint never performs an economic compaction. This prevents a cold
-cache or optimistic summary prior from repeatedly compacting a small context. Between the
-default 60% soft boundary and the guarded 70% force boundary, it compares two feasible paths:
+The horizon belongs to one agent runtime, not a session or future user commands. An idle
+runtime returns KEEP for economics. Safety still takes precedence. `runtimeId` is a host
+identifier for auditing, not a learned lifetime predictor. The optional `softWindowRatio`
+floor defaults to zero; minimum reclaim, cooldown and net-saving gates remain active.
+Below an explicitly configured floor FoldPoint keeps. Else it compares two feasible paths:
 
 ```
 NOW   = compact at T, then replay
@@ -328,16 +332,16 @@ DEFER = keep while the context grows, then compact no later than the guarded for
 
 Per-call prompt growth is learned as an EMA plus an EMA absolute deviation. The raw force
 boundary is reduced by `mean + growthGuardDeviationMultiplier * deviation`, capped so one
-outlier cannot move it below the soft boundary. The active session is right-censored evidence:
-completed requests raise the cold-start horizon sublinearly through `3*sqrt(requestCount)` rather
-than being mistaken one-for-one for calls that remain. The probability of reaching the force
-boundary uses the same horizon as a geometric approximation, so the probability blend and cost
-horizon cannot contradict each other. Neither assumption is a fitted survival model. A
-host-supplied horizon still has highest priority.
+outlier cannot move it below a configured soft boundary. Zero-growth calls are samples too;
+negative jumps reset the baseline without pretending to be ordinary growth. Elapsed request
+counts and legacy reuse-horizon statistics do not influence economics or confidence.
 
-The DEFER estimate is a one-boundary look-ahead, not an optimal-control solver. It blends the
-cost of ending before the boundary with the probability of reaching it and paying a larger
-compaction there. It remains O(1), metadata-only and auditable through the returned metrics.
+The DEFER estimate is conditional on the host horizon, not an optimal-control solver or a
+survival model. Both paths receive identical growth. For n calls on one prefix, added growth
+cost is g*((n-1)*Pnew + (n-1)*(n-2)/2*Pold): new tails use the input/write price and earlier
+tails use the cache-read/write price according to predicted aliveness. The comparison stops
+before NOW would need a second compaction. The legacy `probabilityReachForce` metric is now
+a binary modeled-horizon indicator, not a statistical probability. It remains O(1).
 
 ## 12. Decision gates
 
@@ -347,7 +351,7 @@ block. The first matching gate wins.
 1. **Window safety → `FORCE`** if the raw boundary is reached, or learned one-call growth
    reaches its guarded boundary. If the host has disabled compaction or is not at a
    safe boundary, `COMPACTION_DISABLED` / `UNSAFE_BOUNDARY` are added to `reasons`.
-2. **Host opt-out → `KEEP`** if `compactionAllowed === false`.
+2. **Host opt-out / idle runtime → `KEEP`** if `compactionAllowed === false` or the runtime is idle.
 3. **Step boundary → `KEEP`** if `safeBoundary === false`.
 4. **Cooldown → `KEEP`** if `compactionAttemptCount > 0` and
    `callsSinceLastAttempt < minCallsBetweenCompactions`. Any attempt — successful or not —
@@ -417,12 +421,12 @@ All defaults live in [`src/defaults.ts`](../src/defaults.ts), are overridable th
 | `compactCachedInputRatio` | 0 | cold start assumes the compaction call cannot read a cache |
 | `compactCacheWriteRatio` | 0 | cold start assumes no cache writes on the compaction call |
 | `compactCostScale` | 1.00 | the modeled cost is the estimate until real costs say otherwise |
-| `expectedFutureCalls` | 3 | used when neither the host nor history provides a horizon |
-| `activeHorizonSqrtMultiplier` | 3 | conservative, sublinear use of active-session survival evidence |
+| `expectedFutureCalls` | 3 | deprecated compatibility field, ignored; unknown input horizon uses 1 |
+| `activeHorizonSqrtMultiplier` | 3 | deprecated compatibility field, ignored |
 | `minCallsBetweenCompactions` | 3 | cooldown between attempts |
 | `minReclaimTokens` | 4,096 | absolute floor: compacting for a few hundred tokens is never worth a call |
 | `minReclaimRatio` | 0.20 | relative floor: a compactor reclaiming under 20% is not earning its call |
-| `softWindowRatio` | 0.60 | start of the economic decision band; below it FoldPoint keeps |
+| `softWindowRatio` | 0 | optional floor; no default percentage exclusion |
 | `softWindowBreakEvenCalls` | 3 | conservative reporting horizon below the economic band |
 | `hardWindowRatio` | 0.70 | conservative quality and window-safety boundary → `FORCE`; not a universal attention threshold |
 | `reserveTokens` | 8,192 | absolute safety margin |

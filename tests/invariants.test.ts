@@ -159,7 +159,7 @@ describe("17.5 numeric edges", () => {
       { defaults: { emaAlpha: 0 } },
       { defaults: { emaAlpha: 1.5 } },
       { defaults: { softWindowRatio: 1.2 } },
-      { defaults: { hardWindowRatio: 0.5 } },
+      { defaults: { softWindowRatio: 0.6, hardWindowRatio: 0.5 } },
       { defaults: { minReclaimTokens: -1 } },
       { defaults: { expectedFutureCalls: 0 } },
       { defaults: { softWindowPenaltyMultiplier: 0.5 } },
@@ -279,8 +279,8 @@ describe("17.6 monotonicity", () => {
   it("39. a longer horizon never makes a positive-saving compaction harder to trigger", () => {
     const decisions = sweep([1, 2, 4, 8, 16, 64], (horizon) =>
       decideWith(
-        { contextTokens: 150_000, cachedTokens: 40_000 },
-        { ...HISTORY, horizonSamples: 2, reuseHorizonEma: horizon },
+        { contextTokens: 100_000, cachedTokens: 40_000, expectedFutureCalls: horizon },
+        HISTORY,
         SESSION_HISTORY,
       ),
     );
@@ -325,6 +325,7 @@ describe("17.6 monotonicity", () => {
           cachedTokens: 140_000,
           idleMs: 600_000,
           profile: profileWithCacheTtl(300_000),
+          expectedFutureCalls: 10,
         },
         HISTORY,
         SESSION_HISTORY,

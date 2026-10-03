@@ -71,6 +71,7 @@ export type {
   TraceProfile,
   TraceRecorderOptions,
   TraceRequestEvent,
+  TraceRuntimeEndEvent,
   TraceSessionEndEvent,
 } from "./trace";
 export {

@@ -59,7 +59,8 @@ export type FoldPointReason =
   /** Waiting for the later mandatory compaction is estimated to cost more than compacting now. */
   | "DEFERRED_COMPACTION_COSTLIER"
   /** Nothing else applied; the conservative default is to keep. */
-  | "DEFAULT_KEEP";
+  | "DEFAULT_KEEP"
+  | "RUNTIME_IDLE";
 
 /**
  * Model price snapshot. Prices are always supplied by the host (config, adapter or user);
@@ -143,6 +144,10 @@ export interface RequestObservation {
 
 /** Everything FoldPoint needs for one decision. Metadata only. */
 export interface FoldPointInput {
+  /** Current host task execution; never inferred from elapsed session calls. */
+  runtimeId?: string;
+  /** Idle runtimes do not perform economic compaction. Safety remains independent. */
+  runtimeStatus?: "active" | "idle";
   /** Stable, host-owned, non-sensitive session identifier (a UUID, not message text). */
   sessionId: string;
 
@@ -170,7 +175,7 @@ export interface FoldPointInput {
   safeBoundary?: boolean;
 
   /**
-   * Host estimate of how many model calls remain in this session, **including the call this
+   * Host estimate of how many model calls remain in this runtime, **including the call this
    * decision is about**: the break-even compares `C_now + (N - 1) * C_later` against the
    * compaction, so a host that counts only the later calls understates the horizon by one.
    */
@@ -266,11 +271,11 @@ export interface FoldPointDecisionMetrics {
   estimatedSavingPerFutureCall: number;
   /** null when there is no positive per-call saving. */
   breakEvenCalls: number | null;
-  /** The host-provided or learned horizon, in future calls. */
+  /** Host runtime horizon; 1 (current request only) when unknown. */
   expectedFutureCalls: number;
   /**
    * The horizon actually used by the economic gate: `expectedFutureCalls`, capped by
-   * `softWindowBreakEvenCalls` while utilization is below the soft window.
+   * the next NOW compaction cycle, and by `softWindowBreakEvenCalls` below an explicit floor.
    */
   effectiveHorizonCalls: number;
 
@@ -284,7 +289,7 @@ export interface FoldPointDecisionMetrics {
   guardedForceBoundaryTokens: number;
   /** Estimated model calls before the guarded boundary is reached. */
   callsUntilForce: number;
-  /** Estimated probability that the active session survives until that boundary. */
+  /** Compatibility metric: 0/1 indicates whether the modeled horizon reaches the boundary. */
   probabilityReachForce: number;
 
   /** Calls since the last compaction attempt in this session. */
@@ -410,9 +415,9 @@ export interface FoldPointDefaults {
   compactCacheWriteRatio: number;
   /** Cold-start multiplier from modeled to actual compaction cost. */
   compactCostScale: number;
-  /** Cold-start reuse horizon, in future model calls. */
+  /** @deprecated Compatibility-only: unknown runtime horizons now use one current call. */
   expectedFutureCalls: number;
-  /** Multiplier on sqrt(active request count) for right-censored horizon evidence. */
+  /** @deprecated Compatibility-only; elapsed request count is not a horizon estimate. */
   activeHorizonSqrtMultiplier: number;
   /** Minimum model calls between two compaction attempts. */
   minCallsBetweenCompactions: number;

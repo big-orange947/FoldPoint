@@ -166,6 +166,14 @@ export function validateFoldPointInput(input: FoldPointInput): void {
   if (input.expectedFutureCalls !== undefined) {
     assertFiniteNumber("expectedFutureCalls", input.expectedFutureCalls, 1);
   }
+  if (input.runtimeId !== undefined) assertNonEmptyString("runtimeId", input.runtimeId);
+  if (
+    input.runtimeStatus !== undefined &&
+    input.runtimeStatus !== "active" &&
+    input.runtimeStatus !== "idle"
+  ) {
+    throw new RangeError("Invalid runtimeStatus");
+  }
   if (input.cacheExpiresAt !== undefined) {
     assertFiniteNumber("cacheExpiresAt", input.cacheExpiresAt, 0);
   }
@@ -178,31 +186,15 @@ export function validateFoldPointInput(input: FoldPointInput): void {
 }
 
 /**
- * Future-call horizon: host input first, otherwise combine completed-session learning with
- * right-censored evidence from the live session. Every request already observed in an active
- * session is evidence that a three-call cold-start prior is too short, but elapsed calls are
- * not remaining calls. A square-root update lets that evidence grow sublinearly instead of
- * assuming that every completed call implies one additional future call. The multiplier is a
- * product prior: a 36-call session reaches roughly 21 forecast calls, not 39. It is not a
- * fitted survival model; hosts with a real horizon should provide it.
+ * The host may estimate remaining calls in the current runtime. Without that estimate only
+ * the current request is known. Session age and completed sessions do not predict future work.
  */
-function resolveExpectedFutureCalls(
-  input: FoldPointInput,
-  horizonSamples: number,
-  reuseHorizonEma: number,
-  sessionRequestCount: number,
-  defaults: FoldPointDefaults,
-): number {
+function resolveExpectedFutureCalls(input: FoldPointInput): number {
   if (input.expectedFutureCalls !== undefined) {
     return input.expectedFutureCalls;
   }
-  const activeSessionHorizon =
-    defaults.expectedFutureCalls +
-    defaults.activeHorizonSqrtMultiplier * Math.sqrt(sessionRequestCount);
-  if (horizonSamples > 0) {
-    return clamp(Math.max(reuseHorizonEma, activeSessionHorizon), 1, Number.MAX_SAFE_INTEGER);
-  }
-  return clamp(activeSessionHorizon, 1, Number.MAX_SAFE_INTEGER);
+  // The current request is known. Elapsed calls and other sessions do not establish future work.
+  return 1;
 }
 
 function rawForceBoundaryTokens(
@@ -279,7 +271,7 @@ export function decideFoldPoint(
   // --- evidence ---
   const retentionSamples = readStateNumber(learning?.retentionSamples, 0);
   const cacheCoverageSamples = readStateNumber(learning?.cacheCoverageSamples, 0);
-  const horizonSamples = readStateNumber(learning?.horizonSamples, 0);
+  const horizonSamples = input.expectedFutureCalls === undefined ? 0 : 1;
   const compactUsageSamples = Math.max(
     readStateNumber(learning?.compactPromptSamples, 0),
     readStateNumber(learning?.compactOutputSamples, 0),
@@ -289,7 +281,6 @@ export function decideFoldPoint(
   );
   const compactionAttemptCount = readStateNumber(session?.compactionAttemptCount, 0);
   const callsSinceLastAttempt = readStateNumber(session?.callsSinceLastAttempt, 0);
-  const requestCount = readStateNumber(session?.requestCount, 0);
   const growthSamples = readStateNumber(session?.growthSamples, 0);
   const estimatedGrowthTokensPerCall =
     growthSamples > 0 ? readStateNumber(session?.growthTokensEma, 0) : 0;
@@ -363,11 +354,6 @@ export function decideFoldPoint(
     readStateNumber(learning?.compactCostScaleEma, defaults.compactCostScale),
     NUMERIC_BOUNDS.compactCostScaleMin,
     NUMERIC_BOUNDS.compactCostScaleMax,
-  );
-  const reuseHorizonEma = readStateNumber(
-    learning?.reuseHorizonEma,
-    defaults.expectedFutureCalls,
-    1,
   );
 
   const confidence = computeConfidence(
@@ -463,28 +449,47 @@ export function decideFoldPoint(
   const compactCallCost = modeledCompactCallCost * compactCostScale;
 
   // --- horizon and totals ---
-  const expectedFutureCalls = resolveExpectedFutureCalls(
-    input,
-    horizonSamples,
-    reuseHorizonEma,
-    requestCount,
-    defaults,
-  );
-  // Treat the estimated horizon as the mean of a geometric continuation model solely for
-  // this reachability blend. This keeps the probability and the cost horizon internally
-  // consistent; it does not claim that real agent lifetimes are geometrically distributed.
-  const continuationProbability = clamp((expectedFutureCalls - 1) / expectedFutureCalls, 0, 1);
-  const probabilityReachForce =
-    callsUntilForce === Number.MAX_SAFE_INTEGER
-      ? 0
-      : clamp(continuationProbability ** callsUntilForce, 0, 1);
+  const expectedFutureCalls = resolveExpectedFutureCalls(input);
+  // Compare only until NOW would need another compaction. Both alternatives receive the
+  // same added tokens; do not extrapolate a cheap compacted prefix through multiple cycles.
+  const nextCompactCycleCalls =
+    estimatedGrowthTokensPerCall > 0
+      ? Math.max(
+          1,
+          Math.ceil(
+            (guardedForceBoundary - estimatedPostCompactTokens) / estimatedGrowthTokensPerCall,
+          ),
+        )
+      : Number.MAX_SAFE_INTEGER;
+  const modeledCalls = Math.min(expectedFutureCalls, nextCompactCycleCalls);
+  // Each later call adds one new tail; earlier tails can themselves be cached. Repricing
+  // every added token as ordinary input on every replay would overstate growing-context cost.
+  const oldGrowthPrice = cache.cachingInPlay
+    ? cache.laterAliveProbability * prices.cacheReadPerToken +
+      (1 - cache.laterAliveProbability) * prices.cacheWritePerToken
+    : prices.inputPerToken;
+  const newGrowthPrice = cache.cachingInPlay
+    ? cache.laterAliveProbability * prices.inputPerToken +
+      (1 - cache.laterAliveProbability) * prices.cacheWritePerToken
+    : prices.inputPerToken;
+  const growthCost = (calls: number): number => {
+    const later = Math.max(calls - 1, 0);
+    return (
+      estimatedGrowthTokensPerCall *
+      (later * newGrowthPrice + (later * Math.max(later - 1, 0) * oldGrowthPrice) / 2)
+    );
+  };
+  // Conditional look-ahead under the host's horizon, not a fabricated survival probability.
+  // Kept for metric compatibility: 1 means the modeled horizon reaches the boundary.
+  const probabilityReachForce = callsUntilForce < modeledCalls ? 1 : 0;
 
   const estimatedKeepCost =
-    currentReplayCost + Math.max(expectedFutureCalls - 1, 0) * laterReplayCost;
+    currentReplayCost + Math.max(modeledCalls - 1, 0) * laterReplayCost + growthCost(modeledCalls);
   const estimatedCompactCost =
     compactCallCost +
     firstPostCompactReplayCost +
-    Math.max(expectedFutureCalls - 1, 0) * laterPostCompactReplayCost;
+    Math.max(modeledCalls - 1, 0) * laterPostCompactReplayCost +
+    growthCost(modeledCalls);
   const estimatedNetSaving = estimatedKeepCost - estimatedCompactCost;
   const estimatedSavingPerFutureCall = laterReplayCost - laterPostCompactReplayCost;
 
@@ -502,8 +507,8 @@ export function decideFoldPoint(
   // Keep a short diagnostic horizon below the economic band. The gate below refuses economic
   // compaction there; this metric still makes local break-even auditable.
   const effectiveHorizonCalls = belowSoftWindow
-    ? Math.min(expectedFutureCalls, defaults.softWindowBreakEvenCalls)
-    : expectedFutureCalls;
+    ? Math.min(modeledCalls, defaults.softWindowBreakEvenCalls)
+    : modeledCalls;
 
   // If the guarded force boundary is likely to arrive inside the horizon, KEEP is not a
   // physically possible whole-horizon alternative: it means "keep for a while, then pay for
@@ -514,42 +519,33 @@ export function decideFoldPoint(
     !belowSoftWindow &&
     callsUntilForce > 0 &&
     callsUntilForce < Number.MAX_SAFE_INTEGER &&
-    callsUntilForce < expectedFutureCalls;
+    callsUntilForce < modeledCalls;
   let estimatedDeferCost = estimatedKeepCost;
   let deferredCompactionScale = 1;
   if (deferApplicable) {
     const deferCalls = callsUntilForce;
     const laterCallsBeforeForce = Math.max(deferCalls - 1, 0);
-    const laterReplayPerToken = safeDivide(laterReplayCost, contextTokens, 0);
-    const growthSumBeforeForce =
-      laterCallsBeforeForce * contextTokens +
-      (estimatedGrowthTokensPerCall * laterCallsBeforeForce * deferCalls) / 2;
-    const keepUntilForceCost = currentReplayCost + laterReplayPerToken * growthSumBeforeForce;
+    const keepUntilForceCost =
+      currentReplayCost + laterCallsBeforeForce * laterReplayCost + growthCost(deferCalls);
     const deferredContextTokens = Math.min(
       rawForceBoundary,
       contextTokens + deferCalls * estimatedGrowthTokensPerCall,
     );
     const deferredScale = safeDivide(deferredContextTokens, contextTokens, 1);
     deferredCompactionScale = deferredScale;
-    const callsAfterDeferredCompaction = Math.max(expectedFutureCalls - deferCalls, 0);
+    const callsAfterDeferredCompaction = Math.max(modeledCalls - deferCalls, 0);
     const reachedForceCost =
       keepUntilForceCost +
       compactCallCost * deferredScale +
       firstPostCompactReplayCost * deferredScale +
-      Math.max(callsAfterDeferredCompaction - 1, 0) * laterPostCompactReplayCost * deferredScale;
-    const endBeforeForceCalls = Math.min(expectedFutureCalls, deferCalls);
-    const endBeforeForceLaterCalls = Math.max(endBeforeForceCalls - 1, 0);
-    const endBeforeForceGrowthSum =
-      endBeforeForceLaterCalls * contextTokens +
-      (estimatedGrowthTokensPerCall * endBeforeForceLaterCalls * endBeforeForceCalls) / 2;
-    const endBeforeForceCost = currentReplayCost + laterReplayPerToken * endBeforeForceGrowthSum;
-    estimatedDeferCost =
-      probabilityReachForce * reachedForceCost + (1 - probabilityReachForce) * endBeforeForceCost;
+      Math.max(callsAfterDeferredCompaction - 1, 0) * laterPostCompactReplayCost * deferredScale +
+      growthCost(callsAfterDeferredCompaction);
+    estimatedDeferCost = reachedForceCost;
   }
   const estimatedEconomicAlternativeCost = deferApplicable ? estimatedDeferCost : estimatedKeepCost;
   const estimatedDecisionNetSaving = estimatedEconomicAlternativeCost - estimatedCompactCost;
-  // With NOW vs DEFER, both surviving paths pay the same kind of compaction. Penalize only
-  // the timing difference plus the chance that the session ends before DEFER pays anything;
+  // Under the host's horizon, NOW and DEFER both pay for compaction. Penalize only
+  // the timing difference;
   // charging the full compaction uncertainty on both sides systematically biases toward late
   // forced compaction. The original full penalty remains for COMPACT vs pure KEEP.
   const decisionUncertaintyCost = deferApplicable
@@ -641,6 +637,9 @@ export function decideFoldPoint(
   if (input.compactionAllowed === false) {
     return keepDecision(["COMPACTION_DISABLED"]);
   }
+  if (input.runtimeStatus === "idle") {
+    return keepDecision(["RUNTIME_IDLE"]);
+  }
 
   // --- 3. step boundary ---
   if (input.safeBoundary === false) {
@@ -666,9 +665,7 @@ export function decideFoldPoint(
     return keepDecision(reasons);
   }
 
-  // Do not spend quality or summary calls on tiny contexts merely because a cold cache makes
-  // the next few replays look expensive. The band begins at softWindowRatio and ends at the
-  // guarded force boundary; inside it NOW vs DEFER chooses the timing.
+  // Honor an explicit host floor. The default is zero; reclaim/cooldown/economics remain gates.
   if (belowSoftWindow) {
     return keepDecision(["BELOW_SOFT_WINDOW"]);
   }

@@ -6,6 +6,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Runtime-scoped economics (behavior change)
+
+- Unknown remaining calls now mean one current request; session age and legacy learned
+  reuse horizons no longer finance compaction or increase its confidence. Deprecated defaults
+  remain accepted for compatibility but no longer affect horizon resolution.
+- Economic percentage floor defaults to zero; 70% latest boundary, growth headroom, cooldown,
+  minimum reclaim and uncertainty checks remain. Host horizons are capped before NOW would
+  require another compaction. NOW and DEFER both include new tails and cached growth replay;
+  the old geometric survival blend is removed.
+- Pi observes agent runtime boundaries, clears advice at agent end and cancels stale queued
+  auto-compactions. Cache and compactor learning remain session/profile scoped. Pi does not
+  yet provide a defensible remaining-call forecast; unknown horizons remain conservative.
+- Trace v4 adds runtime identity/status and runtime_end; readers retain v1/v2/v3 support.
+  Calibration uses completed runtime requests rather than future user commands.
+- Offline simulation: 131.41 total, 203 attempts, zero overflows, but 73/145 judged
+  compactions fail to repay. Lower aggregate cost does not prove good timing or task quality.
+  Existing paid 1M results describe the previous algorithm, not this revision.
+
 ### Compactor input safety budget and 1M Pi diagnosis
 
 - Profiles may now declare an optional `compactorSafeInputTokens`, independent of the model's

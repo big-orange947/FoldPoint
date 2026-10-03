@@ -404,6 +404,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
     const control = seededFoldPoint(profile, HISTORY, { hardWindowRatio: 0.9 });
     observeCalls(control, profile, 10);
     const wouldCompact = control.decide({
+      expectedFutureCalls: 10,
       sessionId: SESSION,
       profile,
       timestamp: BASE_TIMESTAMP + 20_000,
@@ -430,6 +431,7 @@ describe("17.11 failed attempts restart the cooldown", () => {
     expect(session.successfulCompactionCount).toBe(0);
 
     const blocked = foldPoint.decide({
+      expectedFutureCalls: 10,
       sessionId: SESSION,
       profile,
       timestamp: BASE_TIMESTAMP + 20_000,

@@ -36,7 +36,7 @@ describe("17.1 basic decisions", () => {
     expect(guarded.reasons).toContain("PROJECTED_WINDOW_GROWTH");
   });
 
-  it("compares NOW with the later mandatory compaction when static break-even is too far away", () => {
+  it("does not assume NOW's compacted context stays small while DEFER's context grows", () => {
     const profile = makeProfile({
       contextWindowTokens: 1_000_000,
       pricing: {
@@ -50,6 +50,7 @@ describe("17.1 basic decisions", () => {
         profile,
         contextTokens: 616_000,
         cachedTokens: 600_000,
+        expectedFutureCalls: 25,
       },
       { cacheCoverageSamples: 40, cacheCoverageRatioEma: 0.97 },
       {
@@ -64,7 +65,18 @@ describe("17.1 basic decisions", () => {
     expect(decision.metrics.breakEvenCalls ?? 0).toBeGreaterThan(
       decision.metrics.effectiveHorizonCalls,
     );
+    const calls = decision.metrics.effectiveHorizonCalls;
+    const later = calls - 1;
+    const growthReplay = 16_000 * (later * 0.3e-6 + (later * (later - 1) * 0.006e-6) / 2);
+    expect(decision.metrics.estimatedCompactCost).toBeCloseTo(
+      decision.metrics.estimatedCompactCallCost +
+        decision.metrics.estimatedFirstPostCompactReplayCost +
+        later * (60_000 * 0.006e-6 + 1_600 * 0.3e-6) +
+        growthReplay,
+      10,
+    );
     expect(decision.metrics.estimatedDecisionNetSaving).toBeGreaterThan(0);
+    expect(decision.metrics.probabilityReachForce).toBe(1);
     expect(decision.action).toBe("COMPACT");
     expect(decision.reasons).toContain("DEFERRED_COMPACTION_COSTLIER");
   });
@@ -73,7 +85,7 @@ describe("17.1 basic decisions", () => {
     const decision = decideWith({ contextTokens: 20_000, cachedTokens: 0 });
 
     expect(decision.action).toBe("KEEP");
-    expect(decision.reasons).toEqual(["BELOW_SOFT_WINDOW"]);
+    expect(decision.reasons).toContain("NO_POSITIVE_SAVING");
     expect(decision.metrics.utilization).toBeCloseTo(0.1, 10);
   });
 
@@ -118,6 +130,7 @@ describe("17.1 basic decisions", () => {
         cachedTokens: 140_000,
         idleMs: 600_000,
         profile: profileWithCacheTtl(300_000),
+        expectedFutureCalls: 10,
       },
       HISTORY,
       SESSION_HISTORY,
@@ -166,6 +179,7 @@ describe("decision output shape", () => {
           cachedTokens: 140_000,
           idleMs: 600_000,
           profile: profileWithCacheTtl(300_000),
+          expectedFutureCalls: 10,
         },
         HISTORY,
         SESSION_HISTORY,
@@ -472,34 +486,35 @@ describe("confidence", () => {
 describe("economic decision band", () => {
   it("caps the effective horizon below the soft window and relaxes it above", () => {
     const belowSoft = decideWith(
-      { contextTokens: 100_000, cachedTokens: 0 },
+      { contextTokens: 100_000, cachedTokens: 0, expectedFutureCalls: 20 },
       HISTORY,
       SESSION_HISTORY,
+      { defaults: { softWindowRatio: 0.6, hardWindowRatio: 0.9 } },
     );
     const aboveSoft = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
+      { contextTokens: 150_000, cachedTokens: 0, expectedFutureCalls: 20 },
       HISTORY,
       SESSION_HISTORY,
+      { defaults: { softWindowRatio: 0.6, hardWindowRatio: 0.9 } },
     );
 
     expect(belowSoft.metrics.utilization).toBeLessThan(0.6);
-    expect(belowSoft.metrics.expectedFutureCalls).toBeCloseTo(12.486832980505138, 12);
+    expect(belowSoft.metrics.expectedFutureCalls).toBe(20);
     expect(belowSoft.metrics.effectiveHorizonCalls).toBe(3);
-    expect(aboveSoft.metrics.effectiveHorizonCalls).toBeCloseTo(12.486832980505138, 12);
+    expect(aboveSoft.metrics.effectiveHorizonCalls).toBe(20);
   });
 
-  it("uses active-session survival as sublinear rather than one-for-one future calls", () => {
+  it("does not infer remaining runtime calls from elapsed session calls", () => {
     const early = decideWith({}, {}, { requestCount: 1 });
     const long = decideWith({}, {}, { requestCount: 100 });
 
-    expect(early.metrics.expectedFutureCalls).toBe(6);
-    expect(long.metrics.expectedFutureCalls).toBe(33);
-    expect(long.metrics.expectedFutureCalls).toBeLessThan(100);
+    expect(early.metrics.expectedFutureCalls).toBe(1);
+    expect(long.metrics.expectedFutureCalls).toBe(1);
   });
 
   it("doubles the uncertainty penalty below the soft window", () => {
     const belowSoft = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
+      { contextTokens: 150_000, cachedTokens: 0, expectedFutureCalls: 10 },
       HISTORY,
       SESSION_HISTORY,
       {
@@ -507,7 +522,7 @@ describe("economic decision band", () => {
       },
     );
     const aboveSoft = decideWith(
-      { contextTokens: 150_000, cachedTokens: 0 },
+      { contextTokens: 150_000, cachedTokens: 0, expectedFutureCalls: 10 },
       HISTORY,
       SESSION_HISTORY,
       {

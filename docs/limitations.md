@@ -30,17 +30,14 @@ insist that the window itself is at risk.
 
 ## 2. The future is estimated, not known
 
-`expectedFutureCalls` is the host's claim about the calls that remain. Without it, FoldPoint
-combines completed-session learning with a deliberately simple heuristic for right-censored
-evidence from the active request count. That distinguishes a fresh three-call task from a
-session that has already continued for dozens of calls, but it is not a fitted survival model
-and still cannot know whether the current call is the last one.
+`expectedFutureCalls` is the host's estimate of remaining calls in the current runtime.
+Without it, FoldPoint counts the current request only. Session age and historic session
+length are not evidence of future work. Runtime boundaries do not themselves tell us how
+many model/tool calls remain; the Pi adapter does not yet provide such an estimate.
 
 Two consequences:
 
-- at cold start the horizon is 3 calls and grows only with three times the square root of calls the
-  session demonstrably survived; this avoids treating elapsed calls as remaining calls but is
-  still a heuristic;
+- unknown horizons are conservative: potentially useful multi-call savings will be missed;
 - a host that overstates its horizon (for example by reporting a constant "20 calls remain"
   when only 2 calls remain) makes every compaction look more valuable than it is,
   and FoldPoint will compact more often. The benchmark's simulator caps the declared horizon

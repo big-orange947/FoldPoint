@@ -40,8 +40,48 @@ function recorder(): TraceRecorder {
 }
 
 describe("trace format", () => {
+  it("calibrates completed runtime calls without counting later user commands", () => {
+    const trace = recorder();
+    const events: TraceEvent[] = [trace.header()];
+    for (let n = 0; n < 4; n++) {
+      const input = makeInput({
+        sessionId: "same-session",
+        runtimeId: n < 2 ? "run-a" : "run-b",
+        timestamp: n + 1,
+        contextTokens: 10_000,
+        expectedFutureCalls: 1,
+      });
+      const decision = trace.decision(
+        input,
+        decideFoldPoint(input, makeLearning(), makeSession()),
+        { callId: `call-${n}` },
+      );
+      events.push(
+        decision,
+        trace.request(input.sessionId, decision.callId, {
+          timestamp: n + 1,
+          promptTokens: 10_000,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+        }),
+      );
+      if (n === 1) events.push(trace.runtimeEnd("same-session", "run-a", n + 1));
+    }
+    events.push(trace.sessionEnd("same-session", { timestamp: 5 }));
+    const analysis = analyzeTraceEvents(events);
+    // run-a remaining counts are 2 and 1, not 4 and 3; run-b has no runtime_end and is censored.
+    expect(analysis.overall.horizon.count).toBe(2);
+    expect(analysis.completeRuntimes).toBe(1);
+    expect(analysis.censoredRuntimes).toBe(1);
+    expect(analysis.overall.horizon.meanSignedRelativeError).toBeCloseTo(0.25);
+    expect(parseTraceJsonl(events.map((event) => JSON.stringify(event)).join("\n")).errors).toEqual(
+      [],
+    );
+    expect(() => trace.runtimeEnd("s", "private sentence with spaces", 1)).toThrow(RangeError);
+  });
+
   it("is versioned, and the library version matches package.json", () => {
-    expect(TRACE_FORMAT_VERSION).toBe(3);
+    expect(TRACE_FORMAT_VERSION).toBe(4);
     expect(FOLDPOINT_VERSION).toBe(PACKAGE_JSON.version);
   });
 

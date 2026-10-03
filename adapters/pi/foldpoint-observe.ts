@@ -152,6 +152,8 @@ export interface PiExtensionContext {
 export type PiCompactionReason = "manual" | "threshold" | "overflow";
 
 export interface PiEventMap {
+  agent_start: { type: "agent_start" };
+  agent_end: { type: "agent_end" };
   session_start: { type: "session_start"; reason: string };
   context: { type: "context" };
   message_end: { type: "message_end"; message: PiAssistantMessage };
@@ -200,6 +202,8 @@ export type PiEventResult<K extends keyof PiEventMap> = K extends "session_befor
 
 /** Exactly the events this adapter subscribes to. Nothing else is read. */
 export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
+  "agent_start",
+  "agent_end",
   "session_start",
   "context",
   "message_end",
@@ -689,6 +693,9 @@ export function createFoldPointObserver(
     const foldPoint = new FoldPoint({ defaults });
     const runtimeStartSeconds = Math.floor(now() / 1_000);
     let sessionCount = 0;
+    let runtimeCount = 0;
+    let runtimeId: string | undefined;
+    let runtimeStatus: "active" | "idle" = "active";
 
     const state: ObserverState = {
       sessionKey: null,
@@ -784,6 +791,7 @@ export function createFoldPointObserver(
       state.autoDispatched = false;
       state.autoCompactions += 1;
       const sessionAtRequest = state.sessionKey;
+      const runtimeAtRequest = runtimeId;
       log(`[foldpoint] asking Pi to compact at ${tokens} tokens`);
       // `ctx.compact()` starts with `await abort()`, and `abort()` waits for the agent to go
       // idle. Called from inside a handler the agent is blocked on, that wait cannot end: the
@@ -795,7 +803,11 @@ export function createFoldPointObserver(
           polls += 1;
           await delay(AUTO_IDLE_POLL_MS);
         }
-        if (state.sessionKey !== sessionAtRequest) {
+        if (
+          state.sessionKey !== sessionAtRequest ||
+          runtimeId !== runtimeAtRequest ||
+          runtimeStatus === "idle"
+        ) {
           state.autoInFlight = false;
           state.autoDispatched = false;
           return;
@@ -996,7 +1008,22 @@ export function createFoldPointObserver(
       }
     };
 
+    pi.on("agent_start", () => {
+      runtimeCount += 1;
+      runtimeId = `run-${runtimeStartSeconds}-${runtimeCount}`;
+      runtimeStatus = "active";
+    });
+    pi.on("agent_end", (_event, ctx) => {
+      if (state.sessionKey !== null && runtimeId !== undefined) {
+        write(trace.runtimeEnd(state.sessionKey, runtimeId, now()));
+      }
+      runtimeStatus = "idle";
+      state.suggestion = null;
+      ctx.ui?.setStatus(STATUS_KEY, undefined);
+    });
     pi.on("session_start", (_event, ctx) => {
+      runtimeId = undefined;
+      runtimeStatus = "active";
       sessionCount += 1;
       // A runtime-scoped key: unique per session of this Pi process, and not Pi's own session
       // id or file path, so the trace cannot be joined back to a conversation.
@@ -1115,6 +1142,8 @@ export function createFoldPointObserver(
       const idleMs = idleSinceCacheRefresh(timestamp, model);
       const input = {
         sessionId: sessionKey,
+        runtimeId,
+        runtimeStatus,
         profile,
         timestamp,
         contextTokens: usage.tokens,
@@ -1273,6 +1302,8 @@ export function createFoldPointObserver(
       const idleMs = idleSinceCacheRefresh(vetoAt, model);
       const vetoInput = {
         sessionId: sessionKey,
+        runtimeId,
+        runtimeStatus,
         profile,
         timestamp: vetoAt,
         contextTokens: tokensBefore,

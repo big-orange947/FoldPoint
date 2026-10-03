@@ -87,8 +87,8 @@ cooldowns and the exact cache expiry belong to one session and never leak into a
 sessions that share an id share that runtime state, which is why a fresh conversation needs a
 fresh id.
 
-`endSession` learns the reuse horizon into the profile (only when the session compacted
-successfully at least once) and deletes the session runtime state. If you want to discard a
+`endSession` retains legacy reuse-horizon statistics for snapshot compatibility, but the
+decision engine no longer uses them. It deletes the session state. If you want to discard a
 session without learning anything, call `resetSession(sessionId, profile)` instead.
 
 ## 3. What to pass as contextTokens
@@ -123,10 +123,12 @@ direction.
   often than it should;
 - **too low** → FoldPoint defers compaction until the window forces it.
 
-Report it honestly and let it shrink: a host that knows "20 calls remain" at step 1 of a
-200-step session should not still be reporting 20 at step 100. If you cannot estimate it,
-omit it — FoldPoint will use its learned `reuseHorizonEma` (after `endSession`) or the
-cold-start default of 3.
+This is **remaining calls in the current agent runtime, including this request**, not
+future user commands. Supply `runtimeId` for auditing and `runtimeStatus: "idle"` when the
+runtime has ended. If no defensible estimate exists, omit `expectedFutureCalls`: FoldPoint
+uses one current call, never elapsed calls or legacy `reuseHorizonEma`. This conservative
+fallback can sacrifice long-task savings. Do not feed a constant optimistic value just to
+make compaction happen. Pi currently provides boundaries but no remaining-call estimate.
 
 ## 6. What is shared and what is isolated
 
@@ -269,7 +271,7 @@ say that?" months later, including `breakEvenCalls`, `effectiveHorizonCalls`,
 - [ ] `observeRequest` after every model call, including the cache read count.
 - [ ] `decide` at step boundaries, with an honest `safeBoundary`.
 - [ ] `recordCompaction` after every attempt, with the real `success` flag.
-- [ ] `endSession` at the end of the session (this is what teaches the horizon).
+- [ ] `endSession` at session end; report runtime boundaries independently.
 - [ ] One `compactorId` per compactor implementation and version.
 - [ ] Prices (or `tokenOnlyPricing`) with consistent units.
 - [ ] `cachePolicy` if the provider documents a TTL.
