@@ -8,6 +8,8 @@
  *
  *   npx tsx tools/pi-paired-run.ts [--reps 3] [--tasks a,b] [--conditions default,veto,late]
  *     [--price-scenario native|cache-read-60|cache-write-200] [--cache-warming off] [--out <prefix>]
+ *   Add --runtime-window 64000 to opt into default/fixed60/dynamic with a shared summary cap.
+ *   --plan-only prints the plan without starting Pi or reading provider credentials.
  *
  * Environment: `PI_CLI` (path to Pi's cli.js), optional `PI_NODE` (Node >=22.19),
  * `PI_CODING_AGENT_DIR`, `PI_MODEL` (default
@@ -56,9 +58,12 @@ export interface RunResult {
   artifactOk: boolean;
   cost: SessionCost | null;
   trace: string;
+  /** Present only for the reduced-window runtime suite; never call it a 1M result. */
+  declaredWindowTokens?: number;
+  summaryMaxTokens?: number;
 }
 
-export type ConditionId = "default" | "ask" | "veto" | "late";
+export type ConditionId = "default" | "ask" | "veto" | "late" | "fixed60" | "dynamic";
 export type CacheWarmingMode = "off" | "streaming" | "idle";
 export type PriceScenarioId =
   | "native"
@@ -115,7 +120,39 @@ export const CONDITIONS: ReadonlyArray<{
   { id: "ask", mode: "observe", reserveTokens: 24000, label: "low threshold, no policy" },
   { id: "veto", mode: "act", reserveTokens: 24000, label: "low threshold, FoldPoint answers" },
   { id: "late", mode: "observe", reserveTokens: 6000, label: "fixed late threshold, no policy" },
+  { id: "fixed60", mode: "observe", reserveTokens: 0, label: "fixed 60% (runtime suite only)" },
+  {
+    id: "dynamic",
+    mode: "act",
+    reserveTokens: 0,
+    label: "FoldPoint runtime timing (runtime suite only)",
+  },
 ];
+
+export const RUNTIME_SUMMARY_MAX_TOKENS = 8192;
+/** Reduced declared window, not a claim about a provider's real context limit. */
+export function resolveTrialCondition(condition: ConditionId, runtimeWindow?: number) {
+  const selected = CONDITIONS.find((entry) => entry.id === condition);
+  if (selected === undefined) throw new Error(`unknown condition ${condition}`);
+  if (runtimeWindow === undefined) {
+    if (condition === "fixed60" || condition === "dynamic")
+      throw new Error("This arm requires --runtime-window");
+    return { ...selected, compaction: "off" as const };
+  }
+  if (!Number.isSafeInteger(runtimeWindow) || runtimeWindow < 32768 || runtimeWindow > 1000000) {
+    throw new Error("--runtime-window must be an integer between 32768 and 1000000");
+  }
+  if (!["default", "fixed60", "dynamic"].includes(condition))
+    throw new Error("Runtime suite supports default,fixed60,dynamic only");
+  return {
+    ...selected,
+    reserveTokens:
+      condition === "default"
+        ? 16384
+        : Math.round(runtimeWindow * (condition === "fixed60" ? 0.4 : 0.75)),
+    compaction: condition === "dynamic" ? ("auto" as const) : ("off" as const),
+  };
+}
 
 /** The line numbers an 8-step read of 60-line chunks must report. */
 const STEP_LINES = [1, 61, 121, 181, 241, 301, 361, 421];
@@ -385,7 +422,7 @@ interface RunSpec {
   rep: number;
 }
 
-function parseArgs(argv: readonly string[]): {
+export function parseArgs(argv: readonly string[]): {
   reps: number;
   tasks: string[];
   conditions: ConditionId[];
@@ -393,19 +430,28 @@ function parseArgs(argv: readonly string[]): {
   outPrefix: string;
   cacheWarming: CacheWarmingMode;
   temperature: number | undefined;
+  runtimeWindow: number | undefined;
+  planOnly: boolean;
 } {
   const options = {
     reps: 3,
     tasks: TASKS.map((task) => task.id),
-    conditions: CONDITIONS.map((condition) => condition.id),
+    conditions: ["default", "ask", "veto", "late"] as ConditionId[],
     priceScenario: "native" as PriceScenarioId,
     outPrefix: join(homedir(), ".foldpoint", "paired", `run-${Date.now()}`),
     cacheWarming: "off" as CacheWarmingMode,
     temperature: undefined as number | undefined,
+    runtimeWindow: undefined as number | undefined,
+    planOnly: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--reps") {
+    if (arg === "--runtime-window") {
+      options.runtimeWindow = Number(argv[index + 1]);
+      index += 1;
+    } else if (arg === "--plan-only") {
+      options.planOnly = true;
+    } else if (arg === "--reps") {
       options.reps = Number(argv[index + 1]);
       index += 1;
     } else if (arg === "--tasks") {
@@ -417,7 +463,7 @@ function parseArgs(argv: readonly string[]): {
         selected.length === 0 ||
         selected.some((id) => !CONDITIONS.some((arm) => arm.id === id))
       ) {
-        throw new Error("--conditions must be a comma-separated subset of default,ask,veto,late");
+        throw new Error("--conditions must select known trial arms");
       }
       options.conditions = selected as ConditionId[];
       index += 1;
@@ -447,8 +493,14 @@ function parseArgs(argv: readonly string[]): {
       }
       options.cacheWarming = mode;
       index += 1;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
     }
   }
+  if (options.runtimeWindow !== undefined && !argv.includes("--conditions"))
+    options.conditions = ["default", "fixed60", "dynamic"];
+  for (const condition of options.conditions)
+    resolveTrialCondition(condition, options.runtimeWindow);
   return options;
 }
 
@@ -549,12 +601,12 @@ export function prepareAgentDir(
   cacheWarming: CacheWarmingMode = "off",
   priceScenario: PriceScenarioId = "native",
   temperature: number | undefined = undefined,
+  runtimeWindow?: number,
 ): string {
   if (!existsSync(base) || !lstatSync(base).isDirectory()) {
     throw new Error(`PI_CODING_AGENT_DIR must be an existing experiment directory: ${base}`);
   }
-  const selected = CONDITIONS.find((entry) => entry.id === condition);
-  if (selected === undefined) throw new Error(`unknown condition ${condition}`);
+  const selected = resolveTrialCondition(condition, runtimeWindow);
   const settingsPath = join(base, "settings.json");
   const settings = existsSync(settingsPath)
     ? (JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>)
@@ -603,6 +655,16 @@ export function prepareAgentDir(
       model.samplingParams = {
         ...((model.samplingParams as Record<string, unknown> | undefined) ?? {}),
         temperature,
+      };
+    });
+  }
+  if (runtimeWindow !== undefined) {
+    patchModel((model) => {
+      model.contextWindow = runtimeWindow;
+      model.maxTokens = RUNTIME_SUMMARY_MAX_TOKENS;
+      model.samplingParams = {
+        ...((model.samplingParams as Record<string, unknown> | undefined) ?? {}),
+        temperature: 0,
       };
     });
   }
@@ -660,6 +722,11 @@ function preflight(
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
         FOLDPOINT_TRACE: tracePath,
         FOLDPOINT_PRICE_SCENARIO: priceScenario === "native" ? undefined : priceScenario,
+        FOLDPOINT_MODE: "observe",
+        FOLDPOINT_COMPACTION: "off",
+        FOLDPOINT_DEFAULTS: undefined,
+        FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS: undefined,
+        FOLDPOINT_PREFIX_STORE: join(agentDir, "prefix.json"),
       },
     },
   );
@@ -693,16 +760,14 @@ function runOnce(
   agentDir: string,
   cacheWarming: CacheWarmingMode,
   priceScenario: PriceScenarioId,
+  runtimeWindow?: number,
 ): RunResult {
   const piCli = process.env.PI_CLI;
   if (piCli === undefined) {
     throw new Error("PI_CLI must point at Pi's dist/bundle/cli.js");
   }
   const extension = extensionPath();
-  const condition = CONDITIONS.find((entry) => entry.id === spec.condition);
-  if (condition === undefined) {
-    throw new Error(`unknown condition ${spec.condition}`);
-  }
+  const condition = resolveTrialCondition(spec.condition, runtimeWindow);
 
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
   mkdirSync(dirname(tracePath), { recursive: true });
@@ -730,6 +795,11 @@ function runOnce(
         PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
         FOLDPOINT_TRACE: tracePath,
         FOLDPOINT_MODE: condition.mode,
+        FOLDPOINT_COMPACTION: condition.compaction,
+        FOLDPOINT_DEFAULTS: undefined,
+        FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS: undefined,
+        FOLDPOINT_MIN_COMPACT_TOKENS: "8192",
+        FOLDPOINT_PREFIX_STORE: join(agentDir, "prefix.json"),
         FOLDPOINT_PRICE_SCENARIO: priceScenario === "native" ? undefined : priceScenario,
       },
     },
@@ -754,6 +824,9 @@ function runOnce(
     artifactOk,
     cost: observedCost,
     trace: tracePath,
+    ...(runtimeWindow === undefined
+      ? {}
+      : { declaredWindowTokens: runtimeWindow, summaryMaxTokens: RUNTIME_SUMMARY_MAX_TOKENS }),
   };
 }
 
@@ -769,10 +842,25 @@ export function renderComparison(
   if (results.some((result) => result.priceScenario !== priceScenario)) {
     throw new Error("Cannot compare runs with different hypothetical price scenarios");
   }
+  const window = results[0]?.declaredWindowTokens;
+  const summaryCap = results[0]?.summaryMaxTokens;
+  if (
+    results.some(
+      (result) => result.declaredWindowTokens !== window || result.summaryMaxTokens !== summaryCap,
+    )
+  ) {
+    throw new Error("Cannot compare different declared windows or summary budgets");
+  }
   const lines = [
     `Cache warming: ${cacheWarming} (fixed across all arms)`,
     `Price scenario: ${priceScenario}${priceScenario === "native" ? " (Pi model prices)" : ` (hypothetical units per million: ${JSON.stringify(TRIAL_PRICES[priceScenario])}; not the provider bill)`}`,
     `Task corpus: generated, sha256 ${corpusHash()}`,
+    ...(window === undefined
+      ? []
+      : [
+          `Declared window: ${window}; shared model/summary output cap: ${summaryCap}. Reduced-window diagnostic, not a 1M result.`,
+          "No remaining-call oracle supplied. Cache overlap between arms remains possible; report observed cache usage.",
+        ]),
     "",
     "| task | condition | rep | exit | artifact | calls | compactions | unpriced failures | cache warms | warm cost | observed cost |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
@@ -825,6 +913,9 @@ export function renderComparison(
       ["veto", "default"],
       ["late", "default"],
       ["veto", "late"],
+      ["fixed60", "default"],
+      ["dynamic", "default"],
+      ["dynamic", "fixed60"],
     ] as const) {
       if (byCondition(condition).length === 0 || byCondition(baseline).length === 0) continue;
       const matched = passing.filter(
@@ -887,6 +978,35 @@ function main(): void {
   ) {
     throw new Error("Hypothetical pricing requires deepseek-flash and --cache-warming off");
   }
+  if (options.planOnly) {
+    console.log(
+      JSON.stringify(
+        {
+          kind: "foldpoint.pi-runtime-plan.v1",
+          paidCalls: 0,
+          runtimeWindow: options.runtimeWindow ?? null,
+          summaryMaxTokens: options.runtimeWindow === undefined ? null : RUNTIME_SUMMARY_MAX_TOKENS,
+          taskIds: options.tasks,
+          repetitions: options.reps,
+          runs: options.tasks.length * options.conditions.length * options.reps,
+          cacheWarming: options.cacheWarming,
+          priceScenario: options.priceScenario,
+          arms: options.conditions.map((condition) =>
+            resolveTrialCondition(condition, options.runtimeWindow),
+          ),
+          limitations: [
+            "No remaining-call oracle is injected",
+            "Reduced declared windows do not establish 1M performance",
+            "Provider cache overlap is not guaranteed absent; record observed hits",
+            "Summary and warming costs must be included; missing usage is not zero cost",
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
   const scratch = process.env.PI_SCRATCH ?? join(homedir(), ".foldpoint", "paired", "scratch");
   const agentBase = process.env.PI_CODING_AGENT_DIR;
   if (agentBase === undefined)
@@ -928,6 +1048,7 @@ function main(): void {
       options.cacheWarming,
       options.priceScenario,
       options.temperature,
+      options.runtimeWindow,
     ),
     options.priceScenario,
   );
@@ -946,9 +1067,11 @@ function main(): void {
         options.cacheWarming,
         options.priceScenario,
         options.temperature,
+        options.runtimeWindow,
       ),
       options.cacheWarming,
       options.priceScenario,
+      options.runtimeWindow,
     );
     results.push(result);
     console.log(

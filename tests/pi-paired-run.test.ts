@@ -5,11 +5,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { decideFoldPoint, TraceRecorder } from "../src/index";
 import {
+  parseArgs,
   prepareAgentDir,
   prepareScratch,
   prepareTaskScratch,
+  RUNTIME_SUMMARY_MAX_TOKENS,
   type RunResult,
   renderComparison,
+  resolveTrialCondition,
   sessionCostOf,
   TASKS,
   TRIAL_PRICES,
@@ -18,6 +21,65 @@ import type { SessionCost } from "../tools/trace-analyze";
 import { makeInput, makeLearning, makeProfile, makeSession } from "./helpers";
 
 describe("paired Pi trial isolation", () => {
+  it("keeps legacy arms unchanged and explicitly opts into three runtime arms", () => {
+    expect(parseArgs([]).conditions).toEqual(["default", "ask", "veto", "late"]);
+    const options = parseArgs([
+      "--runtime-window",
+      "64000",
+      "--tasks",
+      "sum,ledger,steps",
+      "--reps",
+      "1",
+      "--plan-only",
+    ]);
+    expect(options.conditions).toEqual(["default", "fixed60", "dynamic"]);
+    expect(options.planOnly).toBe(true);
+    expect(options.tasks).toEqual(["sum", "ledger", "steps"]);
+    expect(resolveTrialCondition("default", 64000).reserveTokens).toBe(16384);
+    expect(resolveTrialCondition("fixed60", 64000).reserveTokens).toBe(25600);
+    expect(resolveTrialCondition("dynamic", 64000)).toMatchObject({
+      reserveTokens: 48000,
+      mode: "act",
+      compaction: "auto",
+    });
+    expect(() => parseArgs(["--runtime-window", "16000"])).toThrow(/runtime-window/);
+    expect(() => parseArgs(["--conditions", "dynamic"])).toThrow(/requires/);
+    expect(() => parseArgs(["--oops"])).toThrow(/Unknown argument/);
+    expect(() => parseArgs(["--runtime-window", "64000", "--conditions", "veto"])).toThrow(/only/);
+  });
+
+  it("equalizes all runtime summary budgets without modifying the base config", () => {
+    const root = mkdtempSync(join(tmpdir(), "foldpoint-runtime-arm-"));
+    const original = {
+      providers: {
+        deepseek: {
+          modelOverrides: {
+            "deepseek-flash": {
+              contextWindow: 1000000,
+              maxTokens: 32768,
+              samplingParams: { temperature: 1 },
+            },
+          },
+        },
+      },
+    };
+    writeFileSync(join(root, "models.json"), JSON.stringify(original));
+    const summaryCaps = [];
+    for (const condition of ["default", "fixed60", "dynamic"] as const) {
+      const dir = prepareAgentDir(root, condition, "off", "native", undefined, 64000);
+      const config = JSON.parse(readFileSync(join(dir, "models.json"), "utf8"));
+      const settings = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8"));
+      const model = config.providers.deepseek.modelOverrides["deepseek-flash"];
+      expect(model.contextWindow).toBe(64000);
+      expect(model.maxTokens).toBe(RUNTIME_SUMMARY_MAX_TOKENS);
+      expect(model.samplingParams.temperature).toBe(0);
+      summaryCaps.push(
+        Math.min(Math.floor(0.8 * settings.compaction.reserveTokens), model.maxTokens),
+      );
+    }
+    expect(summaryCaps).toEqual([8192, 8192, 8192]);
+    expect(JSON.parse(readFileSync(join(root, "models.json"), "utf8"))).toEqual(original);
+  });
   it("treats failed compactions as unpriced but does not mistake a veto for a paid failure", () => {
     const root = mkdtempSync(join(tmpdir(), "foldpoint-unpriced-"));
     const tracePath = join(root, "trace.jsonl");
@@ -335,5 +397,24 @@ describe("paired Pi trial isolation", () => {
         TASKS.filter((task) => task.id === "sum"),
       ),
     ).toThrow(/different hypothetical price scenarios/);
+    expect(() =>
+      renderComparison(
+        [
+          { ...result("default", 1, 10), declaredWindowTokens: 64000, summaryMaxTokens: 8192 },
+          { ...result("dynamic", 1, 8), declaredWindowTokens: 32000, summaryMaxTokens: 8192 },
+        ],
+        TASKS.filter((task) => task.id === "sum"),
+      ),
+    ).toThrow(/different declared windows/);
+    const runtimeReport = renderComparison(
+      [
+        { ...result("default", 1, 10), declaredWindowTokens: 64000, summaryMaxTokens: 8192 },
+        { ...result("fixed60", 1, 9), declaredWindowTokens: 64000, summaryMaxTokens: 8192 },
+        { ...result("dynamic", 1, 8), declaredWindowTokens: 64000, summaryMaxTokens: 8192 },
+      ],
+      TASKS.filter((task) => task.id === "sum"),
+    );
+    expect(runtimeReport).toContain("not a 1M result");
+    expect(runtimeReport).toContain("paired dynamic vs fixed60: 1/1");
   });
 });

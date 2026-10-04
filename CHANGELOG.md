@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Controlled short/medium Pi trial harness
+
+- Opt-in `--runtime-window` suite adds default/fixed60/dynamic arms, a shared 8192 output
+  cap, fresh prefix stores, explicit mode settings and zero-call `--plan-only` inspection.
+  Legacy four-arm defaults remain unchanged. Mixed window/summary-budget reports are rejected.
+- Extend real local Pi smoke to native threshold, fixed threshold and act-mode veto paths.
+  Reduced-window diagnostics do not establish 1M performance, task quality or provider savings.
+
 ### Pi preflight execution timing
 
 - Replace detached idle polling with an awaited `before_agent_start` preflight. Fresh
