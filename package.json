@@ -52,6 +52,7 @@
     "simulate:1m": "tsx benchmarks/million-simulation.ts",
     "simulate:runtime": "tsx benchmarks/runtime-survival.ts",
     "simulate:frequency": "tsx benchmarks/compaction-frequency.ts",
+    "simulate:prices": "tsx benchmarks/provider-ratios.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",

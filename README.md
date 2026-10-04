@@ -45,6 +45,10 @@ FoldPoint 的经济计算只考虑**当前一轮 Agent runtime**，不假定用�
 
 新增显式 opt-in 的 `estimateRuntimeSurvival` 与 `RuntimeContinuationLearner`：用当前 runtime 的继续概率，对“现在压”“等到安全边界压”“再等一轮再选择”作有限成本比较。`RuntimeRiskBudget` 是可选的累计风险限制，不要求每次压缩都回本。可选元数据 `reusablePrefixTokens` 区分“此前发送且宿主确认未变的前缀”与“服务端实际命中”，修正冷启动写回后的估价；没有该字段时原行为不变。**默认核心与 Pi 插件均未切换。** `npm run simulate:runtime` 可零付费复跑 351 个 1M 合成场景，保留旧候选并按调用长度比较带/不带累计门的收益。v3 显示严格累计门会损失长任务收益；真实缓存行为、压缩频率与任务质量仍待验证，不能作为真实省钱保证。具体契约见 [实验说明](docs/experimental-runtime.md)，完整正负结果见 [实验报告](benchmarks/runtime-survival.md)。
 
+### 多供应商价格敏感性（不是多模型实测）
+
+`npm run simulate:prices` 固定同一批 117 个行为场景和 q=0.95 参数，替换 DeepSeek、Claude、Gemini 的八组公开价格配置（含一组等比例缩放控制）。实验分支总体多数比固定 60% 便宜，但暖缓存下多组配置略贵；不能由总平均宣称所有缓存状态都获益。只替换 token 价格，不模拟各供应商完整缓存制度、存储费或 tokenizer，更不验证模型任务质量；默认算法未改。见 [完整正负结果与价格来源](benchmarks/provider-ratios.md)。
+
 ## 快速体验
 
 目前建议从源码运行，不把“可运行示例”等同于已发布、开箱即用的宿主插件：

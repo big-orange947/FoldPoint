@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Cross-provider price-ratio sensitivity
+
+- Add `simulate:prices`: eight official price snapshots across three providers, 117 common
+  behavior cases per snapshot, five fixed policy arms and a peak/offpeak scalar control.
+- Preserve near-end cases, no-compaction exclusions and warm-cache losses. Report shared
+  simulator assumptions, omitted storage fees and provider billing differences; no real
+  provider calls, per-provider tuning, core changes or task-quality claims.
+- Add growth fairness, scalar invariance and generated-report consistency tests.
+
 ### Native Pi summary-chain retention pilot
 
 - Add a 60-stage synthetic ledger, frozen 3/7-summary exposure schedules, full-history
