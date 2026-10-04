@@ -164,6 +164,8 @@ export function createFoldPointStrategy(
   options: {
     defaults?: import("../src/index").FoldPointOptions["defaults"];
     uncappedHostHorizon?: boolean;
+    /** Pi does not know the next provider cache hit count before making a request. */
+    omitRequestCacheEvidence?: boolean;
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
@@ -186,7 +188,7 @@ export function createFoldPointStrategy(
         profile,
         timestamp: request.timestamp,
         contextTokens: request.contextTokens,
-        cachedTokens: request.cachedTokens,
+        ...(options.omitRequestCacheEvidence ? {} : { cachedTokens: request.cachedTokens }),
         idleMs: request.idleMs,
         safeBoundary: true,
         compactionAllowed: true,

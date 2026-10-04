@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Zero-paid 1M sensitivity simulation
+
+- Add `simulate:1m`: 324 hypothetical scenarios, native timing/fixed60/safety70/FoldPoint
+  independent branches, matched growth, unknown horizon and no pre-request cache oracle.
+- Include pricing, retention, summary output, cache gaps, growth and task-length sensitivity.
+  Keep every case and expose economic versus forced triggers; no-compaction cases are excluded
+  from win counts. Summaries are assumed successful, uncached full-input calls: this is not
+  a provider replay or task-quality benchmark. Existing core and defaults are unchanged.
+- Initial screen: no economic triggers; safety/growth timing gains against native threshold
+  do not establish economic intelligence. Fixed60 is cheaper on average in this model.
+
 ### Controlled short/medium Pi trial harness
 
 - Opt-in `--runtime-window` suite adds default/fixed60/dynamic arms, a shared 8192 output

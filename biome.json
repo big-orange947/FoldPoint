@@ -1,5 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "files": {
+    "maxSize": 2000000
+  },
   "vcs": {
     "enabled": true,
     "clientKind": "git",
