@@ -26,7 +26,11 @@ export { FoldPoint, profileKey, sessionKey } from "./engine";
 export type { BreakEvenInput } from "./estimator";
 export { computeBreakEvenCalls, decideFoldPoint, validateFoldPointInput } from "./estimator";
 export type { RuntimeSurvivalEstimate, RuntimeSurvivalOptions } from "./experimental-runtime";
-export { estimateRuntimeSurvival, RuntimeContinuationLearner } from "./experimental-runtime";
+export {
+  estimateRuntimeSurvival,
+  RuntimeContinuationLearner,
+  RuntimeRiskBudget,
+} from "./experimental-runtime";
 export type { StateUpdate } from "./learner";
 export {
   applyCompactionObservation,

@@ -4,6 +4,7 @@ import {
   FoldPoint,
   type FoldPointInput,
   RuntimeContinuationLearner,
+  RuntimeRiskBudget,
 } from "../src/index";
 
 const decideFoldPoint = (value: FoldPointInput) => new FoldPoint().decide(value);
@@ -202,5 +203,96 @@ describe("experimental geometric runtime survival", () => {
       0.5 + 0.05 + 0.5 * (0.25 + 0.025) + 0.25 * (0.225 + 0.0225),
     );
     expect(result.keepThenForceCost).toBeCloseTo(0.5 + 0.5 * (0.7 + 0.07) + 0.25 * (0.27 + 0.027));
+  });
+  it("compares waiting one call against force-only waiting with exact weighted billing", () => {
+    const baseline = decideFoldPoint(input);
+    const decision = {
+      ...baseline,
+      metrics: {
+        ...baseline.metrics,
+        estimatedCompactCallCost: 0.5,
+        estimatedCacheLaterCandidateTokens: 0,
+        estimatedCacheLaterAliveProbability: 0,
+        estimatedGrowthTokensPerCall: 0,
+      },
+    };
+    const result = estimateRuntimeSurvival(input, decision, {
+      ...options,
+      continuationProbability: 0.5,
+      maxCalls: 3,
+    });
+    expect(result.waitOneAvailable).toBe(true);
+    expect(result.waitOneThenCompactCost).toBeCloseTo(0.5 + 0.5 * (0.5 + 0.05) + 0.25 * 0.05);
+    expect(result.bestWaitCost).toBeCloseTo(result.waitOneThenCompactCost);
+    const old = estimateRuntimeSurvival(input, decision, {
+      ...options,
+      continuationProbability: 0.5,
+      maxCalls: 3,
+      allowWaitOne: false,
+    });
+    expect(result.expectedSaving).toBeLessThan(old.expectedSaving);
+    expect(old.bestWaitCost).toBe(old.keepThenForceCost);
+  });
+  it("checks prospective waiting risk and cumulative budget without changing safety", () => {
+    const baseline = decideFoldPoint(input);
+    const blocked = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      remainingRuntimeLossBudget: 0,
+    });
+    expect(blocked.runtimeRiskAllowed).toBe(false);
+    expect(blocked.waitOneAvailable).toBe(false);
+    expect(blocked.shouldCompact).toBe(false);
+    const allowed = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      remainingRuntimeLossBudget: 1,
+    });
+    expect(allowed.runtimeRiskAllowed).toBe(true);
+    for (const budget of [-1, NaN, Infinity])
+      expect(() =>
+        estimateRuntimeSurvival(input, baseline, {
+          ...options,
+          remainingRuntimeLossBudget: budget,
+        }),
+      ).toThrow(RangeError);
+  });
+  it("preserves q=0 and single-call semantics for the new wait alternative", () => {
+    const baseline = decideFoldPoint(input);
+    const onlyOne = estimateRuntimeSurvival(input, baseline, { ...options, maxCalls: 1 });
+    expect(onlyOne.waitOneAvailable).toBe(false);
+    expect(onlyOne.bestWaitCost).toBe(onlyOne.keepThenForceCost);
+    const ended = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      continuationProbability: 0,
+    });
+    expect(ended.waitOneThenCompactCost).toBe(ended.keepThenForceCost);
+  });
+  it("charges runtime risk cumulatively without refunds and exposes failed cost overruns", () => {
+    const ledger = new RuntimeRiskBudget(1);
+    ledger.charge(0.3);
+    ledger.charge(0.4);
+    expect(ledger.report().remaining).toBeCloseTo(0.3);
+    expect(ledger.report().spent).toBeCloseTo(0.7);
+    expect(ledger.report().overBudget).toBe(false);
+    ledger.charge(1);
+    expect(ledger.report()).toEqual({ budget: 1, spent: 1.7, remaining: 0, overBudget: true });
+    expect(new RuntimeRiskBudget(1).report().spent).toBe(0);
+    expect(() => ledger.charge(-1)).toThrow(RangeError);
+    expect(() => new RuntimeRiskBudget(Infinity)).toThrow(RangeError);
+  });
+  it("adding a feasible wait option cannot increase NOW's claimed advantage", () => {
+    const baseline = decideFoldPoint(input);
+    for (const growth of [0, 10_000, 100_000])
+      for (const q of [0.5, 0.8, 0.95]) {
+        const decision = {
+          ...baseline,
+          metrics: { ...baseline.metrics, estimatedGrowthTokensPerCall: growth },
+        };
+        const common = { continuationProbability: q, maxImmediateLossRatio: 3 };
+        const before = estimateRuntimeSurvival(input, decision, { ...common, allowWaitOne: false });
+        const after = estimateRuntimeSurvival(input, decision, common);
+        expect(after.expectedSaving).toBeLessThanOrEqual(before.expectedSaving + 1e-12);
+        expect(after.stressedSaving).toBeLessThanOrEqual(before.stressedSaving + 1e-12);
+        if (after.shouldCompact) expect(before.shouldCompact).toBe(true);
+      }
   });
 });

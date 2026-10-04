@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Runtime survival v2: one-call deferral and cumulative estimated risk
+
+- Compare NOW with both force-only waiting and waiting one call before compaction; bill
+  continuation-weighted summary/rebuild costs and check prospective risk on the delayed option.
+  This is a bounded one-step alternative, not a full optimal-control solver.
+- Add host-owned `RuntimeRiskBudget`: debit at dispatch/settlement, failures retain observed
+  costs, no assumed-payback refunds, safety FORCE remains independent. Core/Pi defaults unchanged.
+- Keep forceOnlyV1 and waitOneNoBudget diagnostics, pairwise no-compaction exclusions and
+  independent growth/cache branches. Correct shortened midpoint-expiry fixtures and expose
+  pre-decision input-price calibration separately from policy inputs; no cache oracle is injected.
+- q95/loss1 main-matrix economic attempts 7003 -> 1153, shadow non-payback 1808 -> 60.
+  First compaction remains <20% in every main case; near-end worst loss remains about 105.5%.
+  Audit exposes cold-start follow-up KEEP cost overestimation. No claim of validated real savings.
+
 ### Experimental runtime survival policy (opt-in only)
 
 - Add a pure geometric-survival cost evaluator and an explicit-prior transition learner.

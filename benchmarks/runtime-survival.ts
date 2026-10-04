@@ -4,17 +4,42 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { estimateRuntimeSurvival, FoldPoint, type FoldPointInput } from "../src/index";
+import {
+  estimateRuntimeSurvival,
+  FoldPoint,
+  type FoldPointInput,
+  type RuntimeRiskBudget,
+} from "../src/index";
 import { createRawFixedThresholdStrategy } from "./fixed-threshold";
 import { buildMillionScenarios } from "./million-simulation";
 import type { Scenario } from "./scenarios";
 import { createFoldPointStrategy, runSession } from "./simulator";
 
 export const SURVIVAL_PROFILES = [
-  { id: "q80-loss1", continuationProbability: 0.8, maxImmediateLossRatio: 1 },
-  { id: "q95-loss1", continuationProbability: 0.95, maxImmediateLossRatio: 1 },
-  { id: "q99-loss1", continuationProbability: 0.99, maxImmediateLossRatio: 1 },
-  { id: "q95-loss3", continuationProbability: 0.95, maxImmediateLossRatio: 3 },
+  {
+    id: "q80-loss1",
+    continuationProbability: 0.8,
+    maxImmediateLossRatio: 1,
+    runtimeRiskBudgetRatio: 1,
+  },
+  {
+    id: "q95-loss1",
+    continuationProbability: 0.95,
+    maxImmediateLossRatio: 1,
+    runtimeRiskBudgetRatio: 1,
+  },
+  {
+    id: "q99-loss1",
+    continuationProbability: 0.99,
+    maxImmediateLossRatio: 1,
+    runtimeRiskBudgetRatio: 1,
+  },
+  {
+    id: "q95-loss3",
+    continuationProbability: 0.95,
+    maxImmediateLossRatio: 3,
+    runtimeRiskBudgetRatio: 3,
+  },
 ] as const;
 
 export function buildRuntimeSurvivalScenarios(): Scenario[] {
@@ -35,6 +60,14 @@ export function buildRuntimeSurvivalScenarios(): Scenario[] {
         steps,
         startTokens: 550_000,
         growthJitter: 0,
+        ...(base.idleMsAfterStep
+          ? {
+              idleMsAfterStep: {
+                ...base.idleMsAfterStep,
+                fromStep: Math.floor(steps / 2),
+              },
+            }
+          : {}),
       })),
     );
   return [...matrix, ...adversarial];
@@ -42,19 +75,74 @@ export function buildRuntimeSurvivalScenarios(): Scenario[] {
 
 export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios()) {
   const rows = scenarios.map((scenario) => {
+    const riskReports: Record<string, ReturnType<RuntimeRiskBudget["report"]>> = {};
+    const calibration: Record<
+      string,
+      {
+        samples: number;
+        estimated: number;
+        actual: number;
+        worstOverestimateRatio: number;
+        worstEstimated: number;
+        worstActual: number;
+      }
+    > = {};
+    const audit = (id: string) => ({
+      onRuntimeRisk: (report: ReturnType<RuntimeRiskBudget["report"]>) => {
+        riskReports[id] = report;
+      },
+      onReplayCalibration: (estimated: number, actual: number) => {
+        const entry = calibration[id] ?? {
+          samples: 0,
+          estimated: 0,
+          actual: 0,
+          worstOverestimateRatio: 0,
+          worstEstimated: 0,
+          worstActual: 0,
+        };
+        entry.samples += 1;
+        entry.estimated += estimated;
+        entry.actual += actual;
+        if (actual > 0 && estimated / actual > entry.worstOverestimateRatio) {
+          entry.worstOverestimateRatio = estimated / actual;
+          entry.worstEstimated = estimated;
+          entry.worstActual = actual;
+        }
+        calibration[id] = entry;
+      },
+    });
     const strategies = {
       current: createFoldPointStrategy(scenario, {
+        ...audit("current"),
         omitRequestCacheEvidence: true,
         defaults: { compactOutputRatio: 0.002 },
       }),
       fixed60: createRawFixedThresholdStrategy(0.6),
+      forceOnlyV1: createFoldPointStrategy(scenario, {
+        ...audit("forceOnlyV1"),
+        omitRequestCacheEvidence: true,
+        defaults: { compactOutputRatio: 0.002 },
+        runtimeSurvival: {
+          continuationProbability: 0.95,
+          maxImmediateLossRatio: 1,
+          allowWaitOne: false,
+        },
+      }),
+      waitOneNoBudget: createFoldPointStrategy(scenario, {
+        ...audit("waitOneNoBudget"),
+        omitRequestCacheEvidence: true,
+        defaults: { compactOutputRatio: 0.002 },
+        runtimeSurvival: { continuationProbability: 0.95, maxImmediateLossRatio: 1 },
+      }),
       ...Object.fromEntries(
-        SURVIVAL_PROFILES.map(({ id, ...runtimeSurvival }) => [
+        SURVIVAL_PROFILES.map(({ id, runtimeRiskBudgetRatio, ...runtimeSurvival }) => [
           id,
           createFoldPointStrategy(scenario, {
+            ...audit(id),
             omitRequestCacheEvidence: true,
             defaults: { compactOutputRatio: 0.002 },
             runtimeSurvival,
+            runtimeRiskBudgetRatio,
           }),
         ]),
       ),
@@ -67,6 +155,8 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
           name,
           {
             cost: m.totalSimulatedCost,
+            runtimeRisk: riskReports[name] ?? null,
+            preDecisionReplayCalibration: calibration[name] ?? null,
             economic: m.economicAttemptCount,
             forced: m.forcedAttemptCount,
             overflow: m.overflowCount,
@@ -86,12 +176,12 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
   });
   const summary = ["matrix", "near-end"].flatMap((suite) =>
     SURVIVAL_PROFILES.flatMap((profile) =>
-      ["current", "fixed60"].map((baseline) => {
+      ["current", "fixed60", "forceOnlyV1", "waitOneNoBudget"].map((baseline) => {
         const selected = rows.filter(
           (r) => r.id.startsWith("near-end-") === (suite === "near-end"),
         );
         const compared = selected.filter((r) =>
-          Object.values(r.arms).some((a) => a.compactionSteps.length > 0),
+          [r.arms[profile.id], r.arms[baseline]].some((a) => a && a.compactionSteps.length > 0),
         );
         const deltas = compared.map(
           (r) => (r.arms[profile.id]?.cost ?? 0) / (r.arms[baseline]?.cost ?? 1) - 1,
@@ -121,12 +211,14 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
             const first = r.arms[profile.id]?.firstCompactionUtilization;
             return first !== null && first !== undefined && first < 0.2;
           }).length,
+          runtimeRiskOverspends: selected.filter((r) => r.arms[profile.id]?.runtimeRisk?.overBudget)
+            .length,
         };
       }),
     ),
   );
   return {
-    kind: "foldpoint.runtime-survival-experiment.v1",
+    kind: "foldpoint.runtime-survival-experiment.v2",
     paidCalls: 0,
     profiles: SURVIVAL_PROFILES,
     horizonCap: 64,
@@ -135,7 +227,8 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
       "No held-out endpoint, true retention or future cache condition is supplied to the policy.",
       "All original 1M simulation limitations apply; summary success and unchanged task output are assumed.",
       "Geometric survival, constant observed growth and future cache reuse can be wrong.",
-      "WAIT delays economic compaction until safety; it is not an optimal policy that replans an earlier compaction next call.",
+      "WAIT compares safety-only waiting with compaction after one call; both are bounded forecast schedules, not full optimal control or a guarantee of information gain.",
+      "Runtime risk budget is fixed from the first request estimated replay cost (ratios 1/3), charged conservatively without presumed payback refunds. Not a hard actual expense bound.",
       "Look-ahead truncated at 64 calls; q=0.99 leaves 52.6% survival probability beyond it.",
       "Policy refuses economic triggers if unmodeled tail probability exceeds 5%; q99 therefore falls back to safety.",
       "Immediate-loss budget is conditional on estimated costs, not an actual spending cap.",
@@ -148,6 +241,14 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
 }
 
 export function renderRuntimeSurvival(report: ReturnType<typeof runtimeSurvivalReport>) {
+  const worst = report.rows
+    .filter((r) => r.id.startsWith("near-end-"))
+    .sort(
+      (a, b) =>
+        (b.arms["q95-loss1"]?.cost ?? 0) / (b.arms.current?.cost ?? 1) -
+        (a.arms["q95-loss1"]?.cost ?? 0) / (a.arms.current?.cost ?? 1),
+    )[0];
+  const calibration = worst?.arms["q95-loss1"]?.preDecisionReplayCalibration;
   return [
     "# Runtime 继续概率：零付费实验",
     "",
@@ -161,6 +262,16 @@ export function renderRuntimeSurvival(report: ReturnType<typeof runtimeSurvivalR
       (s) =>
         `| ${s.suite} | ${s.profile} | ${s.baseline} | ${s.compared} | ${s.wins}/${s.losses} | ${s.meanRelativeChange === null ? "—" : `${(100 * s.meanRelativeChange).toFixed(2)}%`} | ${s.worstRelativeChange === null ? "—" : `${(100 * s.worstRelativeChange).toFixed(2)}%`} | ${s.economic} | ${s.unneeded}/${s.judged} | ${s.overflow} | ${s.firstCompactionBelow20Percent} |`,
     ),
+    "",
+    "## 仍未解决的成本估计偏差",
+    "",
+    "增加等待一轮和累计风险预算只修比较路径与风险累积，不能保证基础成本估计准确。以下是按相对损失选择的最坏近结束场景，作为审计示例，不是策略特判。",
+    ...(worst && calibration
+      ? [
+          `场景 ${worst.id}：最坏单次 KEEP 输入费用估计 ${calibration.worstEstimated.toFixed(6)}，模拟真实缓存状态计价 ${calibration.worstActual.toFixed(6)}，高估 ${calibration.worstOverestimateRatio.toFixed(2)} 倍。该诊断在策略之外计算，真实缓存用量没有反向传给策略。`,
+          "初次请求缓存命中为零，不等于它写回的前缀在下一次请求仍不可用。当前按历史命中覆盖度预测本次缓存的路径可能混淆这两者，因此立即结束损失估计也可能过低；风险账本不超预算不意味着真实损失被限制。应先验证缓存重建后的费用校准，再做付费收益测试。",
+        ]
+      : []),
     "",
     "## 限制",
     "",

@@ -43,7 +43,7 @@ FoldPoint 的经济计算只考虑**当前一轮 Agent runtime**，不假定用�
 
 ### 实验中的 runtime 继续概率
 
-新增显式 opt-in 的 `estimateRuntimeSurvival` 与 `RuntimeContinuationLearner`：用当前 runtime 的继续概率，对“现在压”和“继续等到安全边界压”的成本加权，并检查任务立即结束时的额外损失。**默认核心与 Pi 插件均未切换。** `npm run simulate:runtime` 可零付费复跑 351 个 1M 合成场景。首轮虽然出现经济触发和较低的模拟费用，也暴露过早、频繁压缩和明显短任务损失，不能作为真实省钱或质量保证。具体契约见 [实验说明](docs/experimental-runtime.md)，完整正负结果见 [实验报告](benchmarks/runtime-survival.md)。
+新增显式 opt-in 的 `estimateRuntimeSurvival` 与 `RuntimeContinuationLearner`：用当前 runtime 的继续概率，对“现在压”“等到安全边界压”“再等一轮再选择”作有限成本比较，并检查任务立即结束时的额外损失。`RuntimeRiskBudget` 可额外限制累计估计风险，不靠假定回本返还额度。**默认核心与 Pi 插件均未切换。** `npm run simulate:runtime` 可零付费复跑 351 个 1M 合成场景，包含旧实验和只改等待路径的对照。v2 减少了重复压缩，但仍有过早压缩、短任务损失和冷启动后缓存费用估计偏差，不能作为真实省钱或质量保证。具体契约见 [实验说明](docs/experimental-runtime.md)，完整正负结果见 [实验报告](benchmarks/runtime-survival.md)。
 
 ## 快速体验
 

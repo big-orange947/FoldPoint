@@ -13,16 +13,25 @@ export interface RuntimeSurvivalOptions {
   probabilityStress?: number;
   retentionStress?: number;
   savingMarginRatio?: number;
+  /** Host-owned runtime risk allowance; never replenished using guessed payback. */
+  remainingRuntimeLossBudget?: number;
+  /** Diagnostic comparison only: false reproduces the previous force-only wait path. */
+  allowWaitOne?: boolean;
 }
 
 export interface RuntimeSurvivalEstimate {
   compactNowCost: number;
   keepThenForceCost: number;
+  waitOneThenCompactCost: number;
+  bestWaitCost: number;
+  waitOneAvailable: boolean;
   expectedSaving: number;
   stressedSaving: number;
   immediateLoss: number;
   stressedImmediateLoss: number;
   immediateLossBudget: number;
+  remainingRuntimeLossBudget: number | null;
+  runtimeRiskAllowed: boolean;
   probabilityOfUnmodeledTail: number;
   modeledCalls: number;
   probabilityReachForce: number;
@@ -34,6 +43,32 @@ function bounded(name: string, value: number, max = 1): number {
   if (!Number.isFinite(value) || value < 0 || value > max)
     throw new RangeError(`${name} must be finite in [0, ${max}]`);
   return value;
+}
+
+/** An estimated-risk ledger, not a provider spending cap or realized-regret bound.
+ * Charge at dispatch/settlement, not on repeated read-only decisions. Failed dispatched
+ * summaries consume their observed fees. Safety FORCE is separate from economic risk.
+ * Never refund using a fabricated counterfactual saving. Create anew for each runtime.
+ */
+export class RuntimeRiskBudget {
+  private spent = 0;
+  constructor(private readonly budget: number) {
+    bounded("runtimeRiskBudget", budget, Number.MAX_VALUE);
+  }
+  charge(estimatedOrObservedLoss: number): void {
+    bounded("estimatedOrObservedLoss", estimatedOrObservedLoss, Number.MAX_VALUE);
+    if (!Number.isFinite(this.spent + estimatedOrObservedLoss))
+      throw new RangeError("runtime risk total overflow");
+    this.spent += estimatedOrObservedLoss;
+  }
+  report() {
+    return {
+      budget: this.budget,
+      spent: this.spent,
+      remaining: Math.max(0, this.budget - this.spent),
+      overBudget: this.spent > this.budget,
+    };
+  }
 }
 
 /** Beta-smoothed transition frequency, not a task-completion estimator.
@@ -97,6 +132,10 @@ export function estimateRuntimeSurvival(
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
   const retentionStress = bounded("retentionStress", options.retentionStress ?? 0.05);
   const marginRatio = bounded("savingMarginRatio", options.savingMarginRatio ?? 0.1);
+  const remainingRisk =
+    options.remainingRuntimeLossBudget === undefined
+      ? Infinity
+      : bounded("remainingRuntimeLossBudget", options.remainingRuntimeLossBudget, Number.MAX_VALUE);
   const maxCalls = options.maxCalls ?? 64;
   if (!Number.isSafeInteger(maxCalls) || maxCalls < 1 || maxCalls > 256)
     throw new RangeError("maxCalls must be an integer in [1, 256]");
@@ -116,16 +155,34 @@ export function estimateRuntimeSurvival(
     m.estimatedCacheLaterCandidateTokens > 0,
   );
 
-  function path(compactNow: boolean, probability: number, keptRatio: number) {
+  function path(firstCompactAt: 0 | 1 | null, probability: number, keptRatio: number) {
     let context = original;
     let prefix = 0;
     let cost = 0;
     let survival = 1;
     let reachForce = 0;
     let first = true;
+    let available = true;
     for (let i = 0; i < maxCalls; i++) {
       const force = i > 0 && context >= m.guardedForceBoundaryTokens;
-      const compact = (i === 0 && compactNow) || force;
+      const planned = i === firstCompactAt;
+      const compact = planned || force;
+      if (planned && i === 1 && !force) {
+        const keepReplay = costOfCall(prices, context, {
+          prefixTokens: prefix * coverage,
+          aliveProbability: m.estimatedCacheLaterAliveProbability,
+          cachingInPlay,
+        });
+        const loss = Math.max(
+          0,
+          context * summaryPerToken +
+            context *
+              keptRatio *
+              (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken) -
+            keepReplay,
+        );
+        available = loss <= remainingRisk && loss <= lossRatio * keepReplay;
+      }
       if (force && reachForce === 0) reachForce = survival;
       if (compact) {
         cost += survival * context * summaryPerToken;
@@ -147,15 +204,24 @@ export function estimateRuntimeSurvival(
       first = false;
       survival *= probability;
     }
-    return { cost, reachForce };
+    return { cost, reachForce, available };
   }
 
-  const now = path(true, q, retention);
-  const defer = path(false, q, retention);
+  const now = path(0, q, retention);
+  const defer = path(null, q, retention);
+  const waitOne = path(1, q, retention);
   const stressQ = Math.max(0, q - qStress);
   const stressRetention = Math.min(1, retention + retentionStress);
+  const stressNow = path(0, stressQ, stressRetention);
+  const stressDefer = path(null, stressQ, stressRetention);
+  const stressWaitOne = path(1, stressQ, stressRetention);
+  if (options.allowWaitOne !== undefined && typeof options.allowWaitOne !== "boolean")
+    throw new RangeError("allowWaitOne must be boolean");
+  const waitOneAvailable =
+    options.allowWaitOne !== false && maxCalls > 1 && waitOne.available && stressWaitOne.available;
+  const bestWaitCost = Math.min(defer.cost, waitOneAvailable ? waitOne.cost : Infinity);
   const stressedSaving =
-    path(false, stressQ, stressRetention).cost - path(true, stressQ, stressRetention).cost;
+    Math.min(stressDefer.cost, waitOneAvailable ? stressWaitOne.cost : Infinity) - stressNow.cost;
   const immediateLoss = Math.max(
     0,
     m.estimatedCompactCallCost +
@@ -178,22 +244,29 @@ export function estimateRuntimeSurvival(
     input.compactionAllowed !== false &&
     original > 0 &&
     !baseline.reasons.some((reason) => BLOCKING_REASONS.has(reason));
-  const expectedSaving = defer.cost - now.cost;
+  const expectedSaving = bestWaitCost - now.cost;
+  const runtimeRiskAllowed = Math.max(immediateLoss, stressedImmediateLoss) <= remainingRisk;
   const requiredSaving = marginRatio * m.estimatedCompactCallCost;
   return {
     compactNowCost: now.cost,
     keepThenForceCost: defer.cost,
+    waitOneThenCompactCost: waitOne.cost,
+    bestWaitCost,
+    waitOneAvailable,
     expectedSaving,
     stressedSaving,
     immediateLoss,
     stressedImmediateLoss,
     immediateLossBudget,
+    remainingRuntimeLossBudget: Number.isFinite(remainingRisk) ? remainingRisk : null,
+    runtimeRiskAllowed,
     probabilityOfUnmodeledTail: q ** maxCalls,
     modeledCalls: maxCalls,
     probabilityReachForce: defer.reachForce,
     eligible,
     shouldCompact:
       eligible &&
+      runtimeRiskAllowed &&
       q ** maxCalls <= 0.05 &&
       immediateLoss <= immediateLossBudget &&
       stressedImmediateLoss <= immediateLossBudget &&

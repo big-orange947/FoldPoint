@@ -16,6 +16,7 @@ import {
   type FoldPointProfile,
   isCachingInPlay,
   percentile,
+  RuntimeRiskBudget,
   resolveDefaults,
   resolveUnitPrices,
   type UnitPrices,
@@ -169,9 +170,16 @@ export function createFoldPointStrategy(
     omitRequestCacheEvidence?: boolean;
     /** Explicit experimental opt-in; no scenario horizon or endpoint is exposed. */
     runtimeSurvival?: import("../src/index").RuntimeSurvivalOptions;
+    /** Fixed at the first request's estimated replay cost, not accumulated past spending. */
+    runtimeRiskBudgetRatio?: number;
+    onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
+    /** Audit-only simulated pre-decision replay price; no oracle result reaches the policy. */
+    onReplayCalibration?: (estimatedReplay: number, actualReplay: number) => void;
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
+  let risk: RuntimeRiskBudget | undefined;
+  let pendingRisk = 0;
   const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
@@ -208,9 +216,37 @@ export function createFoldPointStrategy(
       }
 
       const decision = foldPoint.decide(input);
+      const calibrationPrices = resolveUnitPrices(profile.pricing);
+      options.onReplayCalibration?.(
+        decision.metrics.estimatedCurrentCallReplayCost,
+        costOfCall(calibrationPrices, input.contextTokens, {
+          prefixTokens: request.cachedTokens,
+          aliveProbability: request.cachedTokens > 0 ? 1 : 0,
+          cachingInPlay: isCachingInPlay(
+            {
+              cachePolicy: profile.cachePolicy,
+              hasCacheDiscount: calibrationPrices.hasCacheDiscount,
+            },
+            request.cachedTokens > 0,
+          ),
+        }),
+      );
+      if (!risk && options.runtimeRiskBudgetRatio !== undefined) {
+        if (!Number.isFinite(options.runtimeRiskBudgetRatio) || options.runtimeRiskBudgetRatio < 0)
+          throw new RangeError("runtimeRiskBudgetRatio must be finite and nonnegative");
+        risk = new RuntimeRiskBudget(
+          options.runtimeRiskBudgetRatio * decision.metrics.estimatedCurrentCallReplayCost,
+        );
+      }
       const experiment = options.runtimeSurvival
-        ? estimateRuntimeSurvival(input, decision, options.runtimeSurvival)
+        ? estimateRuntimeSurvival(input, decision, {
+            ...options.runtimeSurvival,
+            ...(risk ? { remainingRuntimeLossBudget: risk.report().remaining } : {}),
+          })
         : undefined;
+      pendingRisk = experiment?.shouldCompact
+        ? Math.max(experiment.immediateLoss, experiment.stressedImmediateLoss)
+        : 0;
       return {
         action:
           experiment && decision.action !== "FORCE"
@@ -223,6 +259,11 @@ export function createFoldPointStrategy(
       };
     },
     onCompaction(event: CompactionEvent) {
+      if (risk && event.action === "COMPACT") {
+        risk.charge(event.success ? pendingRisk : event.cost);
+        options.onRuntimeRisk?.(risk.report());
+      }
+      pendingRisk = 0;
       foldPoint.recordCompaction(sessionId, profile, {
         timestamp: event.timestamp,
         beforeTokens: event.beforeTokens,
@@ -241,6 +282,7 @@ export function createFoldPointStrategy(
       });
     },
     onSessionEnd(timestamp: number) {
+      if (risk) options.onRuntimeRisk?.(risk.report());
       foldPoint.endSession(sessionId, profile, { timestamp });
     },
   };
