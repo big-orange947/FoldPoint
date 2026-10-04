@@ -35,7 +35,11 @@ export function warmCases() {
   return [...warm, ...heldout, ...cold];
 }
 
-export function warmRenewalReport(cases = warmCases(), profiles = PRICE_PROFILES) {
+export function warmRenewalReport(
+  cases = warmCases(),
+  profiles = PRICE_PROFILES,
+  experiment?: { durationComponents: import("../src/index").RuntimeDurationModel["components"] },
+) {
   const rows = profiles.flatMap((profile) =>
     cases.map((base) => {
       const scenario = { ...base, pricing: profile.pricing };
@@ -48,6 +52,8 @@ export function warmRenewalReport(cases = warmCases(), profiles = PRICE_PROFILES
           positiveStress: number;
           endingRiskBlocked: number;
           triggered: number;
+          forecastSamples?: number;
+          brierSum?: number;
         }
       > = {};
       function audit(name: string) {
@@ -67,6 +73,12 @@ export function warmRenewalReport(cases = warmCases(), profiles = PRICE_PROFILES
             if (e.stressedSaving > 0) d.positiveStress++;
             if (e.assessedEndingLoss > e.immediateLossBudget) d.endingRiskBlocked++;
             if (e.shouldCompact) d.triggered++;
+          }
+          if (experiment) {
+            // Endpoint scoring is audit-only, after the estimate; never sent to policy.
+            d.forecastSamples = (d.forecastSamples ?? 0) + 1;
+            const actual = d.decisions < base.steps ? 1 : 0;
+            d.brierSum = (d.brierSum ?? 0) + (e.continuationProbabilityNext - actual) ** 2;
           }
           diagnostics[name] = d;
         };
@@ -100,6 +112,46 @@ export function warmRenewalReport(cases = warmCases(), profiles = PRICE_PROFILES
             endingLossBudgetRatio: 1,
           },
         }),
+        ...(experiment
+          ? {
+              geometric256: createFoldPointStrategy(scenario, {
+                ...common,
+                onSurvivalEstimate: audit("geometric256"),
+                runtimeSurvival: {
+                  ...common.runtimeSurvival,
+                  maxCalls: 256,
+                  rolloutMode: "renewal" as const,
+                  endingRiskMode: "survival-weighted" as const,
+                  endingLossBudgetRatio: 1,
+                },
+              }),
+              durationMixture: createFoldPointStrategy(scenario, {
+                ...common,
+                onSurvivalEstimate: audit("durationMixture"),
+                runtimeSurvival: {
+                  ...common.runtimeSurvival,
+                  maxCalls: 256,
+                  rolloutMode: "renewal" as const,
+                  endingRiskMode: "survival-weighted" as const,
+                  endingLossBudgetRatio: 1,
+                  durationModel: { completedCalls: 0, components: experiment.durationComponents },
+                },
+              }),
+              frozenDuration: createFoldPointStrategy(scenario, {
+                ...common,
+                advanceDurationAge: false,
+                onSurvivalEstimate: audit("frozenDuration"),
+                runtimeSurvival: {
+                  ...common.runtimeSurvival,
+                  maxCalls: 256,
+                  rolloutMode: "renewal" as const,
+                  endingRiskMode: "survival-weighted" as const,
+                  endingLossBudgetRatio: 1,
+                  durationModel: { completedCalls: 0, components: experiment.durationComponents },
+                },
+              }),
+            }
+          : {}),
       };
       const arms = Object.fromEntries(
         Object.entries(strategies).map(([arm, strategy]) => {
@@ -154,7 +206,11 @@ export function warmRenewalReport(cases = warmCases(), profiles = PRICE_PROFILES
   );
   const summary = profiles.flatMap((p) =>
     ["dev-warm", "dev-warm-long", "heldout-warm", "near-end", "cold-regression"].flatMap((suite) =>
-      ["renewalStrict", "renewalWeighted"].flatMap((candidate) =>
+      [
+        "renewalStrict",
+        "renewalWeighted",
+        ...(experiment ? ["geometric256", "durationMixture"] : []),
+      ].flatMap((candidate) =>
         ["fixed60", "frozenFixed", "legacy"].map((baseline) => {
           const selected = rows.filter(
             (r) =>

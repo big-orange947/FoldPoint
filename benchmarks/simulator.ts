@@ -170,6 +170,8 @@ export function createFoldPointStrategy(
     omitRequestCacheEvidence?: boolean;
     /** Explicit experimental opt-in; no scenario horizon or endpoint is exposed. */
     runtimeSurvival?: import("../src/index").RuntimeSurvivalOptions;
+    /** Duration ablation only: false keeps the caller's declared age fixed. */
+    advanceDurationAge?: boolean;
     /** Fixed at the first request's estimated replay cost, not accumulated past spending. */
     runtimeRiskBudgetRatio?: number;
     onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
@@ -184,6 +186,7 @@ export function createFoldPointStrategy(
   let risk: RuntimeRiskBudget | undefined;
   let pendingRisk = 0;
   let lastSentPrefix = 0;
+  let completedOrdinaryCalls = 0;
   const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
@@ -248,6 +251,17 @@ export function createFoldPointStrategy(
       const experiment = options.runtimeSurvival
         ? estimateRuntimeSurvival(input, decision, {
             ...options.runtimeSurvival,
+            ...(options.runtimeSurvival.durationModel
+              ? {
+                  durationModel: {
+                    ...options.runtimeSurvival.durationModel,
+                    completedCalls:
+                      options.advanceDurationAge === false
+                        ? options.runtimeSurvival.durationModel.completedCalls
+                        : completedOrdinaryCalls,
+                  },
+                }
+              : {}),
             ...(risk ? { remainingRuntimeLossBudget: risk.report().remaining } : {}),
           })
         : undefined;
@@ -283,6 +297,7 @@ export function createFoldPointStrategy(
       });
     },
     onRequest(event: RequestEvent) {
+      completedOrdinaryCalls++;
       lastSentPrefix = event.promptTokens;
       foldPoint.observeRequest(sessionId, profile, {
         timestamp: event.timestamp,

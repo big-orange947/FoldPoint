@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Conditional duration-mixture experiment
+
+- Add pure log-space mixture conditioning and explicit host-owned ordinary-call age.
+  Rollouts use full conditional survival curves; no task endpoint enters policy decisions.
+- Keep fixed-q and fixed-age mixture ablations with matched 256-call caps. Preserve old
+  reports and relabel already-seen combinations; add eight fresh combinations and Brier scores.
+- Warm long-run average costs improve for several price ratios, but win rates and worst
+  losses remain inadequate, and summaries increase. Prior is uncalibrated; no paid calls,
+  default-policy switch or task-quality claim.
+
 ### Warm-cache renewal research (no demonstrated improvement)
 
 - Add opt-in repeated-boundary rollout and an explicitly budgeted survival-weighted
