@@ -157,6 +157,127 @@ function newPrefixStorePath(name: string): string {
 
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
+describe("Pi authoritative prefix metadata bridge", () => {
+  it("prices verified continuity after a cold miss without inventing provider usage", () => {
+    const path = newTracePath("verified-continuity");
+    const fake = fakePi();
+    let clock = 1_000_000;
+    let prefix = 0;
+    const metadata: unknown[] = [];
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("verified-continuity"),
+      now: () => clock,
+      log: () => undefined,
+      getReusablePrefixTokens: (input) => {
+        metadata.push(input);
+        return prefix;
+      },
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        usage: { input: 50_000, cacheRead: 0, cacheWrite: 0, output: 10 },
+      },
+    });
+    clock += 1_000;
+    prefix = 50_000; // Authoritative host verifies the previous request is still a prefix.
+    fake.emit("context", { type: "context" }, fake.ctxWith(60_000));
+    const decisions = readTrace(path).filter((event) => event.type === "decision");
+    expect(decisions[1]?.input.reusablePrefixTokens).toBe(50_000);
+    expect(decisions[1]?.input.cachedTokens).toBeUndefined();
+    expect(decisions[1]?.prediction.estimatedCurrentCallReplayCost).toBeCloseTo(0.045, 12);
+    expect(Object.keys(metadata[1] as object).sort()).toEqual(
+      ["sessionId", "timestamp", "contextTokens", "provider", "modelId", "prefixId"].sort(),
+    );
+    // A verified rewrite explicitly removes the continuity hint, even after learning a hit.
+    prefix = 0;
+    fake.emit("context", { type: "context" }, fake.ctxWith(60_000));
+    const rewritten = readTrace(path)
+      .filter((event) => event.type === "decision")
+      .at(-1);
+    expect(rewritten?.input.reusablePrefixTokens).toBe(0);
+    expect(rewritten?.prediction.estimatedCurrentCallReplayCost).toBeCloseTo(0.225, 12);
+  });
+
+  it("does not turn prefix continuity into immunity from TTL expiry", () => {
+    const path = newTracePath("verified-expiry");
+    const fake = fakePi();
+    let clock = 1_000_000;
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("verified-expiry"),
+      now: () => clock,
+      log: () => undefined,
+      getReusablePrefixTokens: () => 40_000,
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" });
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        usage: { input: 10_000, cacheRead: 40_000, cacheWrite: 0, output: 10 },
+      },
+    });
+    clock += 301_000;
+    fake.emit("context", { type: "context" });
+    const decision = readTrace(path)
+      .filter((event) => event.type === "decision")
+      .at(-1);
+    expect(decision?.input.reusablePrefixTokens).toBe(40_000);
+    expect(decision?.prediction.estimatedCurrentCallReplayCost).toBeCloseTo(0.1875, 12);
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 50_001])(
+    "ignores invalid host proof %s without interrupting the agent",
+    (prefix) => {
+      const path = newTracePath("invalid-proof");
+      const fake = fakePi();
+      const logs: string[] = [];
+      createFoldPointObserver({
+        tracePath: path,
+        now: () => 1_000_000,
+        log: (message) => logs.push(message),
+        getReusablePrefixTokens: () => prefix,
+      })(fake.pi);
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+      expect(() => fake.emit("context", { type: "context" })).not.toThrow();
+      const decision = readTrace(path).find((event) => event.type === "decision");
+      expect(decision?.input.reusablePrefixTokens).toBeUndefined();
+      expect(logs.some((message) => message.includes("prefix verification failed"))).toBe(true);
+    },
+  );
+
+  it("keeps callback failures private and never requests proof for an unknown context size", () => {
+    const path = newTracePath("failed-proof");
+    const fake = fakePi();
+    const logs: string[] = [];
+    let calls = 0;
+    createFoldPointObserver({
+      tracePath: path,
+      now: () => 1_000_000,
+      log: (message) => logs.push(message),
+      getReusablePrefixTokens: () => {
+        calls += 1;
+        throw new Error("private callback detail");
+      },
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(null));
+    expect(calls).toBe(0);
+    expect(() => fake.emit("context", { type: "context" })).not.toThrow();
+    expect(calls).toBe(1);
+    expect(logs.join(" ")).not.toContain("private callback detail");
+    expect(readFileSync(path, "utf8")).not.toContain("private callback detail");
+  });
+});
+
 describe("Pi observer adapter", () => {
   it("records Pi's measured short-summary prior and honors an explicit override", () => {
     const defaultPath = newTracePath("pi-summary-prior");
@@ -321,6 +442,7 @@ describe("Pi observer adapter", () => {
     expect(decision.input.contextTokens).toBe(50_000);
     // The host does not guess the cache state: it reports no cached tokens before the call.
     expect(decision.input.cachedTokens).toBeUndefined();
+    expect(decision.input.reusablePrefixTokens).toBeUndefined();
     // The session key is runtime-scoped, not Pi's session id.
     expect(decision.sessionId).toMatch(/^pi-\d+-\d+$/);
     expect(events.some((event) => event.type === "session_end")).toBe(true);

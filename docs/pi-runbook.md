@@ -48,6 +48,36 @@ The adapter imports FoldPoint through a relative path (`../../src/index`), so ru
 copy the file into `~/.pi/agent/extensions/` instead, change that one import to the installed
 package (or to an absolute path) — nothing else.
 
+### 1.0 Verified reusable-prefix metadata (custom hosts only)
+
+Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
+synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,
+prefixId }`, and returns an unchanged, previously sent prefix length **in Pi's context estimate
+units**. Return `0` for a verified rewrite; return `undefined` when continuity is unknown.
+The trace records `reusablePrefixTokens`, not invented `cachedTokens`. TTL expiry, disabled
+caching and actual provider usage still have their separate meanings. Callback exceptions or
+out-of-range/non-finite values produce a generic warning and omit the hint; private error
+messages are not logged and the agent is not interrupted.
+
+This is a host assertion, not verification performed by FoldPoint. The custom host must verify
+the actual request path, including every extension transform, model/provider changes, system
+and tool declarations, truncation and compaction. Do not implement this as merely "previous
+prompt size" or "the session grew". Provider token counts cannot be substituted directly for
+Pi estimate units either. Unknown does not mean zero, and unchanged does not mean a cache hit.
+
+The local Pi 0.87 source shows why the stock adapter does **not** enable this automatically:
+`emitContext` runs `context` handlers sequentially, then `context_with_system` handlers; the
+later `emitBeforeProviderRequest` handlers can replace the payload again. An early observer's
+message snapshot therefore does not prove the final request is append-only. The optional
+callback is used only for a request-paired `context` decision, not for `before_agent_start`
+preflight or native compaction-policy checks, which do not expose the same pending request.
+It neither registers new payload-reading hooks nor enables the experimental runtime policy.
+
+Default Pi behavior and privacy scope are unchanged. Stock Pi needs a host-level continuity
+contract (or a separately reviewed final-request observer) before the cache-aware simulation
+can be treated as a real Pi capability. Fake-host tests establish wiring and invalidation,
+not provider savings, task quality, or verified real-Pi prefix continuity.
+
 ### 1.1 Smoke test without a model call
 
 Two levels, cheapest first.

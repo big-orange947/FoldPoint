@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi authoritative prefix metadata bridge
+
+- Adapter 0.3.2 adds an optional synchronous `getReusablePrefixTokens` host assertion, in Pi's
+  context estimate units. Record it separately from provider cache usage; invalid/failed proof
+  is unknown, emits no private callback error and does not interrupt the agent.
+- Keep the default adapter metadata-only and the experimental runtime policy disabled. Local
+  Pi request transforms prevent an early context observer from proving final-prefix continuity;
+  document the custom-host contract rather than assuming append-only requests in production.
+- Test cold-miss follow-up pricing, verified rewrites, TTL expiry, invalid numbers, callback
+  privacy and unknown-context skips. No paid calls or changes to retained paid trial reports.
+
 ### Runtime survival v3: verified prefix continuity and long-runtime tradeoffs
 
 - Add optional `reusablePrefixTokens`: unchanged previously sent prefix metadata, separate

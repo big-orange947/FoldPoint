@@ -67,7 +67,7 @@ import {
  * Bumped to 0.2.0 when the prompt accounting changed: 0.1.0 recorded Pi's uncached input as the
  * whole prompt, so a 0.1.0 trace under-counts every call by its cache hits.
  */
-export const ADAPTER_VERSION = "0.3.1";
+export const ADAPTER_VERSION = "0.3.2";
 
 // ============================================================================
 // The slice of Pi's extension API this adapter uses (structural, not imported)
@@ -224,6 +224,15 @@ export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
 // ============================================================================
 
 export interface FoldPointObserverOptions {
+  /**
+   * Optional authoritative host proof of an unchanged, previously sent request prefix.
+   * Return tokens in Pi's context estimate units, zero for a verified rewrite, or undefined
+   * when continuity is unknown. This is NOT a prediction of provider cache hits.
+   * The host must account for every request transform, system/tool change and compaction.
+   * Stock Pi context events alone cannot prove this; no automatic inference is enabled.
+   * Called only for a model-call context decision, not a preflight or compaction-policy check.
+   */
+  getReusablePrefixTokens?: (input: PiPrefixVerificationInput) => number | undefined;
   /** Where the JSONL trace goes. Defaults to `$FOLDPOINT_TRACE` or `~/.foldpoint/traces`. */
   tracePath?: string;
   /** Where measured prefix sizes are remembered. Defaults to `$FOLDPOINT_PREFIX_STORE`. */
@@ -260,6 +269,16 @@ export interface FoldPointObserverOptions {
   now?: () => number;
   /** Sink for the pairing diagnostics this adapter prints. */
   log?: (message: string) => void;
+}
+
+/** Metadata only: the callback receives neither messages nor a provider request payload. */
+export interface PiPrefixVerificationInput {
+  readonly sessionId: string;
+  readonly timestamp: number;
+  readonly contextTokens: number;
+  readonly provider: string;
+  readonly modelId: string;
+  readonly prefixId: string | undefined;
 }
 
 export type CompactionMode = "suggest" | "auto" | "off";
@@ -1151,6 +1170,30 @@ export function createFoldPointObserver(
       const profile = profileFromModel(model, state.prefixId);
       const timestamp = now();
       const idleMs = idleSinceCacheRefresh(timestamp, model);
+      let reusablePrefixTokens: number | undefined;
+      if (options.getReusablePrefixTokens !== undefined) {
+        try {
+          const verified = options.getReusablePrefixTokens({
+            sessionId: sessionKey,
+            timestamp,
+            contextTokens: usage.tokens,
+            provider: model.provider,
+            modelId: model.id,
+            prefixId: state.prefixId,
+          });
+          if (
+            verified !== undefined &&
+            (!Number.isFinite(verified) || verified < 0 || verified > usage.tokens)
+          ) {
+            throw new RangeError("invalid prefix metadata");
+          }
+          reusablePrefixTokens = verified;
+        } catch {
+          // A failed proof is unknown, never a cheap-cache assumption. Do not log arbitrary
+          // callback errors: they could contain private host data. Observation must not abort Pi.
+          warnOnce("prefix-proof-failed", "host prefix verification failed; continuity is unknown");
+        }
+      }
       const input = {
         sessionId: sessionKey,
         runtimeId,
@@ -1160,6 +1203,7 @@ export function createFoldPointObserver(
         contextTokens: usage.tokens,
         safeBoundary: true,
         compactionAllowed: true,
+        ...(reusablePrefixTokens === undefined ? {} : { reusablePrefixTokens }),
         ...(idleMs === undefined ? {} : { idleMs }),
         ...(prefixFits && state.fixedPrefixTokens !== undefined
           ? { fixedPrefixTokens: state.fixedPrefixTokens }
