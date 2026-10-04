@@ -134,6 +134,13 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
         defaults: { compactOutputRatio: 0.002 },
         runtimeSurvival: { continuationProbability: 0.95, maxImmediateLossRatio: 1 },
       }),
+      cacheAwareNoBudget: createFoldPointStrategy(scenario, {
+        ...audit("cacheAwareNoBudget"),
+        omitRequestCacheEvidence: true,
+        verifiedAppendOnlyPrefix: true,
+        defaults: { compactOutputRatio: 0.002 },
+        runtimeSurvival: { continuationProbability: 0.95, maxImmediateLossRatio: 1 },
+      }),
       ...Object.fromEntries(
         SURVIVAL_PROFILES.map(({ id, runtimeRiskBudgetRatio, ...runtimeSurvival }) => [
           id,
@@ -142,6 +149,7 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
             omitRequestCacheEvidence: true,
             defaults: { compactOutputRatio: 0.002 },
             runtimeSurvival,
+            verifiedAppendOnlyPrefix: true,
             runtimeRiskBudgetRatio,
           }),
         ]),
@@ -176,55 +184,83 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
   });
   const summary = ["matrix", "near-end"].flatMap((suite) =>
     SURVIVAL_PROFILES.flatMap((profile) =>
-      ["current", "fixed60", "forceOnlyV1", "waitOneNoBudget"].map((baseline) => {
-        const selected = rows.filter(
-          (r) => r.id.startsWith("near-end-") === (suite === "near-end"),
-        );
-        const compared = selected.filter((r) =>
-          [r.arms[profile.id], r.arms[baseline]].some((a) => a && a.compactionSteps.length > 0),
-        );
-        const deltas = compared.map(
-          (r) => (r.arms[profile.id]?.cost ?? 0) / (r.arms[baseline]?.cost ?? 1) - 1,
-        );
-        return {
-          suite,
-          profile: profile.id,
-          baseline,
-          scenarios: selected.length,
-          compared: compared.length,
-          noCompactionCases: selected.length - compared.length,
-          wins: deltas.filter((d) => d < -1e-9).length,
-          losses: deltas.filter((d) => d > 1e-9).length,
-          meanRelativeChange: deltas.length
-            ? deltas.reduce((a, b) => a + b, 0) / deltas.length
-            : null,
-          worstRelativeChange: deltas.length ? Math.max(...deltas) : null,
-          economic: selected.reduce((s, r) => s + (r.arms[profile.id]?.economic ?? 0), 0),
-          unneeded: selected.reduce((s, r) => s + (r.arms[profile.id]?.unneeded ?? 0), 0),
-          judged: selected.reduce((s, r) => s + (r.arms[profile.id]?.judged ?? 0), 0),
-          overflow: selected.reduce((s, r) => s + (r.arms[profile.id]?.overflow ?? 0), 0),
-          attempts: selected.reduce(
-            (s, r) => s + (r.arms[profile.id]?.compactionSteps.length ?? 0),
-            0,
-          ),
-          firstCompactionBelow20Percent: selected.filter((r) => {
-            const first = r.arms[profile.id]?.firstCompactionUtilization;
-            return first !== null && first !== undefined && first < 0.2;
-          }).length,
-          runtimeRiskOverspends: selected.filter((r) => r.arms[profile.id]?.runtimeRisk?.overBudget)
-            .length,
-        };
-      }),
+      ["current", "fixed60", "forceOnlyV1", "waitOneNoBudget", "cacheAwareNoBudget"].map(
+        (baseline) => {
+          const selected = rows.filter(
+            (r) => r.id.startsWith("near-end-") === (suite === "near-end"),
+          );
+          const compared = selected.filter((r) =>
+            [r.arms[profile.id], r.arms[baseline]].some((a) => a && a.compactionSteps.length > 0),
+          );
+          const deltas = compared.map(
+            (r) => (r.arms[profile.id]?.cost ?? 0) / (r.arms[baseline]?.cost ?? 1) - 1,
+          );
+          return {
+            suite,
+            profile: profile.id,
+            baseline,
+            scenarios: selected.length,
+            compared: compared.length,
+            noCompactionCases: selected.length - compared.length,
+            wins: deltas.filter((d) => d < -1e-9).length,
+            losses: deltas.filter((d) => d > 1e-9).length,
+            meanRelativeChange: deltas.length
+              ? deltas.reduce((a, b) => a + b, 0) / deltas.length
+              : null,
+            worstRelativeChange: deltas.length ? Math.max(...deltas) : null,
+            economic: selected.reduce((s, r) => s + (r.arms[profile.id]?.economic ?? 0), 0),
+            unneeded: selected.reduce((s, r) => s + (r.arms[profile.id]?.unneeded ?? 0), 0),
+            judged: selected.reduce((s, r) => s + (r.arms[profile.id]?.judged ?? 0), 0),
+            overflow: selected.reduce((s, r) => s + (r.arms[profile.id]?.overflow ?? 0), 0),
+            attempts: selected.reduce(
+              (s, r) => s + (r.arms[profile.id]?.compactionSteps.length ?? 0),
+              0,
+            ),
+            firstCompactionBelow20Percent: selected.filter((r) => {
+              const first = r.arms[profile.id]?.firstCompactionUtilization;
+              return first !== null && first !== undefined && first < 0.2;
+            }).length,
+            runtimeRiskOverspends: selected.filter(
+              (r) => r.arms[profile.id]?.runtimeRisk?.overBudget,
+            ).length,
+          };
+        },
+      ),
     ),
   );
+  const lengthSummary = [12, 60, 140].flatMap((steps) =>
+    ["cacheAwareNoBudget", "q95-loss1"].map((arm) => {
+      const selected = rows.filter((r) => !r.id.startsWith("near-end-") && r.steps === steps);
+      const compared = selected.filter((r) =>
+        [r.arms[arm], r.arms.fixed60].some((a) => a && a.compactionSteps.length > 0),
+      );
+      const deltas = compared.map(
+        (r) => (r.arms[arm]?.cost ?? 0) / (r.arms.fixed60?.cost ?? 1) - 1,
+      );
+      return {
+        steps,
+        arm,
+        compared: compared.length,
+        excludedNoCompaction: selected.length - compared.length,
+        wins: deltas.filter((d) => d < -1e-9).length,
+        losses: deltas.filter((d) => d > 1e-9).length,
+        meanRelativeChange: deltas.length
+          ? deltas.reduce((a, b) => a + b, 0) / deltas.length
+          : null,
+        worstRelativeChange: deltas.length ? Math.max(...deltas) : null,
+        attempts: selected.reduce((s, r) => s + (r.arms[arm]?.compactionSteps.length ?? 0), 0),
+      };
+    }),
+  );
   return {
-    kind: "foldpoint.runtime-survival-experiment.v2",
+    kind: "foldpoint.runtime-survival-experiment.v3",
     paidCalls: 0,
     profiles: SURVIVAL_PROFILES,
     horizonCap: 64,
     limitations: [
       "Explicit uncalibrated priors, not estimated task progress or future user commands.",
       "No held-out endpoint, true retention or future cache condition is supplied to the policy.",
+      "Cache-aware arms declare the simulator's append-only prefix contract using their own previously sent prompt length, not future hit counts; real hosts must verify continuity.",
       "All original 1M simulation limitations apply; summary success and unchanged task output are assumed.",
       "Geometric survival, constant observed growth and future cache reuse can be wrong.",
       "WAIT compares safety-only waiting with compaction after one call; both are bounded forecast schedules, not full optimal control or a guarantee of information gain.",
@@ -236,6 +272,7 @@ export function runtimeSurvivalReport(scenarios = buildRuntimeSurvivalScenarios(
       "Sensitivity cases do not establish real task-quality or majority-traffic savings.",
     ],
     summary,
+    lengthSummary,
     rows,
   };
 }
@@ -263,15 +300,26 @@ export function renderRuntimeSurvival(report: ReturnType<typeof runtimeSurvivalR
         `| ${s.suite} | ${s.profile} | ${s.baseline} | ${s.compared} | ${s.wins}/${s.losses} | ${s.meanRelativeChange === null ? "—" : `${(100 * s.meanRelativeChange).toFixed(2)}%`} | ${s.worstRelativeChange === null ? "—" : `${(100 * s.worstRelativeChange).toFixed(2)}%`} | ${s.economic} | ${s.unneeded}/${s.judged} | ${s.overflow} | ${s.firstCompactionBelow20Percent} |`,
     ),
     "",
-    "## 仍未解决的成本估计偏差",
+    "## 缓存校准与剩余限制",
     "",
-    "增加等待一轮和累计风险预算只修比较路径与风险累积，不能保证基础成本估计准确。以下是按相对损失选择的最坏近结束场景，作为审计示例，不是策略特判。",
+    "缓存感知分支增加宿主连续前缀信息；以下是按相对成本选择的近结束审计示例，不是策略特判。即使校准通过，结束风险、未来缓存与质量仍不确定。",
     ...(worst && calibration
       ? [
           `场景 ${worst.id}：最坏单次 KEEP 输入费用估计 ${calibration.worstEstimated.toFixed(6)}，模拟真实缓存状态计价 ${calibration.worstActual.toFixed(6)}，高估 ${calibration.worstOverestimateRatio.toFixed(2)} 倍。该诊断在策略之外计算，真实缓存用量没有反向传给策略。`,
-          "初次请求缓存命中为零，不等于它写回的前缀在下一次请求仍不可用。当前按历史命中覆盖度预测本次缓存的路径可能混淆这两者，因此立即结束损失估计也可能过低；风险账本不超预算不意味着真实损失被限制。应先验证缓存重建后的费用校准，再做付费收益测试。",
+          "缓存感知分支用宿主确认未变的已发送前缀估价；未声明该信息的旧候选仍保留作对照。这里的精确计价只验证模拟器的完整前缀/TTL 假设，真实 provider 驱逐、块对齐和缓存共享仍未被证明。风险账本不超预算不意味着真实任务质量得到保证。",
         ]
       : []),
+    "",
+    "## 按运行长度对比 fixed60",
+    "",
+    "单次损失比例仍为 1；cacheAwareNoBudget 不加累计门，q95-loss1 加累计门。两者 q=0.95，没有选择获胜概率。12/60/140 是模拟调用数，不是真实任务难度，逐场景均值不代表真实流量。",
+    "",
+    "| 调用数 | 候选 | 比较数 | 胜/负 | 平均费用变化 | 最坏变化 | 压缩次数 |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...report.lengthSummary.map(
+      (s) =>
+        `| ${s.steps} | ${s.arm} | ${s.compared} | ${s.wins}/${s.losses} | ${s.meanRelativeChange === null ? "—" : `${(s.meanRelativeChange * 100).toFixed(2)}%`} | ${s.worstRelativeChange === null ? "—" : `${(s.worstRelativeChange * 100).toFixed(2)}%`} | ${s.attempts} |`,
+    ),
     "",
     "## 限制",
     "",

@@ -20,6 +20,7 @@ export interface CacheModelInput {
   contextTokens: number;
   /** Tokens the host reports as served from the cache for the current prompt, if any. */
   cachedTokens?: number | undefined;
+  reusablePrefixTokens?: number | undefined;
   /**
    * Leading tokens of the prompt the host declares stable: its system prompt and tool schemas.
    *
@@ -168,7 +169,11 @@ function learnedCandidateTokens(input: CacheModelInput, contextTokens: number): 
 export function resolveLaterCandidateTokens(
   input: Pick<
     CacheModelInput,
-    "contextTokens" | "cacheCoverageRatioEma" | "cacheCoverageSamples" | "fixedPrefixTokens"
+    | "contextTokens"
+    | "cacheCoverageRatioEma"
+    | "cacheCoverageSamples"
+    | "fixedPrefixTokens"
+    | "reusablePrefixTokens"
   >,
   candidateCachedTokens: number,
   cachingInPlay: boolean,
@@ -178,6 +183,10 @@ export function resolveLaterCandidateTokens(
   }
 
   const contextTokens = clamp(input.contextTokens, 0, Number.MAX_SAFE_INTEGER);
+  // An explicit continuity hint permits an append-only forecast: the request about to
+  // be sent writes the whole current prefix. Its previous HIT fraction must not limit
+  // how much of that newly written prefix a later request can reuse. Survival is separate.
+  if (input.reusablePrefixTokens !== undefined) return contextTokens;
   const learnedPrefixTokens =
     input.cacheCoverageSamples > 0 || (input.fixedPrefixTokens ?? 0) > 0
       ? learnedCandidateTokens(
@@ -254,6 +263,8 @@ export function estimateCacheModel(input: CacheModelInput): CacheModel {
   let candidateCachedTokens: number;
   if (input.cachedTokens !== undefined) {
     candidateCachedTokens = clamp(input.cachedTokens, 0, contextTokens);
+  } else if (input.reusablePrefixTokens !== undefined) {
+    candidateCachedTokens = clamp(input.reusablePrefixTokens, 0, contextTokens);
   } else {
     candidateCachedTokens = learnedCandidateTokens(input, contextTokens);
   }

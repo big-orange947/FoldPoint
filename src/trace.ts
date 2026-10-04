@@ -106,6 +106,7 @@ export interface TraceInput {
   runtimeStatus?: "active" | "idle";
   contextTokens: number;
   cachedTokens?: number;
+  reusablePrefixTokens?: number;
   /** Leading tokens the host declared stable (system prompt and tool schemas). */
   fixedPrefixTokens?: number;
   idleMs?: number;
@@ -577,6 +578,8 @@ function traceInput(input: FoldPointInput): TraceInput {
   if (input.cachedTokens !== undefined) {
     traced.cachedTokens = input.cachedTokens;
   }
+  if (input.reusablePrefixTokens !== undefined)
+    traced.reusablePrefixTokens = input.reusablePrefixTokens;
   if (input.idleMs !== undefined) {
     traced.idleMs = input.idleMs;
   }
@@ -741,6 +744,11 @@ export function validateTraceEvent(value: unknown): TraceEvent {
         assertTraceLabel("profile.prefixId", event.profile.prefixId);
       }
       assertFinite("input.contextTokens", event.input?.contextTokens, 0);
+      if (event.input?.reusablePrefixTokens !== undefined) {
+        assertFinite("input.reusablePrefixTokens", event.input.reusablePrefixTokens, 0);
+        if (event.input.reusablePrefixTokens > event.input.contextTokens)
+          throw new RangeError("Trace reusablePrefixTokens must not exceed contextTokens");
+      }
       if (event.input?.fixedPrefixTokens !== undefined) {
         assertFinite("input.fixedPrefixTokens", event.input.fixedPrefixTokens, 0);
         if (event.input.fixedPrefixTokens > event.input.contextTokens) {

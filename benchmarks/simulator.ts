@@ -175,11 +175,14 @@ export function createFoldPointStrategy(
     onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
     /** Audit-only simulated pre-decision replay price; no oracle result reaches the policy. */
     onReplayCalibration?: (estimatedReplay: number, actualReplay: number) => void;
+    /** The simulator's documented append-only host contract, NOT actual cache hit counts. */
+    verifiedAppendOnlyPrefix?: boolean;
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
   let risk: RuntimeRiskBudget | undefined;
   let pendingRisk = 0;
+  let lastSentPrefix = 0;
   const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
@@ -200,6 +203,9 @@ export function createFoldPointStrategy(
         timestamp: request.timestamp,
         contextTokens: request.contextTokens,
         ...(options.omitRequestCacheEvidence ? {} : { cachedTokens: request.cachedTokens }),
+        ...(options.verifiedAppendOnlyPrefix
+          ? { reusablePrefixTokens: Math.min(lastSentPrefix, request.contextTokens) }
+          : {}),
         idleMs: request.idleMs,
         safeBoundary: true,
         compactionAllowed: true,
@@ -259,6 +265,7 @@ export function createFoldPointStrategy(
       };
     },
     onCompaction(event: CompactionEvent) {
+      if (event.success) lastSentPrefix = 0;
       if (risk && event.action === "COMPACT") {
         risk.charge(event.success ? pendingRisk : event.cost);
         options.onRuntimeRisk?.(risk.report());
@@ -274,6 +281,7 @@ export function createFoldPointStrategy(
       });
     },
     onRequest(event: RequestEvent) {
+      lastSentPrefix = event.promptTokens;
       foldPoint.observeRequest(sessionId, profile, {
         timestamp: event.timestamp,
         promptTokens: event.promptTokens,

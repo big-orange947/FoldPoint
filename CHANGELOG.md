@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Runtime survival v3: verified prefix continuity and long-runtime tradeoffs
+
+- Add optional `reusablePrefixTokens`: unchanged previously sent prefix metadata, separate
+  from actual cached usage. Actual provider feedback wins, expiry/disabled caching still apply;
+  rewritten prefixes explicitly reset to zero. Trace records/validates the additive field.
+- Under an explicit continuity hint, forecast the newly written prompt as a later candidate;
+  do not confuse a previous cold-cache miss with absent reusable prefix. Omitted-input legacy
+  behavior and Pi defaults stay unchanged. No future cache oracle or task endpoint is supplied.
+- Add cacheAwareNoBudget and length groups without selecting a best prior. 140-call group:
+  no cumulative gate 96/108 wins vs fixed60, mean -49.48%; strict cumulative gate 58/108,
+  mean -19.82%. Synthetic assumptions only; summary frequency and real task quality remain
+  unvalidated. Early-ending loss is an accepted tradeoff, not every compaction must repay.
+
 ### Runtime survival v2: one-call deferral and cumulative estimated risk
 
 - Compare NOW with both force-only waiting and waiting one call before compaction; bill

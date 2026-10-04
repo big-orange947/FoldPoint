@@ -127,7 +127,7 @@ describe("runtime survival zero-paid screen", () => {
       readFileSync(new URL("../benchmarks/runtime-survival.md", import.meta.url), "utf8"),
     ).toBe(renderRuntimeSurvival(report));
     expect(report.rows).toHaveLength(351);
-    expect(report.kind).toBe("foldpoint.runtime-survival-experiment.v2");
+    expect(report.kind).toBe("foldpoint.runtime-survival-experiment.v3");
     expect(
       report.rows.some(
         (row: {
@@ -140,9 +140,14 @@ describe("runtime survival zero-paid screen", () => {
             }
           >;
         }) =>
-          (row.arms["q95-loss1"]?.preDecisionReplayCalibration?.worstOverestimateRatio ?? 0) > 20,
+          (row.arms.forceOnlyV1?.preDecisionReplayCalibration?.worstOverestimateRatio ?? 0) > 20,
       ),
     ).toBe(true);
+    for (const row of report.rows) {
+      const calibration = row.arms["q95-loss1"].preDecisionReplayCalibration;
+      expect(calibration.samples).toBe(row.steps);
+      expect(calibration.estimated).toBeCloseTo(calibration.actual, 8);
+    }
     for (const summary of report.summary) {
       expect(summary.compared + summary.noCompactionCases).toBe(summary.scenarios);
       if (summary.compared > 0)

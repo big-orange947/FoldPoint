@@ -163,6 +163,9 @@ export function validateFoldPointInput(input: FoldPointInput): void {
   if (input.idleMs !== undefined) {
     assertFiniteNumber("idleMs", input.idleMs, 0);
   }
+  if (input.reusablePrefixTokens !== undefined) {
+    assertFiniteNumber("reusablePrefixTokens", input.reusablePrefixTokens, 0, input.contextTokens);
+  }
   if (input.expectedFutureCalls !== undefined) {
     assertFiniteNumber("expectedFutureCalls", input.expectedFutureCalls, 1);
   }
@@ -376,6 +379,7 @@ export function decideFoldPoint(
     idleMs,
     contextTokens,
     cachedTokens: input.cachedTokens,
+    reusablePrefixTokens: input.reusablePrefixTokens,
     fixedPrefixTokens: input.fixedPrefixTokens,
     cachePolicy: input.profile.cachePolicy,
     cacheExpiresAt: resolveCacheExpiresAt(input, session ?? {}),

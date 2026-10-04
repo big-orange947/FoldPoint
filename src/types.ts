@@ -163,6 +163,12 @@ export interface FoldPointInput {
   /** Tokens the host knows are served from the provider cache for this prompt. */
   cachedTokens?: number;
 
+  /** Previously sent leading tokens that the host verifies unchanged in this request.
+   * Cache reuse candidate, NOT an observed provider hit. Expiry/disable still apply.
+   * Report 0 after prefix rewriting; omit when the host cannot verify prefix continuity.
+   */
+  reusablePrefixTokens?: number;
+
   /**
    * Leading tokens of this prompt the host declares stable — its system prompt and tool
    * schemas. They are the same on every call of a configuration, so the model treats them as
