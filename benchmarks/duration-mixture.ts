@@ -31,69 +31,90 @@ export function durationCases() {
   return [...old, ...fresh];
 }
 
-export function durationMixtureReport() {
-  const raw = warmRenewalReport(durationCases(), undefined, { durationComponents: DURATION_PRIOR });
+export function durationMixtureReport(cases = durationCases(), timingMargin = false) {
+  const raw = warmRenewalReport(cases, undefined, {
+    durationComponents: DURATION_PRIOR,
+    timingMargin,
+  });
   const rows = raw.rows.map((r) => ({
     ...r,
-    suite: r.id.startsWith("heldout-fresh-")
-      ? "fresh-warm"
-      : r.suite === "heldout-warm"
-        ? "seen-regression"
-        : r.suite,
+    suite: r.id.startsWith("heldout-floor-")
+      ? "floor-stress"
+      : r.id.startsWith("heldout-margin-")
+        ? "validation-warm"
+        : r.id.startsWith("heldout-fresh-")
+          ? timingMargin
+            ? "seen-regression"
+            : "fresh-warm"
+          : r.suite === "heldout-warm"
+            ? "seen-regression"
+            : r.suite,
   }));
   const summary = raw.profiles.flatMap((p) =>
-    ["dev-warm-long", "fresh-warm", "seen-regression", "near-end", "cold-regression"].flatMap(
-      (suite) =>
-        ["geometric256", "durationMixture", "frozenDuration"].flatMap((candidate) =>
-          ["fixed60", "frozenFixed", "renewalWeighted"].map((baseline) => {
-            const selected = rows.filter(
-              (r) =>
-                r.profile === p.id &&
-                (suite === "dev-warm-long"
-                  ? r.suite === "dev-warm" && r.calls === 140
-                  : r.suite === suite),
-            );
-            const comparator =
-              baseline === "frozenFixed" ? (raw.frozenFixed[p.id] ?? "fixed60") : baseline;
-            const get = (r: (typeof rows)[number], name: string) => {
-              const a = r.arms[name];
-              if (!a) throw new Error("Missing arm");
-              return a;
-            };
-            const compared = selected.filter(
-              (r) => get(r, candidate).attempts > 0 || get(r, comparator).attempts > 0,
-            );
-            const ds = compared.map((r) => get(r, candidate).cost / get(r, comparator).cost - 1);
-            // Endpoint is scoring-only, never passed to the policy.
-            const forecastSamples = selected.reduce(
-              (sum, r) => sum + (r.diagnostics[candidate]?.forecastSamples ?? 0),
-              0,
-            );
-            const brierSum = selected.reduce(
-              (sum, r) => sum + (r.diagnostics[candidate]?.brierSum ?? 0),
-              0,
-            );
-            return {
-              profile: p.id,
-              suite,
-              candidate,
-              baseline,
-              comparator,
-              cases: selected.length,
-              compared: compared.length,
-              excluded: selected.length - compared.length,
-              wins: ds.filter((d) => d < -1e-9).length,
-              losses: ds.filter((d) => d > 1e-9).length,
-              ties: ds.filter((d) => Math.abs(d) <= 1e-9).length,
-              mean: ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null,
-              worst: ds.length ? Math.max(...ds) : null,
-              brier: forecastSamples ? brierSum / forecastSamples : null,
-              forecasts: forecastSamples,
-              attempts: selected.reduce((s, r) => s + get(r, candidate).attempts, 0),
-              overflow: selected.reduce((s, r) => s + get(r, candidate).overflow, 0),
-            };
-          }),
-        ),
+    [
+      "dev-warm-long",
+      "fresh-warm",
+      "seen-regression",
+      "near-end",
+      "cold-regression",
+      ...(timingMargin ? ["validation-warm", "floor-stress"] : []),
+    ].flatMap((suite) =>
+      (timingMargin
+        ? ["durationMixture", "durationTiming"]
+        : ["geometric256", "durationMixture", "frozenDuration"]
+      ).flatMap((candidate) =>
+        (timingMargin
+          ? ["fixed60", "frozenFixed", "durationMixture"]
+          : ["fixed60", "frozenFixed", "renewalWeighted"]
+        ).map((baseline) => {
+          const selected = rows.filter(
+            (r) =>
+              r.profile === p.id &&
+              (suite === "dev-warm-long"
+                ? r.suite === "dev-warm" && r.calls === 140
+                : r.suite === suite),
+          );
+          const comparator =
+            baseline === "frozenFixed" ? (raw.frozenFixed[p.id] ?? "fixed60") : baseline;
+          const get = (r: (typeof rows)[number], name: string) => {
+            const a = r.arms[name];
+            if (!a) throw new Error("Missing arm");
+            return a;
+          };
+          const compared = selected.filter(
+            (r) => get(r, candidate).attempts > 0 || get(r, comparator).attempts > 0,
+          );
+          const ds = compared.map((r) => get(r, candidate).cost / get(r, comparator).cost - 1);
+          // Endpoint is scoring-only, never passed to the policy.
+          const forecastSamples = selected.reduce(
+            (sum, r) => sum + (r.diagnostics[candidate]?.forecastSamples ?? 0),
+            0,
+          );
+          const brierSum = selected.reduce(
+            (sum, r) => sum + (r.diagnostics[candidate]?.brierSum ?? 0),
+            0,
+          );
+          return {
+            profile: p.id,
+            suite,
+            candidate,
+            baseline,
+            comparator,
+            cases: selected.length,
+            compared: compared.length,
+            excluded: selected.length - compared.length,
+            wins: ds.filter((d) => d < -1e-9).length,
+            losses: ds.filter((d) => d > 1e-9).length,
+            ties: ds.filter((d) => Math.abs(d) <= 1e-9).length,
+            mean: ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null,
+            worst: ds.length ? Math.max(...ds) : null,
+            brier: forecastSamples ? brierSum / forecastSamples : null,
+            forecasts: forecastSamples,
+            attempts: selected.reduce((s, r) => s + get(r, candidate).attempts, 0),
+            overflow: selected.reduce((s, r) => s + get(r, candidate).overflow, 0),
+          };
+        }),
+      ),
     ),
   );
   return {

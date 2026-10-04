@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Differential timing margin and fixed-floor stress screen
+
+- Add opt-in timing margin basis, retaining the 10% ratio and complete NOW/WAIT bills.
+  Fall back to the summary basis without a feasible WAIT-ONE; preserve risk and safety gates.
+- Add five-arm common-growth ablation, cost attribution and metadata-only margin blockers.
+  Keep all cases and comparator bills in a compact generated report.
+- Add actual compactor retained/output floors, including shadow overflow recovery and fees
+  for no-shrink summaries. Ground-truth floors are never exposed to policy before observation.
+- Proportional-retention tests improve, but floor stress drops wins to 4/8 with some average
+  losses and up to 24.5% extra cost. No paid calls, task-quality claim or default Pi switch.
+
 ### Conditional duration-mixture experiment
 
 - Add pure log-space mixture conditioning and explicit host-owned ordinary-call age.

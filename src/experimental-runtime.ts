@@ -93,6 +93,8 @@ export interface RuntimeSurvivalOptions {
   /** Required for weighted mode: ending loss allowance / modeled WAIT input+summary cost. */
   endingLossBudgetRatio?: number;
   durationModel?: RuntimeDurationModel;
+  /** Opt-in differential timing margin; requires renewal and the wait-one alternative. */
+  savingMarginBasis?: "summary" | "timing";
 }
 
 export interface RuntimeSurvivalEstimate {
@@ -118,6 +120,8 @@ export interface RuntimeSurvivalEstimate {
   assessedEndingLoss: number;
   continuationProbabilityNext: number;
   expectedCallsIncludingCurrent: number;
+  requiredSaving: number;
+  savingMarginCostScale: number;
 }
 
 function bounded(name: string, value: number, max = 1): number {
@@ -213,6 +217,16 @@ export function estimateRuntimeSurvival(
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
   const retentionStress = bounded("retentionStress", options.retentionStress ?? 0.05);
   const marginRatio = bounded("savingMarginRatio", options.savingMarginRatio ?? 0.1);
+  if (
+    options.savingMarginBasis !== undefined &&
+    !["summary", "timing"].includes(options.savingMarginBasis)
+  )
+    throw new RangeError("invalid savingMarginBasis");
+  if (
+    options.savingMarginBasis === "timing" &&
+    (options.rolloutMode !== "renewal" || options.allowWaitOne === false)
+  )
+    throw new RangeError("timing margin requires renewal with wait-one enabled");
   const endingBudgetRatio =
     options.endingRiskMode === "survival-weighted"
       ? bounded("endingLossBudgetRatio", options.endingLossBudgetRatio ?? NaN)
@@ -421,7 +435,13 @@ export function estimateRuntimeSurvival(
     riskLoss(immediateLoss, q),
     riskLoss(stressedImmediateLoss, stressQ),
   );
-  const requiredSaving = marginRatio * m.estimatedCompactCallCost;
+  // Shared summary fees remain in both rollout bills. The timing margin uses the expense
+  // exposed by advancing a request and one growth increment, not the entire shared summary.
+  const savingMarginCostScale =
+    options.savingMarginBasis === "timing" && waitOneAvailable
+      ? m.estimatedCurrentCallReplayCost + growth * summaryPerToken
+      : m.estimatedCompactCallCost;
+  const requiredSaving = marginRatio * savingMarginCostScale;
   return {
     compactNowCost: now.cost,
     keepThenForceCost: defer.cost,
@@ -444,6 +464,8 @@ export function estimateRuntimeSurvival(
     assessedEndingLoss,
     continuationProbabilityNext: q,
     expectedCallsIncludingCurrent: duration?.expectedCallsIncludingCurrent ?? 1 / (1 - q),
+    requiredSaving,
+    savingMarginCostScale,
     shouldCompact:
       eligible &&
       runtimeRiskAllowed &&

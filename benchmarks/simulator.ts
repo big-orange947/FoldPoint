@@ -150,6 +150,21 @@ export interface SessionMetrics {
   decisionLatencyP99Ms: number;
 }
 
+export function simulatedCompactorOutput(scenario: Scenario, beforeTokens: number) {
+  const floor = scenario.compactor.retainedFloorTokens ?? 0;
+  const outputFloor = scenario.compactor.outputFloorTokens ?? 0;
+  for (const value of [floor, outputFloor])
+    if (!Number.isSafeInteger(value) || value < 0)
+      throw new RangeError("compactor floor must be a non-negative safe integer");
+  return {
+    afterTokens: Math.min(
+      beforeTokens,
+      Math.max(floor, Math.round(beforeTokens * scenario.compactor.retentionRatio)),
+    ),
+    outputTokens: Math.max(outputFloor, Math.round(beforeTokens * scenario.compactor.outputRatio)),
+  };
+}
+
 export interface SessionRun {
   metrics: SessionMetrics;
   latencies: number[];
@@ -444,14 +459,15 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
 
   /** Charges one overflow recovery to a branch, at the cache-write price. */
   const chargeRecovery = (branch: BranchState, cost: { value: number }): void => {
-    const recoveryOutputTokens = Math.round(branch.contextTokens * scenario.compactor.outputRatio);
+    const recovered = simulatedCompactorOutput(scenario, branch.contextTokens);
+    const recoveryOutputTokens = recovered.outputTokens;
     cost.value += costOfCall(
       prices,
       branch.contextTokens,
       { prefixTokens: branch.contextTokens, aliveProbability: 0, cachingInPlay },
       recoveryOutputTokens,
     );
-    branch.contextTokens = Math.round(branch.contextTokens * scenario.compactor.retentionRatio);
+    branch.contextTokens = recovered.afterTokens;
     branch.lastPromptTokens = 0;
     branch.cacheHeld = false;
     branch.rebuildingCache = true;
@@ -527,8 +543,9 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
 
     if (decision.action !== "KEEP") {
       const beforeTokens = actual.contextTokens;
-      const compactionOutputTokens = Math.round(beforeTokens * scenario.compactor.outputRatio);
-      const afterTokens = Math.round(beforeTokens * scenario.compactor.retentionRatio);
+      const compactorResult = simulatedCompactorOutput(scenario, beforeTokens);
+      const compactionOutputTokens = compactorResult.outputTokens;
+      const afterTokens = compactorResult.afterTokens;
       const success = failureRandom() < scenario.compactor.successRate;
       const attemptCost = costOfUsage(prices, {
         promptTokens: beforeTokens,

@@ -36,6 +36,9 @@ export interface Scenario {
     outputRatio: number;
     /** Probability that a compaction attempt succeeds. */
     successRate: number;
+    /** Actual compactor metadata; never exposed to a policy before observation. */
+    retainedFloorTokens?: number;
+    outputFloorTokens?: number;
   };
 
   /** Expected future calls the host is willing to declare, when it plausibly knows. */

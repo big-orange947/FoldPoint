@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { summarizeFrequency } from "./compaction-frequency";
 import { createRawFixedThresholdStrategy } from "./fixed-threshold";
 import { PRICE_PROFILES, ratioScenarios } from "./provider-ratios";
 import { createFoldPointStrategy, runSession } from "./simulator";
@@ -38,7 +39,10 @@ export function warmCases() {
 export function warmRenewalReport(
   cases = warmCases(),
   profiles = PRICE_PROFILES,
-  experiment?: { durationComponents: import("../src/index").RuntimeDurationModel["components"] },
+  experiment?: {
+    durationComponents: import("../src/index").RuntimeDurationModel["components"];
+    timingMargin?: boolean;
+  },
 ) {
   const rows = profiles.flatMap((profile) =>
     cases.map((base) => {
@@ -54,6 +58,7 @@ export function warmRenewalReport(
           triggered: number;
           forecastSamples?: number;
           brierSum?: number;
+          marginBlocked?: number;
         }
       > = {};
       function audit(name: string) {
@@ -79,6 +84,14 @@ export function warmRenewalReport(
             d.forecastSamples = (d.forecastSamples ?? 0) + 1;
             const actual = d.decisions < base.steps ? 1 : 0;
             d.brierSum = (d.brierSum ?? 0) + (e.continuationProbabilityNext - actual) ** 2;
+            if (
+              experiment.timingMargin &&
+              e.eligible &&
+              e.expectedSaving > 0 &&
+              e.stressedSaving > 0 &&
+              (e.expectedSaving <= e.requiredSaving || e.stressedSaving <= e.requiredSaving)
+            )
+              d.marginBlocked = (d.marginBlocked ?? 0) + 1;
           }
           diagnostics[name] = d;
         };
@@ -150,12 +163,40 @@ export function warmRenewalReport(
                   durationModel: { completedCalls: 0, components: experiment.durationComponents },
                 },
               }),
+              ...(experiment.timingMargin
+                ? {
+                    durationTiming: createFoldPointStrategy(scenario, {
+                      ...common,
+                      onSurvivalEstimate: audit("durationTiming"),
+                      runtimeSurvival: {
+                        ...common.runtimeSurvival,
+                        maxCalls: 256,
+                        rolloutMode: "renewal" as const,
+                        endingRiskMode: "survival-weighted" as const,
+                        endingLossBudgetRatio: 1,
+                        savingMarginBasis: "timing" as const,
+                        durationModel: {
+                          completedCalls: 0,
+                          components: experiment.durationComponents,
+                        },
+                      },
+                    }),
+                  }
+                : {}),
             }
           : {}),
       };
+      const selectedStrategies = Object.entries(strategies).filter(
+        ([name]) =>
+          !experiment?.timingMargin ||
+          ["fixed50", "fixed60", "fixed70", "durationMixture", "durationTiming"].includes(name),
+      );
       const arms = Object.fromEntries(
-        Object.entries(strategies).map(([arm, strategy]) => {
+        selectedStrategies.map(([arm, strategy]) => {
           const run = runSession(scenario, strategy);
+          const breakdown = experiment?.timingMargin
+            ? summarizeFrequency(scenario, run)
+            : undefined;
           return [
             arm,
             {
@@ -167,6 +208,18 @@ export function warmRenewalReport(
               forced: run.metrics.forcedAttemptCount,
               summaryCost: run.compactions.reduce((a, c) => a + c.attemptCost, 0),
               compactionSteps: run.compactions.map((c) => c.step),
+              ...(breakdown
+                ? {
+                    costBreakdown: {
+                      summaryCost: breakdown.summaryCost,
+                      firstPostCompactInputCost: breakdown.firstPostCompactInputCost,
+                      otherOrdinaryInputCost: breakdown.otherOrdinaryInputCost,
+                      ordinaryOutputCost: breakdown.ordinaryOutputCost,
+                      minimumGap: breakdown.minimumGap,
+                      adjacentSuccessfulPairs: breakdown.adjacentSuccessfulPairs,
+                    },
+                  }
+                : {}),
             },
           ];
         }),
@@ -204,48 +257,53 @@ export function warmRenewalReport(
       return [p.id, choices[0]?.name ?? "fixed60"];
     }),
   );
-  const summary = profiles.flatMap((p) =>
-    ["dev-warm", "dev-warm-long", "heldout-warm", "near-end", "cold-regression"].flatMap((suite) =>
-      [
-        "renewalStrict",
-        "renewalWeighted",
-        ...(experiment ? ["geometric256", "durationMixture"] : []),
-      ].flatMap((candidate) =>
-        ["fixed60", "frozenFixed", "legacy"].map((baseline) => {
-          const selected = rows.filter(
-            (r) =>
-              r.profile === p.id &&
-              (suite === "dev-warm-long"
-                ? r.suite === "dev-warm" && r.calls === 140
-                : r.suite === suite),
-          );
-          const comparator =
-            baseline === "frozenFixed" ? (frozenFixed[p.id] ?? "fixed60") : baseline;
-          const compared = selected.filter(
-            (r) => arm(r, candidate).attempts > 0 || arm(r, comparator).attempts > 0,
-          );
-          const ds = compared.map((r) => arm(r, candidate).cost / arm(r, comparator).cost - 1);
-          return {
-            profile: p.id,
-            suite,
-            candidate,
-            baseline,
-            comparator,
-            cases: selected.length,
-            compared: compared.length,
-            excluded: selected.length - compared.length,
-            wins: ds.filter((d) => d < -1e-9).length,
-            losses: ds.filter((d) => d > 1e-9).length,
-            ties: ds.filter((d) => Math.abs(d) <= 1e-9).length,
-            mean: ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null,
-            worst: ds.length ? Math.max(...ds) : null,
-            attempts: selected.reduce((a, r) => a + arm(r, candidate).attempts, 0),
-            overflow: selected.reduce((a, r) => a + arm(r, candidate).overflow, 0),
-          };
-        }),
-      ),
-    ),
-  );
+  const summary = experiment?.timingMargin
+    ? []
+    : profiles.flatMap((p) =>
+        ["dev-warm", "dev-warm-long", "heldout-warm", "near-end", "cold-regression"].flatMap(
+          (suite) =>
+            [
+              "renewalStrict",
+              "renewalWeighted",
+              ...(experiment ? ["geometric256", "durationMixture"] : []),
+            ].flatMap((candidate) =>
+              ["fixed60", "frozenFixed", "legacy"].map((baseline) => {
+                const selected = rows.filter(
+                  (r) =>
+                    r.profile === p.id &&
+                    (suite === "dev-warm-long"
+                      ? r.suite === "dev-warm" && r.calls === 140
+                      : r.suite === suite),
+                );
+                const comparator =
+                  baseline === "frozenFixed" ? (frozenFixed[p.id] ?? "fixed60") : baseline;
+                const compared = selected.filter(
+                  (r) => arm(r, candidate).attempts > 0 || arm(r, comparator).attempts > 0,
+                );
+                const ds = compared.map(
+                  (r) => arm(r, candidate).cost / arm(r, comparator).cost - 1,
+                );
+                return {
+                  profile: p.id,
+                  suite,
+                  candidate,
+                  baseline,
+                  comparator,
+                  cases: selected.length,
+                  compared: compared.length,
+                  excluded: selected.length - compared.length,
+                  wins: ds.filter((d) => d < -1e-9).length,
+                  losses: ds.filter((d) => d > 1e-9).length,
+                  ties: ds.filter((d) => Math.abs(d) <= 1e-9).length,
+                  mean: ds.length ? ds.reduce((a, b) => a + b, 0) / ds.length : null,
+                  worst: ds.length ? Math.max(...ds) : null,
+                  attempts: selected.reduce((a, r) => a + arm(r, candidate).attempts, 0),
+                  overflow: selected.reduce((a, r) => a + arm(r, candidate).overflow, 0),
+                };
+              }),
+            ),
+        ),
+      );
   return {
     kind: "foldpoint.warm-renewal.v1",
     paidCalls: 0,
