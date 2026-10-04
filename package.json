@@ -50,6 +50,7 @@
     "test:watch": "vitest",
     "benchmark": "tsx benchmarks/simulator.ts",
     "simulate:1m": "tsx benchmarks/million-simulation.ts",
+    "simulate:runtime": "tsx benchmarks/runtime-survival.ts",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
     "trace:shadow": "tsx tools/pi-policy-shadow.ts",

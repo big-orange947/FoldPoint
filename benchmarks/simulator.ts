@@ -10,6 +10,7 @@ import {
   DEFAULTS,
   decideFoldPoint,
   estimateCacheModel,
+  estimateRuntimeSurvival,
   FoldPoint,
   type FoldPointInput,
   type FoldPointProfile,
@@ -166,6 +167,8 @@ export function createFoldPointStrategy(
     uncappedHostHorizon?: boolean;
     /** Pi does not know the next provider cache hit count before making a request. */
     omitRequestCacheEvidence?: boolean;
+    /** Explicit experimental opt-in; no scenario horizon or endpoint is exposed. */
+    runtimeSurvival?: import("../src/index").RuntimeSurvivalOptions;
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
@@ -205,10 +208,18 @@ export function createFoldPointStrategy(
       }
 
       const decision = foldPoint.decide(input);
+      const experiment = options.runtimeSurvival
+        ? estimateRuntimeSurvival(input, decision, options.runtimeSurvival)
+        : undefined;
       return {
-        action: decision.action,
-        reasons: decision.reasons,
-        estimatedBreakEvenCalls: decision.metrics.breakEvenCalls,
+        action:
+          experiment && decision.action !== "FORCE"
+            ? experiment.shouldCompact
+              ? "COMPACT"
+              : "KEEP"
+            : decision.action,
+        reasons: experiment?.shouldCompact ? ["ECONOMIC_TRIGGER"] : decision.reasons,
+        estimatedBreakEvenCalls: experiment ? null : decision.metrics.breakEvenCalls,
       };
     },
     onCompaction(event: CompactionEvent) {

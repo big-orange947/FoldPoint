@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Experimental runtime survival policy (opt-in only)
+
+- Add a pure geometric-survival cost evaluator and an explicit-prior transition learner.
+  Unknown future commands are not financed; censored runtimes contribute no invented ending.
+- Price independent NOW/WAIT paths including future growth, summary/rebuild costs and repeated
+  safety compactions. Check stressed saving, immediate-ending loss and bounded-horizon tail.
+  Core defaults, state serialization, existing Pi behavior and paid reports are unchanged.
+- Add `simulate:runtime`: retain all 324 1M sensitivity cases plus 27 near-ending cases.
+  Expose cost losses, churn, early compaction, counterfactual non-payback and absent quality
+  measurement. Priors are uncalibrated sensitivity values, not a selected production default.
+
 ### Zero-paid 1M sensitivity simulation
 
 - Add `simulate:1m`: 324 hypothetical scenarios, native timing/fixed60/safety70/FoldPoint
