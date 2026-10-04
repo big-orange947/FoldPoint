@@ -78,6 +78,31 @@ contract (or a separately reviewed final-request observer) before the cache-awar
 can be treated as a real Pi capability. Fake-host tests establish wiring and invalidation,
 not provider savings, task quality, or verified real-Pi prefix continuity.
 
+#### Reproducible zero-paid transform audit
+
+```powershell
+npm run audit:pi-prefix -- D:/pi
+```
+
+`tools/pi-prefix-audit.mjs` loads the real local `ExtensionRunner` with synthetic messages
+and an in-memory model registry; it blocks fetch/HTTP/HTTPS and removes API credentials from
+the child process environment. It does not edit Pi, contact a model, or write message content.
+The output identifies the checked Pi commit, tracked-dirty flag and runner source SHA-256;
+scenario results contain only identifiers/booleans, not request content.
+
+On local commit `d201760ffee16564aa8d9a759e0c85b70db33674`, all 8 checks passed: unchanged
+append, later conversation rewrite, system rewrite, tool rewrite, payload replacement, model
+change, truncation and summary replacement. Five constructed cases looked append-only to the
+early conversation observer but failed the final synthetic-request comparison. These are
+deliberately constructed counterexamples, **not a measured 5/8 failure rate in real traffic**.
+
+The test executes real Pi extension dispatch, but its final payload serialization is synthetic.
+It does not exercise a real provider serializer, provider cache matching, generated compaction
+quality or economic outcomes. Hashing synthetic messages is confined to this audit; the default
+adapter still does not read request content. The regression test skips when no local Pi source
+is available; set `FOLDPOINT_PI_ROOT` to override `D:/pi` in tests. No token-prefix count is
+inferred from these booleans, and there is no automatic production switch following this audit.
+
 ### 1.1 Smoke test without a model call
 
 Two levels, cheapest first.

@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Zero-paid real Pi prefix transform audit
+
+- Add `audit:pi-prefix`: execute the local Pi ExtensionRunner against eight synthetic
+  continuity/rewriting cases with fetch/HTTP/HTTPS forbidden and no provider calls.
+- Show constructed early-observer false positives after later context/system/tool/payload
+  changes and model switches; output metadata only and bind the result to the Pi commit.
+- Add an optional local-source regression test. Explicitly exclude real provider serialization,
+  actual cache hits and task quality; keep production defaults and paid reports unchanged.
+
 ### Pi authoritative prefix metadata bridge
 
 - Adapter 0.3.2 adds an optional synchronous `getReusablePrefixTokens` host assertion, in Pi's
