@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Warm-cache renewal research (no demonstrated improvement)
+
+- Add opt-in repeated-boundary rollout and an explicitly budgeted survival-weighted
+  immediate-ending risk contract. Keep existing worst-case defaults and cumulative ledger.
+- Add metadata-only survival diagnostics and a warm-cache-first benchmark with frozen
+  development-selected fixed thresholds, new combinations, near endings and cold regressions.
+- Preserve negative results: q95 warm long-run outcomes did not improve; most new price
+  configurations lose to the frozen fixed comparator. No paid calls or default Pi changes.
+
 ### Cross-provider price-ratio sensitivity
 
 - Add `simulate:prices`: eight official price snapshots across three providers, 117 common

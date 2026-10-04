@@ -23,6 +23,72 @@ const input: FoldPointInput = {
 const options = { continuationProbability: 0.9, maxImmediateLossRatio: 3, maxCalls: 8 };
 
 describe("experimental geometric runtime survival", () => {
+  it("renewal is bounded and preserves one-request billing with no future knowledge", () => {
+    const baseline = decideFoldPoint(input);
+    const old = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      continuationProbability: 0,
+    });
+    const next = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      continuationProbability: 0,
+      rolloutMode: "renewal",
+    });
+    expect(next.rolloutCandidates).toBe(16);
+    expect(next.compactNowCost).toBe(old.compactNowCost);
+    expect(next.bestWaitCost).toBe(old.bestWaitCost);
+    expect(next.selectedRepeatBoundaryTokens).toBeLessThanOrEqual(
+      baseline.metrics.guardedForceBoundaryTokens,
+    );
+    expect(next.expectedSaving).toBe(next.bestWaitCost - next.compactNowCost);
+  });
+  it("requires explicit weighted-risk allowance and exposes the changed contract", () => {
+    const baseline = decideFoldPoint(input);
+    expect(() =>
+      estimateRuntimeSurvival(input, baseline, { ...options, endingRiskMode: "survival-weighted" }),
+    ).toThrow(RangeError);
+    const weighted = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      endingRiskMode: "survival-weighted",
+      endingLossBudgetRatio: 1,
+    });
+    expect(weighted.assessedEndingLoss).toBeCloseTo(
+      Math.max(0.1 * weighted.immediateLoss, 0.15 * weighted.stressedImmediateLoss),
+    );
+    const ended = estimateRuntimeSurvival(input, baseline, {
+      ...options,
+      continuationProbability: 0,
+      endingRiskMode: "survival-weighted",
+      endingLossBudgetRatio: 1,
+    });
+    expect(ended.assessedEndingLoss).toBe(
+      Math.max(ended.immediateLoss, ended.stressedImmediateLoss),
+    );
+    for (const endingLossBudgetRatio of [-1, 1.1, NaN])
+      expect(() =>
+        estimateRuntimeSurvival(input, baseline, {
+          ...options,
+          endingRiskMode: "survival-weighted",
+          endingLossBudgetRatio,
+        }),
+      ).toThrow(RangeError);
+  });
+  it("weighted renewal does not bypass cumulative risk or unsafe eligibility", () => {
+    const extra = {
+      ...options,
+      rolloutMode: "renewal" as const,
+      endingRiskMode: "survival-weighted" as const,
+      endingLossBudgetRatio: 1,
+    };
+    const result = estimateRuntimeSurvival(input, decideFoldPoint(input), {
+      ...extra,
+      remainingRuntimeLossBudget: 0,
+    });
+    expect(result.runtimeRiskAllowed).toBe(false);
+    expect(result.shouldCompact).toBe(false);
+    const unsafe = { ...input, safeBoundary: false };
+    expect(estimateRuntimeSurvival(unsafe, decideFoldPoint(unsafe), extra).eligible).toBe(false);
+  });
   it("at q=0 compares exactly one request, including summary and rebuild", () => {
     const baseline = decideFoldPoint(input);
     const result = estimateRuntimeSurvival(input, baseline, {

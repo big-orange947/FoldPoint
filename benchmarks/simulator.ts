@@ -175,6 +175,7 @@ export function createFoldPointStrategy(
     onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
     /** Audit-only simulated pre-decision replay price; no oracle result reaches the policy. */
     onReplayCalibration?: (estimatedReplay: number, actualReplay: number) => void;
+    onSurvivalEstimate?: (estimate: import("../src/index").RuntimeSurvivalEstimate) => void;
     /** The simulator's documented append-only host contract, NOT actual cache hit counts. */
     verifiedAppendOnlyPrefix?: boolean;
   } = {},
@@ -253,6 +254,7 @@ export function createFoldPointStrategy(
       pendingRisk = experiment?.shouldCompact
         ? Math.max(experiment.immediateLoss, experiment.stressedImmediateLoss)
         : 0;
+      if (experiment) options.onSurvivalEstimate?.(experiment);
       return {
         action:
           experiment && decision.action !== "FORCE"
