@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Compaction-frequency and cost-attribution audit
+
+- Add `simulate:frequency`: retain all 351 synthetic 1M cases for fixed60, cache-aware survival
+  without a cumulative gate and the same survival policy with cumulative risk ratio 1.
+- Attribute all summary attempts, first post-compaction ordinary input, other ordinary input
+  and ordinary output without double billing. First post-compaction input is not an incremental
+  cache-rebuild penalty. Record gaps, adjacent pairs and endpoint audit metadata separately.
+- Preserve existing strategies and costs exactly; add hand-priced reconciliation and report
+  synchronization tests. No production policy changes, paid calls or task-quality claims.
+
 ### Zero-paid real Pi prefix transform audit
 
 - Add `audit:pi-prefix`: execute the local Pi ExtensionRunner against eight synthetic

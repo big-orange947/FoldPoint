@@ -300,6 +300,12 @@ withdrawn claims.
 
 ## Conclusion discipline
 
+The separate [compaction-frequency audit](compaction-frequency.md) decomposes the experimental
+1M survival screen without changing policies: `npm run simulate:frequency`. Its first
+post-compaction input cost is part of the ordinary input bill, not an added penalty. All
+351 cases remain in JSON, including near-ending runs. Synthetic frequency/cost results do not
+establish task quality or population-wide savings; original benchmark/paid reports are intact.
+
 These results may be described as **a reproducible cost comparison over synthetic scenarios**.
 11 of 28 judged compactions did not repay themselves *within these scenarios and their
 settlement intervals*; the costs, counts and overflows reproduce exactly from the committed
