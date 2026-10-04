@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Native Pi summary-chain retention pilot
+
+- Add a 60-stage synthetic ledger, frozen 3/7-summary exposure schedules, full-history
+  reference and exact current-state probes. Load native Pi initial/update summary functions;
+  dry-run fake responses are explicitly unmeasured, not passes.
+- Require explicit live mode, fresh output directory, call/input/time budgets and usage-first
+  accounting for rejected summaries. Reject stripped/unknown CLI options and retain failures.
+- A 2048-token pilot made 13 HTTP attempts across two reports; the fixed chain's third summary
+  hit the output cap. First run had one unaccounted failure; preserve that limitation. No
+  complete experimental-arm quality result or real savings claim.
+- Correct the next protocol to the common native 13,107 output cap, without rerunning paid calls
+  or combining budgets. Document local-price estimates and absent full agent task validation.
+
 ### Compaction-frequency and cost-attribution audit
 
 - Add `simulate:frequency`: retain all 351 synthetic 1M cases for fixed60, cache-aware survival

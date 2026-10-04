@@ -53,6 +53,7 @@
     "simulate:runtime": "tsx benchmarks/runtime-survival.ts",
     "simulate:frequency": "tsx benchmarks/compaction-frequency.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
+    "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
     "trace:shadow": "tsx tools/pi-policy-shadow.ts",
