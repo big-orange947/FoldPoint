@@ -6,6 +6,12 @@ import {
   predictCompactorTokens,
 } from "../src/experimental-compactor";
 import {
+  postCompactBill,
+  summaryBill,
+  summaryUsageBill,
+  validateCycleBilling,
+} from "../src/experimental-cycle";
+import {
   computeBreakEvenCalls,
   costOfCall,
   costOfUsage,
@@ -173,6 +179,8 @@ export interface SessionRun {
   metrics: SessionMetrics;
   latencies: number[];
   compactions: CompactionRecord[];
+  /** Only emitted for explicit cycleBilling experiments, preserving historical shapes. */
+  extraRequests?: { prewarmCount: number; prewarmCost: number };
 }
 
 export interface CompactorPredictionAudit {
@@ -215,6 +223,13 @@ export function createFoldPointStrategy(
     verifiedAppendOnlyPrefix?: boolean;
   } = {},
 ): Strategy {
+  const declaredBilling = options.runtimeSurvival?.cycleBilling;
+  if (
+    declaredBilling &&
+    (declaredBilling.summarySharedPrefixRatio !== scenario.cycleBilling?.summarySharedPrefixRatio ||
+      declaredBilling.prewarmOutputTokens !== scenario.cycleBilling?.prewarmOutputTokens)
+  )
+    throw new RangeError("forecast and simulator billing contracts must match");
   const foldPoint = new FoldPoint({ defaults: options.defaults });
   if (options.compactorHistory && !options.learnedCompactorTokens)
     throw new RangeError("compactor history requires learnedCompactorTokens");
@@ -297,8 +312,17 @@ export function createFoldPointStrategy(
         predictedAfter: predicted?.afterTokens ?? decision.metrics.estimatedPostCompactTokens,
         predictedCost:
           tokenModel && predicted
-            ? input.contextTokens * tokenModel.summaryInputCostPerToken +
-              predicted.outputTokens * resolveUnitPrices(profile.pricing).outputPerToken
+            ? options.runtimeSurvival?.cycleBilling
+              ? summaryBill(
+                  resolveUnitPrices(profile.pricing),
+                  tokenModel,
+                  input.contextTokens,
+                  lastSentPrefix,
+                  decision.metrics.estimatedCacheAliveProbability,
+                  options.runtimeSurvival.cycleBilling,
+                )
+              : input.contextTokens * tokenModel.summaryInputCostPerToken +
+                predicted.outputTokens * resolveUnitPrices(profile.pricing).outputPerToken
             : decision.metrics.estimatedCompactCallCost,
       };
       const calibrationPrices = resolveUnitPrices(profile.pricing);
@@ -385,6 +409,7 @@ export function createFoldPointStrategy(
           afterTokens: event.afterTokens,
           outputTokens: event.outputTokens,
           summaryInputCostPerToken:
+            event.summaryInputCostPerToken ??
             Math.max(
               0,
               event.cost - event.outputTokens * resolveUnitPrices(profile.pricing).outputPerToken,
@@ -504,6 +529,10 @@ function afterCall(branch: BranchState, chargedPrompt: number, timestamp: number
  * `benchmarks/README.md`).
  */
 export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
+  if (scenario.cycleBilling) validateCycleBilling(scenario.cycleBilling);
+  const billing = scenario.cycleBilling;
+  let prewarmCount = 0;
+  let prewarmCost = 0;
   const growthSequence = buildGrowthSequence(scenario);
   const failureRandom = createFailureRng(scenario.seed);
   const prices: UnitPrices = resolveUnitPrices(scenario.pricing);
@@ -641,10 +670,19 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
       const compactionOutputTokens = compactorResult.outputTokens;
       const afterTokens = compactorResult.afterTokens;
       const success = failureRandom() < scenario.compactor.successRate;
-      const attemptCost = costOfUsage(prices, {
-        promptTokens: beforeTokens,
-        outputTokens: compactionOutputTokens,
-      });
+      const attemptCost = billing
+        ? summaryUsageBill(
+            prices,
+            beforeTokens,
+            compactionOutputTokens,
+            actualCache.cachedTokens,
+            actualCache.cachedTokens > 0 ? 1 : 0,
+            billing,
+          )
+        : costOfUsage(prices, {
+            promptTokens: beforeTokens,
+            outputTokens: compactionOutputTokens,
+          });
 
       totalSimulatedCost += attemptCost;
       compactionAttemptCount += 1;
@@ -693,12 +731,21 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         },
         0,
       );
-      const firstPostCompactReplayCost = costOfCall(
-        prices,
-        afterTokens,
-        { prefixTokens: afterTokens, aliveProbability: 0, cachingInPlay: cacheModel.cachingInPlay },
-        0,
-      );
+      const firstPostCompactReplayCost = billing
+        ? (() => {
+            const b = postCompactBill(prices, afterTokens, cacheModel.cachingInPlay, billing);
+            return b.prewarm + b.ordinary;
+          })()
+        : costOfCall(
+            prices,
+            afterTokens,
+            {
+              prefixTokens: afterTokens,
+              aliveProbability: 0,
+              cachingInPlay: cacheModel.cachingInPlay,
+            },
+            0,
+          );
       const laterPostCompactReplayCost = costOfCall(
         prices,
         afterTokens,
@@ -733,6 +780,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
         outputTokens: compactionOutputTokens,
         action: decision.action,
         cost: attemptCost,
+        ...(billing ? { summaryInputCostPerToken: prices.inputPerToken } : {}),
         breakEvenCalls: staticBreakEvenCalls,
         success,
       });
@@ -795,6 +843,24 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
           shadow: forced ? null : { ...preCompactionState, cumulativeCost: 0, overflowed: false },
           actualCallCost: 0,
         };
+        if (billing?.prewarmOutputTokens !== undefined) {
+          const cost = postCompactBill(prices, afterTokens, cachingInPlay, billing).prewarm;
+          prewarmCount++;
+          prewarmCost += cost;
+          totalSimulatedCost += cost;
+          open.actualCallCost += cost;
+          strategy.onPrewarm?.({
+            step,
+            timestamp,
+            promptTokens: afterTokens,
+            cachedInputTokens: 0,
+            outputTokens: billing.prewarmOutputTokens,
+            cost,
+          });
+          afterCall(actual, afterTokens, timestamp);
+          callCachedTokens = afterTokens;
+          callRebuildsCache = false;
+        }
       }
     }
 
@@ -910,6 +976,7 @@ export function runSession(scenario: Scenario, strategy: Strategy): SessionRun {
     },
     latencies,
     compactions,
+    ...(billing ? { extraRequests: { prewarmCount, prewarmCost } } : {}),
   };
 }
 

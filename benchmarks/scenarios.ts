@@ -9,6 +9,8 @@ import type { CachePolicy, PricingSnapshot } from "../src/index";
  * `recordCompaction`.
  */
 export interface Scenario {
+  /** Explicit synthetic provider contract; defaults preserve historical reports. */
+  cycleBilling?: import("../src/experimental-cycle").CycleBilling;
   id: string;
   name: string;
   title: string;

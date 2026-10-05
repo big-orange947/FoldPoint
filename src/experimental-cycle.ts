@@ -46,8 +46,34 @@ export function summaryBill(
   if (!Number.isFinite(prefix) || prefix < 0 || !Number.isFinite(alive) || alive < 0 || alive > 1)
     throw new RangeError("invalid summary cache state");
   const output = predictCompactorTokens(model, before, stressed).outputTokens;
+  return summaryUsageBill(
+    prices,
+    before,
+    output,
+    prefix,
+    alive,
+    billing,
+    model.summaryInputCostPerToken,
+  );
+}
+
+/** Actual usage and predicted usage share billing, but never share token ground truth. */
+export function summaryUsageBill(
+  prices: UnitPrices,
+  before: number,
+  output: number,
+  prefix: number,
+  alive: number,
+  billing: CycleBilling,
+  inputPerToken = prices.inputPerToken,
+) {
+  validateCycleBilling(billing);
+  for (const value of [before, output, prefix, inputPerToken])
+    if (!Number.isFinite(value) || value < 0) throw new RangeError("invalid summary usage");
+  if (!Number.isFinite(alive) || alive < 0 || alive > 1)
+    throw new RangeError("invalid cache survival");
   return billing.summarySharedPrefixRatio === undefined
-    ? before * model.summaryInputCostPerToken + output * prices.outputPerToken
+    ? before * inputPerToken + output * prices.outputPerToken
     : costOfCall(
         prices,
         before,

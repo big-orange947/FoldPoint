@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Complete warm-task billing and execution diagnostics
+
+- Add explicit synthetic summary cache/prewarm contracts to the complete simulator.
+  Charge failed summaries, successful prefix warm-ups and ordinary requests separately.
+  Prewarm does not advance runtime duration or ordinary growth observations.
+- Keep undiscounted summary tariffs separate from actual cache-discounted usage;
+  otherwise observed fees divided by tokens would be discounted twice on prediction.
+- Compare actual receding decisions with fixed 60% on 96 seen warm 180-call cases.
+  Preserve losses, full bill reconciliation and continuous-wait witnesses. A hypothetical
+  repeat boundary is not an execution promise; no default core/Pi policy change.
+
 ### Explicit summary cache and prewarm billing diagnostics
 
 - Add opt-in `cycleBilling` for experimental runtime forecasts. Summary cache sharing

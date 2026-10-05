@@ -27,6 +27,8 @@ export interface CompactionEvent {
   action: FoldPointAction;
   /** Ground-truth cost of the compaction attempt. */
   cost: number;
+  /** Undiscounted summary input tariff, not discounted usage / prompt tokens. */
+  summaryInputCostPerToken?: number;
   /** Ground-truth break-even of this attempt, when it has a positive per-call saving. */
   breakEvenCalls: number | null;
   success: boolean;
@@ -49,6 +51,8 @@ export interface Strategy {
   decide(request: DecisionRequest): StrategyDecision;
   onCompaction?(event: CompactionEvent): void;
   onRequest?(event: RequestEvent): void;
+  /** Separate request: does not count as ordinary work or advance runtime duration. */
+  onPrewarm?(event: RequestEvent): void;
   onSessionEnd?(timestamp: number): void;
 }
 
