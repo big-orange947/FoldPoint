@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ExperimentalCompactorLearner } from "../src/experimental-compactor";
 import {
   computeBreakEvenCalls,
   costOfCall,
@@ -187,6 +188,7 @@ export function createFoldPointStrategy(
     runtimeSurvival?: import("../src/index").RuntimeSurvivalOptions;
     /** Duration ablation only: false keeps the caller's declared age fixed. */
     advanceDurationAge?: boolean;
+    learnedCompactorTokens?: boolean;
     /** Fixed at the first request's estimated replay cost, not accumulated past spending. */
     runtimeRiskBudgetRatio?: number;
     onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
@@ -198,6 +200,9 @@ export function createFoldPointStrategy(
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
+  const compactorLearner = options.learnedCompactorTokens
+    ? new ExperimentalCompactorLearner()
+    : undefined;
   let risk: RuntimeRiskBudget | undefined;
   let pendingRisk = 0;
   let lastSentPrefix = 0;
@@ -266,6 +271,9 @@ export function createFoldPointStrategy(
       const experiment = options.runtimeSurvival
         ? estimateRuntimeSurvival(input, decision, {
             ...options.runtimeSurvival,
+            ...(compactorLearner?.snapshot()
+              ? { compactorTokenModel: compactorLearner.snapshot() }
+              : {}),
             ...(options.runtimeSurvival.durationModel
               ? {
                   durationModel: {
@@ -296,6 +304,17 @@ export function createFoldPointStrategy(
       };
     },
     onCompaction(event: CompactionEvent) {
+      if (event.success)
+        compactorLearner?.observe({
+          beforeTokens: event.beforeTokens,
+          afterTokens: event.afterTokens,
+          outputTokens: event.outputTokens,
+          summaryInputCostPerToken:
+            Math.max(
+              0,
+              event.cost - event.outputTokens * resolveUnitPrices(profile.pricing).outputPerToken,
+            ) / event.beforeTokens,
+        });
       if (event.success) lastSentPrefix = 0;
       if (risk && event.action === "COMPACT") {
         risk.charge(event.success ? pendingRisk : event.cost);

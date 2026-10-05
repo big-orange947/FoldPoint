@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Observed compactor fixed-term research and fixed-60 comparator
+
+- Add an opt-in bounded, metadata-only nonnegative affine token learner. Require three
+  successful observations and input-size diversity; learn retention and output separately.
+  Repeat summaries now predict a fixed term rather than scaling all costs and tokens by size.
+- Run 24 warm-cache scenarios under eight frozen price configurations, with fixed 60%
+  as the sole primary comparator. Keep ratio-policy bills and all losing cases.
+- Fixed-term learning reduces excessive summary counts and some worst losses, but often
+  sacrifices average savings. No default/Pi policy switch, paid calls or quality claim.
+
 ### Differential timing margin and fixed-floor stress screen
 
 - Add opt-in timing margin basis, retaining the 10% ratio and complete NOW/WAIT bills.

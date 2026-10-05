@@ -1,5 +1,6 @@
 /** Opt-in research policy. Not wired into FoldPoint.decide or the Pi adapter. */
 import { isCachingInPlay } from "./cache";
+import { type CompactorTokenModel, predictCompactorTokens } from "./experimental-compactor";
 import { costOfCall, resolveUnitPrices } from "./pricing";
 import type { FoldPointDecision, FoldPointInput } from "./types";
 
@@ -95,6 +96,8 @@ export interface RuntimeSurvivalOptions {
   durationModel?: RuntimeDurationModel;
   /** Opt-in differential timing margin; requires renewal and the wait-one alternative. */
   savingMarginBasis?: "summary" | "timing";
+  /** Past successful observations only; never supply fixture truth or future summaries. */
+  compactorTokenModel?: CompactorTokenModel;
 }
 
 export interface RuntimeSurvivalEstimate {
@@ -265,6 +268,30 @@ export function estimateRuntimeSurvival(
   const coverage = original > 0 ? m.estimatedCacheLaterCandidateTokens / original : 0;
   const growth = m.estimatedGrowthTokensPerCall;
   const summaryPerToken = original > 0 ? m.estimatedCompactCallCost / original : 0;
+  const tokenModel = options.compactorTokenModel;
+  if (tokenModel) {
+    bounded("summary input price", tokenModel.summaryInputCostPerToken, Number.MAX_VALUE);
+    for (const c of [tokenModel.after, tokenModel.output])
+      for (const v of [c.slope, c.intercept, c.residual])
+        bounded("compactor coefficient", v, Number.MAX_VALUE);
+  }
+  // Independently observed input billing, not the old ratio's output fee subtracted twice.
+  const summaryInputPerToken = tokenModel ? tokenModel.summaryInputCostPerToken : summaryPerToken;
+  function summaryCost(context: number, stressed = false) {
+    return tokenModel
+      ? context * summaryInputPerToken +
+          predictCompactorTokens(tokenModel, context, stressed).outputTokens * prices.outputPerToken
+      : context * summaryPerToken;
+  }
+  function postTokens(context: number, keptRatio: number) {
+    if (!tokenModel) return context * keptRatio;
+    const stressed = keptRatio > retention;
+    return Math.min(
+      context,
+      predictCompactorTokens(tokenModel, context, stressed).afterTokens +
+        (stressed ? context * retentionStress : 0),
+    );
+  }
   const cachingInPlay = isCachingInPlay(
     {
       cachePolicy: input.profile.cachePolicy,
@@ -305,9 +332,8 @@ export function estimateRuntimeSurvival(
         });
         const loss = Math.max(
           0,
-          context * summaryPerToken +
-            context *
-              keptRatio *
+          summaryCost(context, keptRatio > retention) +
+            postTokens(context, keptRatio) *
               (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken) -
             keepReplay,
         );
@@ -327,8 +353,8 @@ export function estimateRuntimeSurvival(
       }
       if (force && reachForce === 0) reachForce = survival;
       if (compact) {
-        cost += survival * context * summaryPerToken;
-        context *= keptRatio;
+        cost += survival * summaryCost(context, keptRatio > retention);
+        context = postTokens(context, keptRatio);
         prefix = 0;
       }
       const replay = compact
@@ -371,7 +397,7 @@ export function estimateRuntimeSurvival(
     // Sixteen bounded boundaries span the estimated post-compaction state to safety.
     const floor = Math.min(
       m.guardedForceBoundaryTokens,
-      m.guardedForceBoundaryTokens * stressRetention + Math.max(growth, 1),
+      postTokens(m.guardedForceBoundaryTokens, stressRetention) + Math.max(growth, 1),
     );
     const boundaries = Array.from(
       { length: 16 },
@@ -405,8 +431,11 @@ export function estimateRuntimeSurvival(
   }
   const immediateLoss = Math.max(
     0,
-    m.estimatedCompactCallCost +
-      m.estimatedFirstPostCompactReplayCost -
+    summaryCost(original) +
+      (tokenModel
+        ? postTokens(original, retention) *
+          (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken)
+        : m.estimatedFirstPostCompactReplayCost) -
       m.estimatedCurrentCallReplayCost,
   );
   const immediateLossBudget =
@@ -415,9 +444,8 @@ export function estimateRuntimeSurvival(
       : lossRatio * m.estimatedCurrentCallReplayCost;
   const stressedImmediateLoss = Math.max(
     0,
-    m.estimatedCompactCallCost +
-      original *
-        stressRetention *
+    summaryCost(original, true) +
+      postTokens(original, stressRetention) *
         (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken) -
       m.estimatedCurrentCallReplayCost,
   );

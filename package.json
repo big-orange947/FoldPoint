@@ -56,6 +56,7 @@
     "simulate:warm": "tsx benchmarks/warm-renewal.ts",
     "simulate:duration": "tsx benchmarks/duration-mixture.ts",
     "simulate:timing": "tsx benchmarks/timing-margin.ts",
+    "simulate:compactor": "tsx benchmarks/compactor-model.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
