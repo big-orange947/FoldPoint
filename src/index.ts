@@ -37,6 +37,7 @@ export {
 } from "./experimental-cycle";
 export type {
   RuntimeDurationModel,
+  RuntimeForecastBill,
   RuntimeSurvivalEstimate,
   RuntimeSurvivalOptions,
 } from "./experimental-runtime";

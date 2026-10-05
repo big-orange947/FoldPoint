@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Selected-policy bill explanations and one-time fork diagnostics
+
+- Add opt-in experimental `explainBills`, requiring paired-policy stress. Re-evaluate only
+  the two selected nominal paths and expose ordinary input, summary, independent prewarm,
+  survival weights and request counts; exclude cancelling ordinary outputs. Existing
+  decision fields and default core/Pi timing remain unchanged.
+- Add a post-estimation simulator snapshot hook, not future task information. Select one
+  checkpoint online per case, intervene once, then resume the original controller in both
+  branches. Preserve 28 frozen long-task controls, including one inapplicable intervention.
+- Retain 17 cheaper and 10 dearer conditional full-task forks. Flash's three forks average
+  -0.76%; Opus is two wins/two losses with +0.04%. These are versus the original controller,
+  not fixed 60%, and not a proposed deployment policy or proof of expected-cost calibration.
+- Reconcile full fees, survival-weighted matched prefixes and explicit beyond-horizon fees.
+  Distinguish weighting effects from forecast/execution-path differences. No paid calls,
+  no prior/margin relaxation, no real-provider or task-quality claim.
+
 ### Frozen warm-task length and seed expansion
 
 - Freeze algorithm/parameters at `69d2752`; add a versioned 252-case main factorial

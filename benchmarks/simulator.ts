@@ -219,6 +219,12 @@ export function createFoldPointStrategy(
     /** Audit-only simulated pre-decision replay price; no oracle result reaches the policy. */
     onReplayCalibration?: (estimatedReplay: number, actualReplay: number) => void;
     onSurvivalEstimate?: (estimate: import("../src/index").RuntimeSurvivalEstimate) => void;
+    /** Snapshot emitted AFTER estimation for offline diagnostics; never fed back to policy. */
+    onSurvivalSnapshot?: (snapshot: {
+      input: FoldPointInput;
+      baseline: import("../src/index").FoldPointDecision;
+      options: import("../src/index").RuntimeSurvivalOptions;
+    }) => void;
     /** The simulator's documented append-only host contract, NOT actual cache hit counts. */
     verifiedAppendOnlyPrefix?: boolean;
   } = {},
@@ -347,8 +353,8 @@ export function createFoldPointStrategy(
           options.runtimeRiskBudgetRatio * decision.metrics.estimatedCurrentCallReplayCost,
         );
       }
-      const experiment = options.runtimeSurvival
-        ? estimateRuntimeSurvival(input, decision, {
+      const survivalOptions = options.runtimeSurvival
+        ? {
             ...options.runtimeSurvival,
             ...(tokenModel ? { compactorTokenModel: tokenModel } : {}),
             ...(options.enforceForecastExecutionGates
@@ -376,8 +382,13 @@ export function createFoldPointStrategy(
                 }
               : {}),
             ...(risk ? { remainingRuntimeLossBudget: risk.report().remaining } : {}),
-          })
+          }
         : undefined;
+      const experiment = survivalOptions
+        ? estimateRuntimeSurvival(input, decision, survivalOptions)
+        : undefined;
+      if (survivalOptions && options.onSurvivalSnapshot)
+        options.onSurvivalSnapshot({ input, baseline: decision, options: survivalOptions });
       pendingRisk = experiment?.shouldCompact
         ? Math.max(experiment.immediateLoss, experiment.stressedImmediateLoss)
         : 0;

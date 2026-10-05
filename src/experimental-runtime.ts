@@ -111,6 +111,9 @@ export interface RuntimeSurvivalOptions {
   /** One-step improvement against WAIT's nominally selected common continuation policy.
    * Reuses its repeat boundary on NOW; no recursive future economic-rule equivalence. */
   renewalComparison?: "shared-wait-continuation";
+  /** Audit-only: replay selected nominal policies with component bills and schedules.
+   * Requires paired-policy stress; ordinary output cancels and is not modeled. */
+  explainBills?: boolean;
   /** Extra conservative qualification hypothesis for current and forecast economic attempts.
    * Stops before KEEP's next safety action; NOT necessary for full-task savings or recursive equivalence. */
   forecastPaybackGate?: "single-cycle";
@@ -125,6 +128,7 @@ export interface RuntimeSurvivalOptions {
 }
 
 export interface RuntimeSurvivalEstimate {
+  forecastBills?: { now: RuntimeForecastBill; wait: RuntimeForecastBill };
   commonContinuation?: {
     repeatBoundaryTokens: number;
     waitFirstCompactAt: 1 | null;
@@ -173,6 +177,25 @@ export interface RuntimeSurvivalEstimate {
   savingMarginCostScale: number;
   forecastCooldownBlocks: number;
   forecastReclaimBlocks: number;
+}
+
+export interface RuntimeForecastBill {
+  ordinaryInputCost: number;
+  summaryCost: number;
+  prewarmCost: number;
+  expectedOrdinaryCalls: number;
+  expectedSummaryCalls: number;
+  expectedPrewarmCalls: number;
+  steps: {
+    call: number;
+    survival: number;
+    compact: boolean;
+    beforeTokens: number;
+    afterTokens: number;
+    ordinaryInputCost: number;
+    summaryCost: number;
+    prewarmCost: number;
+  }[];
 }
 
 function bounded(name: string, value: number, max = 1): number {
@@ -266,6 +289,10 @@ export function estimateRuntimeSurvival(
   if (q === 1) throw new RangeError("continuationProbability must be less than 1");
   const lossRatio = bounded("maxImmediateLossRatio", options.maxImmediateLossRatio, 100);
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
+  if (options.explainBills !== undefined && typeof options.explainBills !== "boolean")
+    throw new RangeError("explainBills must be boolean");
+  if (options.explainBills && options.stressWaitSelection !== "paired-policy")
+    throw new RangeError("bill explanation requires paired-policy stress");
   if (options.stressWaitSelection !== undefined && options.stressWaitSelection !== "paired-policy")
     throw new RangeError("invalid stressWaitSelection");
   if (options.renewalComparison !== undefined) {
@@ -490,7 +517,19 @@ export function estimateRuntimeSurvival(
     keptRatio: number,
     repeatBoundary = m.guardedForceBoundaryTokens,
     curve?: readonly number[],
+    explain = false,
   ) {
+    const bill: RuntimeForecastBill | undefined = explain
+      ? {
+          ordinaryInputCost: 0,
+          summaryCost: 0,
+          prewarmCost: 0,
+          expectedOrdinaryCalls: 0,
+          expectedSummaryCalls: 0,
+          expectedPrewarmCalls: 0,
+          steps: [],
+        }
+      : undefined;
     let context = original;
     let prefix = currentPrefix;
     let cost = 0;
@@ -566,15 +605,16 @@ export function estimateRuntimeSurvival(
         else if (!allowed) compact = false;
       }
       if (force && reachForce === 0) reachForce = survival;
+      const beforeTokens = context;
+      let fee = 0;
       if (compact) {
-        cost +=
-          survival *
-          summaryCost(
-            context,
-            keptRatio > retention,
-            first ? currentPrefix : prefix * coverage,
-            first ? m.estimatedCacheAliveProbability : m.estimatedCacheLaterAliveProbability,
-          );
+        fee = summaryCost(
+          context,
+          keptRatio > retention,
+          first ? currentPrefix : prefix * coverage,
+          first ? m.estimatedCacheAliveProbability : m.estimatedCacheLaterAliveProbability,
+        );
+        cost += survival * fee;
         context = postTokens(context, keptRatio);
         prefix = 0;
         hasAttempt = true;
@@ -590,13 +630,37 @@ export function estimateRuntimeSurvival(
               cachingInPlay,
             });
       cost += survival * replay;
+      if (bill) {
+        const post =
+          compact && billing
+            ? postCompactBill(prices, context, cachingInPlay, billing)
+            : { prewarm: 0, ordinary: replay };
+        bill.ordinaryInputCost += survival * post.ordinary;
+        bill.prewarmCost += survival * post.prewarm;
+        bill.summaryCost += survival * fee;
+        bill.expectedOrdinaryCalls += survival;
+        if (compact) {
+          bill.expectedSummaryCalls += survival;
+          if (billing?.prewarmOutputTokens !== undefined) bill.expectedPrewarmCalls += survival;
+        }
+        bill.steps.push({
+          call: i,
+          survival,
+          compact,
+          beforeTokens,
+          afterTokens: context,
+          ordinaryInputCost: post.ordinary,
+          summaryCost: fee,
+          prewarmCost: post.prewarm,
+        });
+      }
       prefix = context;
       context += growth;
       first = false;
       callsSinceAttempt++;
       survival *= probability;
     }
-    return { cost, reachForce, available, cooldownBlocks, reclaimBlocks, paybackBlocks };
+    return { cost, reachForce, available, cooldownBlocks, reclaimBlocks, paybackBlocks, bill };
   }
 
   let now = path(0, q, retention, undefined, nominalCurve);
@@ -749,7 +813,35 @@ export function estimateRuntimeSurvival(
         ? summaryCost(original, false, currentPrefix, m.estimatedCacheAliveProbability)
         : m.estimatedCompactCallCost;
   const requiredSaving = marginRatio * savingMarginCostScale;
+  let forecastBills: RuntimeSurvivalEstimate["forecastBills"];
+  if (options.explainBills) {
+    const explainedNow = path(
+      0,
+      q,
+      retention,
+      selectedRepeatBoundaryTokens ?? undefined,
+      nominalCurve,
+      true,
+    );
+    const explainedWait = path(
+      pairedWait.firstCompactAt,
+      q,
+      retention,
+      pairedWait.repeatBoundaryTokens,
+      nominalCurve,
+      true,
+    );
+    if (
+      !explainedNow.bill ||
+      !explainedWait.bill ||
+      Math.abs(explainedNow.cost - now.cost) > 1e-9 ||
+      Math.abs(explainedWait.cost - bestWaitCost) > 1e-9
+    )
+      throw new Error("selected forecast bills do not reconcile");
+    forecastBills = { now: explainedNow.bill, wait: explainedWait.bill };
+  }
   return {
+    ...(forecastBills ? { forecastBills } : {}),
     ...(commonContinuation ? { commonContinuation } : {}),
     ...(options.forecastPaybackGate
       ? {

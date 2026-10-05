@@ -66,6 +66,7 @@
     "simulate:common-continuation": "tsx benchmarks/common-continuation.ts",
     "simulate:warm-lengths": "tsx benchmarks/warm-length-seed.ts",
     "analyze:warm-lengths": "tsx benchmarks/warm-length-seed.ts --analyze-existing",
+    "simulate:forecast-attribution": "tsx benchmarks/forecast-attribution.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
