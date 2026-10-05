@@ -98,6 +98,14 @@ export interface RuntimeSurvivalOptions {
   savingMarginBasis?: "summary" | "timing";
   /** Past successful observations only; never supply fixture truth or future summaries. */
   compactorTokenModel?: CompactorTokenModel;
+  /** Opt-in host execution gates; values must match the host, not fixture targets. */
+  executionConstraints?: {
+    hasAttempt: boolean;
+    minCallsBetweenCompactions: number;
+    minReclaimTokens: number;
+    minReclaimRatio: number;
+    softWindowTokens: number;
+  };
 }
 
 export interface RuntimeSurvivalEstimate {
@@ -125,6 +133,8 @@ export interface RuntimeSurvivalEstimate {
   expectedCallsIncludingCurrent: number;
   requiredSaving: number;
   savingMarginCostScale: number;
+  forecastCooldownBlocks: number;
+  forecastReclaimBlocks: number;
 }
 
 function bounded(name: string, value: number, max = 1): number {
@@ -269,6 +279,18 @@ export function estimateRuntimeSurvival(
   const growth = m.estimatedGrowthTokensPerCall;
   const summaryPerToken = original > 0 ? m.estimatedCompactCallCost / original : 0;
   const tokenModel = options.compactorTokenModel;
+  const constraints = options.executionConstraints;
+  if (constraints) {
+    if (typeof constraints.hasAttempt !== "boolean")
+      throw new RangeError("hasAttempt must be boolean");
+    for (const v of [
+      constraints.minCallsBetweenCompactions,
+      constraints.minReclaimTokens,
+      constraints.softWindowTokens,
+    ])
+      if (!Number.isSafeInteger(v) || v < 0) throw new RangeError("invalid execution constraint");
+    bounded("minReclaimRatio", constraints.minReclaimRatio);
+  }
   if (tokenModel) {
     bounded("summary input price", tokenModel.summaryInputCostPerToken, Number.MAX_VALUE);
     for (const c of [tokenModel.after, tokenModel.output])
@@ -318,12 +340,30 @@ export function estimateRuntimeSurvival(
     let reachForce = 0;
     let first = true;
     let available = true;
+    let hasAttempt = constraints?.hasAttempt ?? false;
+    let callsSinceAttempt = m.callsSinceLastAttempt;
+    let cooldownBlocks = 0;
+    let reclaimBlocks = 0;
     for (let i = 0; i < maxCalls; i++) {
       if (curve) survival = curve[i] ?? 0;
       const stepProbability = curve && survival > 0 ? (curve[i + 1] ?? 0) / survival : probability;
       const force = i > 0 && context >= m.guardedForceBoundaryTokens;
       const planned = i === firstCompactAt;
       let compact = planned || force || (i > 0 && context >= repeatBoundary);
+      if (compact && !force && constraints) {
+        const reclaim = context - postTokens(context, keptRatio);
+        const cooldown = hasAttempt && callsSinceAttempt < constraints.minCallsBetweenCompactions;
+        const insufficient =
+          reclaim < constraints.minReclaimTokens ||
+          reclaim / Math.max(context, 1) < constraints.minReclaimRatio ||
+          context < constraints.softWindowTokens;
+        if (cooldown) cooldownBlocks++;
+        if (insufficient) reclaimBlocks++;
+        if (cooldown || insufficient) {
+          compact = false;
+          if (planned) available = false;
+        }
+      }
       if (compact && i > 0 && !force) {
         const keepReplay = costOfCall(prices, context, {
           prefixTokens: prefix * coverage,
@@ -356,6 +396,8 @@ export function estimateRuntimeSurvival(
         cost += survival * summaryCost(context, keptRatio > retention);
         context = postTokens(context, keptRatio);
         prefix = 0;
+        hasAttempt = true;
+        callsSinceAttempt = 0;
       }
       const replay = compact
         ? context * (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken)
@@ -370,9 +412,10 @@ export function estimateRuntimeSurvival(
       prefix = context;
       context += growth;
       first = false;
+      callsSinceAttempt++;
       survival *= probability;
     }
-    return { cost, reachForce, available };
+    return { cost, reachForce, available, cooldownBlocks, reclaimBlocks };
   }
 
   let now = path(0, q, retention, undefined, nominalCurve);
@@ -408,6 +451,7 @@ export function estimateRuntimeSurvival(
     let bestStressNow = Infinity;
     let bestWait = Infinity;
     let bestStressWait = Infinity;
+    let selectedNow = now;
     for (const boundary of boundaries) {
       const candidate = path(0, q, retention, boundary, nominalCurve);
       const stressed = path(0, stressQ, stressRetention, boundary, stressedCurve);
@@ -415,6 +459,7 @@ export function estimateRuntimeSurvival(
         bestNow = candidate.cost;
         selectedRepeatBoundaryTokens = boundary;
         bestStressNow = stressed.cost;
+        selectedNow = candidate;
       }
       bestWait = Math.min(bestWait, path(null, q, retention, boundary, nominalCurve).cost);
       bestStressWait = Math.min(
@@ -422,7 +467,7 @@ export function estimateRuntimeSurvival(
         path(null, stressQ, stressRetention, boundary, stressedCurve).cost,
       );
     }
-    now = { ...now, cost: bestNow };
+    now = { ...selectedNow, cost: bestNow };
     stressNow = { ...stressNow, cost: bestStressNow };
     bestWaitCost = Math.min(bestWaitCost, bestWait);
     stressedSaving =
@@ -494,8 +539,11 @@ export function estimateRuntimeSurvival(
     expectedCallsIncludingCurrent: duration?.expectedCallsIncludingCurrent ?? 1 / (1 - q),
     requiredSaving,
     savingMarginCostScale,
+    forecastCooldownBlocks: now.cooldownBlocks,
+    forecastReclaimBlocks: now.reclaimBlocks,
     shouldCompact:
       eligible &&
+      now.available &&
       runtimeRiskAllowed &&
       (nominalCurve?.[maxCalls] ?? q ** maxCalls) <= 0.05 &&
       assessedEndingLoss <= immediateLossBudget &&

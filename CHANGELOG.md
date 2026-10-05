@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Forecast execution gates and post-compaction calibration
+
+- Add opt-in host cooldown, minimum-reclaim and soft-window constraints to both
+  NOW/WAIT rollouts. Preserve safety FORCE and leave core/Pi defaults unchanged.
+- Record success-settled length/cost prediction errors by cold start, low-span fallback,
+  interpolation and extrapolation; diagnostics never feed future fixture truth to policy.
+- Add a fixed-60 seen-case ablation, previous-bill regression and exact cooldown billing
+  test. Preserve earlier reports; this is causal diagnosis, not new held-out evidence.
+
 ### Observed compactor fixed-term research and fixed-60 comparator
 
 - Add an opt-in bounded, metadata-only nonnegative affine token learner. Require three

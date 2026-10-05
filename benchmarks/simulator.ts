@@ -1,7 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ExperimentalCompactorLearner } from "../src/experimental-compactor";
+import {
+  ExperimentalCompactorLearner,
+  predictCompactorTokens,
+} from "../src/experimental-compactor";
 import {
   computeBreakEvenCalls,
   costOfCall,
@@ -172,6 +175,14 @@ export interface SessionRun {
   compactions: CompactionRecord[];
 }
 
+export interface CompactorPredictionAudit {
+  phase: "cold-start" | "low-span" | "interpolation" | "extrapolation";
+  predictedAfter: number;
+  actualAfter: number;
+  predictedCost: number;
+  actualCost: number;
+}
+
 /**
  * FoldPoint wired the way a host would wire it: one session per scenario run, every real
  * call observed, every compaction attempt recorded (successful or not), and the session
@@ -189,6 +200,8 @@ export function createFoldPointStrategy(
     /** Duration ablation only: false keeps the caller's declared age fixed. */
     advanceDurationAge?: boolean;
     learnedCompactorTokens?: boolean;
+    enforceForecastExecutionGates?: boolean;
+    onCompactorPrediction?: (audit: CompactorPredictionAudit) => void;
     /** Fixed at the first request's estimated replay cost, not accumulated past spending. */
     runtimeRiskBudgetRatio?: number;
     onRuntimeRisk?: (report: ReturnType<RuntimeRiskBudget["report"]>) => void;
@@ -207,6 +220,10 @@ export function createFoldPointStrategy(
   let pendingRisk = 0;
   let lastSentPrefix = 0;
   let completedOrdinaryCalls = 0;
+  let attempts = 0;
+  let successfulSamples = 0;
+  let pendingPrediction: Omit<CompactorPredictionAudit, "actualAfter" | "actualCost"> | undefined;
+  const hostDefaults = resolveDefaults(options.defaults);
   const sessionId = `bench-${scenario.id}`;
   const profile: FoldPointProfile = {
     provider: "benchmark",
@@ -246,6 +263,25 @@ export function createFoldPointStrategy(
       }
 
       const decision = foldPoint.decide(input);
+      const tokenModel = compactorLearner?.snapshot();
+      const predicted = tokenModel
+        ? predictCompactorTokens(tokenModel, input.contextTokens)
+        : undefined;
+      pendingPrediction = {
+        phase: !tokenModel
+          ? successfulSamples < 3
+            ? "cold-start"
+            : "low-span"
+          : input.contextTokens < tokenModel.minBefore || input.contextTokens > tokenModel.maxBefore
+            ? "extrapolation"
+            : "interpolation",
+        predictedAfter: predicted?.afterTokens ?? decision.metrics.estimatedPostCompactTokens,
+        predictedCost:
+          tokenModel && predicted
+            ? input.contextTokens * tokenModel.summaryInputCostPerToken +
+              predicted.outputTokens * resolveUnitPrices(profile.pricing).outputPerToken
+            : decision.metrics.estimatedCompactCallCost,
+      };
       const calibrationPrices = resolveUnitPrices(profile.pricing);
       options.onReplayCalibration?.(
         decision.metrics.estimatedCurrentCallReplayCost,
@@ -271,8 +307,19 @@ export function createFoldPointStrategy(
       const experiment = options.runtimeSurvival
         ? estimateRuntimeSurvival(input, decision, {
             ...options.runtimeSurvival,
-            ...(compactorLearner?.snapshot()
-              ? { compactorTokenModel: compactorLearner.snapshot() }
+            ...(tokenModel ? { compactorTokenModel: tokenModel } : {}),
+            ...(options.enforceForecastExecutionGates
+              ? {
+                  executionConstraints: {
+                    hasAttempt: attempts > 0,
+                    minCallsBetweenCompactions: hostDefaults.minCallsBetweenCompactions,
+                    minReclaimTokens: hostDefaults.minReclaimTokens,
+                    minReclaimRatio: hostDefaults.minReclaimRatio,
+                    softWindowTokens: Math.ceil(
+                      hostDefaults.softWindowRatio * profile.contextWindowTokens,
+                    ),
+                  },
+                }
               : {}),
             ...(options.runtimeSurvival.durationModel
               ? {
@@ -304,6 +351,15 @@ export function createFoldPointStrategy(
       };
     },
     onCompaction(event: CompactionEvent) {
+      attempts++;
+      if (event.success && pendingPrediction)
+        options.onCompactorPrediction?.({
+          ...pendingPrediction,
+          actualAfter: event.afterTokens,
+          actualCost: event.cost,
+        });
+      if (event.success) successfulSamples++;
+      pendingPrediction = undefined;
       if (event.success)
         compactorLearner?.observe({
           beforeTokens: event.beforeTokens,
