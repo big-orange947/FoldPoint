@@ -200,6 +200,9 @@ export function createFoldPointStrategy(
     /** Duration ablation only: false keeps the caller's declared age fixed. */
     advanceDurationAge?: boolean;
     learnedCompactorTokens?: boolean;
+    /** Previously completed compatible sessions only; independently copied per branch. */
+    compactorHistory?: readonly import("../src/index").CompactorTokenObservation[];
+    warmCoreFromHistory?: boolean;
     enforceForecastExecutionGates?: boolean;
     onCompactorPrediction?: (audit: CompactorPredictionAudit) => void;
     /** Fixed at the first request's estimated replay cost, not accumulated past spending. */
@@ -213,15 +216,17 @@ export function createFoldPointStrategy(
   } = {},
 ): Strategy {
   const foldPoint = new FoldPoint({ defaults: options.defaults });
+  if (options.compactorHistory && !options.learnedCompactorTokens)
+    throw new RangeError("compactor history requires learnedCompactorTokens");
   const compactorLearner = options.learnedCompactorTokens
-    ? new ExperimentalCompactorLearner()
+    ? new ExperimentalCompactorLearner(options.compactorHistory)
     : undefined;
   let risk: RuntimeRiskBudget | undefined;
   let pendingRisk = 0;
   let lastSentPrefix = 0;
   let completedOrdinaryCalls = 0;
   let attempts = 0;
-  let successfulSamples = 0;
+  let successfulSamples = options.compactorHistory?.length ?? 0;
   let pendingPrediction: Omit<CompactorPredictionAudit, "actualAfter" | "actualCost"> | undefined;
   const hostDefaults = resolveDefaults(options.defaults);
   const sessionId = `bench-${scenario.id}`;
@@ -233,6 +238,20 @@ export function createFoldPointStrategy(
     pricing: scenario.pricing,
     cachePolicy: scenario.cachePolicy,
   };
+  if (options.warmCoreFromHistory) {
+    if (!options.compactorHistory) throw new RangeError("warm core requires compactor history");
+    options.compactorHistory.forEach((o, index) => {
+      // Transfer only measured length/output metadata, not another runtime's cache or horizon.
+      foldPoint.recordCompaction("completed-history", profile, {
+        timestamp: BASE_TIMESTAMP - 1000 + index,
+        beforeTokens: o.beforeTokens,
+        afterTokens: o.afterTokens,
+        outputTokens: o.outputTokens,
+        success: true,
+      });
+    });
+    foldPoint.importState({ ...foldPoint.exportState(), sessions: {} });
+  }
 
   return {
     id: "foldpoint",

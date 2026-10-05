@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Bounded historical compactor feedback and common-cutoff billing
+
+- Import/export up to 32 copied, whitelisted numeric observations for the experimental
+  token learner. Host owns compatibility; never reuse another runtime's counters or cache.
+- Add cold/token-only/core-statistics warm-start ablations against fixed 60%, using separate
+  earlier simulated sessions. Preserve their training bills, previous cold bills and losses.
+- Split all evaluation bills at the fixed-60 first-compaction step. Both components reconcile
+  to total cost; this is accounting attribution, not causal proof or a task-quality claim.
+
 ### Forecast execution gates and post-compaction calibration
 
 - Add opt-in host cooldown, minimum-reclaim and soft-window constraints to both

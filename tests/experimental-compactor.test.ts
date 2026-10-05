@@ -20,6 +20,28 @@ describe("experimental compactor token learner", () => {
     observe(l, 100000, 50000);
     expect(l.snapshot()).toBeUndefined();
   });
+  it("copies bounded prior metadata and strips unknown fields on export", () => {
+    const observation = {
+      beforeTokens: 100000,
+      afterTokens: 10000,
+      outputTokens: 2000,
+      summaryInputCostPerToken: 2e-6,
+      accidentalBody: "must not persist",
+    };
+    const l = new ExperimentalCompactorLearner([observation]);
+    observation.afterTokens = 50000;
+    expect(l.exportObservations()[0]?.afterTokens).toBe(10000);
+    expect(l.exportObservations()[0]).not.toHaveProperty("accidentalBody");
+    const exported = l.exportObservations();
+    const first = exported[0];
+    if (!first) throw new Error("missing observation");
+    first.afterTokens = 70000;
+    expect(l.exportObservations()[0]?.afterTokens).toBe(10000);
+    expect(() => new ExperimentalCompactorLearner(Array(33).fill(observation))).toThrow();
+    expect(
+      () => new ExperimentalCompactorLearner([{ ...observation, outputTokens: -1 }]),
+    ).toThrow();
+  });
   it("fits stable observed output and retention sizes without being given a floor", () => {
     const l = new ExperimentalCompactorLearner();
     for (const x of [100000, 150000, 200000]) observe(l, x, 50000);

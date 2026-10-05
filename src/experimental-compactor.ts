@@ -8,7 +8,7 @@ export interface CompactorTokenModel {
   summaryInputCostPerToken: number;
 }
 
-type Observation = {
+export type CompactorTokenObservation = {
   beforeTokens: number;
   afterTokens: number;
   outputTokens: number;
@@ -16,7 +16,10 @@ type Observation = {
 };
 
 /** Nonnegative affine least squares; compare interior and both boundary solutions. */
-function fitAffine(points: readonly Observation[], pick: (p: Observation) => number) {
+function fitAffine(
+  points: readonly CompactorTokenObservation[],
+  pick: (p: CompactorTokenObservation) => number,
+) {
   const n = points.length;
   const x = points.reduce((s, p) => s + p.beforeTokens, 0) / n;
   const y = points.reduce((s, p) => s + pick(p), 0) / n;
@@ -45,9 +48,19 @@ function fitAffine(points: readonly Observation[], pick: (p: Observation) => num
 }
 
 export class ExperimentalCompactorLearner {
-  private points: Observation[] = [];
+  private points: CompactorTokenObservation[] = [];
 
-  observe(observation: Observation): void {
+  /** Host owns compatibility and storage. Copy bounded prior observations, never task truth. */
+  constructor(history: readonly CompactorTokenObservation[] = []) {
+    if (history.length > 32) throw new RangeError("compactor history exceeds 32 observations");
+    for (const observation of history) this.observe(observation);
+  }
+
+  exportObservations(): CompactorTokenObservation[] {
+    return this.points.map((p) => ({ ...p }));
+  }
+
+  observe(observation: CompactorTokenObservation): void {
     for (const v of [observation.beforeTokens, observation.afterTokens, observation.outputTokens])
       if (!Number.isSafeInteger(v) || v < 0)
         throw new RangeError("invalid compactor token observation");
@@ -58,7 +71,12 @@ export class ExperimentalCompactorLearner {
       observation.summaryInputCostPerToken < 0
     )
       throw new RangeError("invalid summary input price");
-    this.points.push({ ...observation });
+    this.points.push({
+      beforeTokens: observation.beforeTokens,
+      afterTokens: observation.afterTokens,
+      outputTokens: observation.outputTokens,
+      summaryInputCostPerToken: observation.summaryInputCostPerToken,
+    });
     if (this.points.length > 32) this.points.shift();
   }
 
