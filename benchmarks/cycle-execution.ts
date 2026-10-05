@@ -12,7 +12,7 @@ import { PRICE_PROFILES } from "./provider-ratios";
 import type { Scenario } from "./scenarios";
 import { createFoldPointStrategy, runSession } from "./simulator";
 
-export function cycleExecutionCase(scenario: Scenario) {
+export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "paired-policy") {
   // Collection is completed beforehand, no evaluation endpoint or future feedback is read.
   const history = collectCompactorHistory({ ...scenario, cycleBilling: undefined });
   let estimate: RuntimeSurvivalEstimate | undefined;
@@ -45,6 +45,7 @@ export function cycleExecutionCase(scenario: Scenario) {
       savingMarginBasis: "timing",
       durationModel: { completedCalls: 0, components: DURATION_PRIOR },
       cycleBilling: scenario.cycleBilling,
+      stressWaitSelection,
     },
     onSurvivalEstimate: (e) => {
       estimate = e;

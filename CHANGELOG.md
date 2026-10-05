@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Paired nominal-policy stress ablation
+
+- Add opt-in `stressWaitSelection: "paired-policy"`: freeze WAIT's nominally selected
+  policy before evaluating stress, matching existing NOW semantics. Preserve the old
+  independently optimized stress-WAIT envelope as the default experimental comparison.
+- Expose nominal/stressed WAIT bills, the independent envelope and stressed NOW bill.
+  Keep continuation priors, stress magnitude, margins, risk and eligibility unchanged.
+- Compare 96 full warm tasks against frozen legacy/fixed-60 controls and 63 short tasks.
+  Retain gains AND losses: Flash is slightly worse, while several other price ratios improve.
+  Short bills are unchanged, not risk-free. Future economic-gate consistency remains open;
+  no default core/Pi change, no paid calls or quality claim.
+
 ### Complete warm-task billing and execution diagnostics
 
 - Add explicit synthetic summary cache/prewarm contracts to the complete simulator.

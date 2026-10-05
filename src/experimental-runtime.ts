@@ -106,6 +106,8 @@ export interface RuntimeSurvivalOptions {
   compactorTokenModel?: CompactorTokenModel;
   /** Explicit host billing contract only; never infer summary cache sharing from model name. */
   cycleBilling?: CycleBilling;
+  /** Opt-in: stress the SAME nominally selected WAIT policy, not an independent envelope winner. */
+  stressWaitSelection?: "paired-policy";
   /** Opt-in host execution gates; values must match the host, not fixture targets. */
   executionConstraints?: {
     hasAttempt: boolean;
@@ -117,6 +119,14 @@ export interface RuntimeSurvivalOptions {
 }
 
 export interface RuntimeSurvivalEstimate {
+  stressWaitPolicy?: {
+    firstCompactAt: 1 | null;
+    repeatBoundaryTokens: number;
+    nominalCost: number;
+    stressedCost: number;
+    independentlyOptimizedStressedCost: number;
+    stressedNowCost: number;
+  };
   compactNowCost: number;
   keepThenForceCost: number;
   waitOneThenCompactCost: number;
@@ -236,6 +246,8 @@ export function estimateRuntimeSurvival(
   if (q === 1) throw new RangeError("continuationProbability must be less than 1");
   const lossRatio = bounded("maxImmediateLossRatio", options.maxImmediateLossRatio, 100);
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
+  if (options.stressWaitSelection !== undefined && options.stressWaitSelection !== "paired-policy")
+    throw new RangeError("invalid stressWaitSelection");
   const retentionStress = bounded("retentionStress", options.retentionStress ?? 0.05);
   const marginRatio = bounded("savingMarginRatio", options.savingMarginRatio ?? 0.1);
   if (
@@ -468,6 +480,23 @@ export function estimateRuntimeSurvival(
   const waitOneAvailable =
     options.allowWaitOne !== false && maxCalls > 1 && waitOne.available && stressWaitOne.available;
   let bestWaitCost = Math.min(defer.cost, waitOneAvailable ? waitOne.cost : Infinity);
+  let pairedWait = {
+    firstCompactAt: null as 1 | null,
+    repeatBoundaryTokens: m.guardedForceBoundaryTokens,
+    nominalCost: defer.cost,
+    stressedCost: stressDefer.cost,
+  };
+  if (waitOneAvailable && waitOne.cost < pairedWait.nominalCost)
+    pairedWait = {
+      firstCompactAt: 1,
+      repeatBoundaryTokens: m.guardedForceBoundaryTokens,
+      nominalCost: waitOne.cost,
+      stressedCost: stressWaitOne.cost,
+    };
+  let independentStressWaitCost = Math.min(
+    stressDefer.cost,
+    waitOneAvailable ? stressWaitOne.cost : Infinity,
+  );
   let stressedSaving =
     Math.min(stressDefer.cost, waitOneAvailable ? stressWaitOne.cost : Infinity) - stressNow.cost;
   let rolloutCandidates = 1;
@@ -498,11 +527,17 @@ export function estimateRuntimeSurvival(
         bestStressNow = stressed.cost;
         selectedNow = candidate;
       }
-      bestWait = Math.min(bestWait, path(null, q, retention, boundary, nominalCurve).cost);
-      bestStressWait = Math.min(
-        bestStressWait,
-        path(null, stressQ, stressRetention, boundary, stressedCurve).cost,
-      );
+      const waitCandidate = path(null, q, retention, boundary, nominalCurve);
+      const stressWaitCandidate = path(null, stressQ, stressRetention, boundary, stressedCurve);
+      if (waitCandidate.cost < pairedWait.nominalCost)
+        pairedWait = {
+          firstCompactAt: null,
+          repeatBoundaryTokens: boundary,
+          nominalCost: waitCandidate.cost,
+          stressedCost: stressWaitCandidate.cost,
+        };
+      bestWait = Math.min(bestWait, waitCandidate.cost);
+      bestStressWait = Math.min(bestStressWait, stressWaitCandidate.cost);
     }
     now = { ...selectedNow, cost: bestNow };
     stressNow = { ...stressNow, cost: bestStressNow };
@@ -510,7 +545,10 @@ export function estimateRuntimeSurvival(
     stressedSaving =
       Math.min(stressDefer.cost, waitOneAvailable ? stressWaitOne.cost : Infinity, bestStressWait) -
       bestStressNow;
+    independentStressWaitCost = Math.min(independentStressWaitCost, bestStressWait);
   }
+  if (options.stressWaitSelection === "paired-policy")
+    stressedSaving = pairedWait.stressedCost - stressNow.cost;
   const immediateLoss = Math.max(
     0,
     summaryCost(original, false, currentPrefix, m.estimatedCacheAliveProbability) +
@@ -565,6 +603,15 @@ export function estimateRuntimeSurvival(
         : m.estimatedCompactCallCost;
   const requiredSaving = marginRatio * savingMarginCostScale;
   return {
+    ...(options.stressWaitSelection === "paired-policy"
+      ? {
+          stressWaitPolicy: {
+            ...pairedWait,
+            independentlyOptimizedStressedCost: independentStressWaitCost,
+            stressedNowCost: stressNow.cost,
+          },
+        }
+      : {}),
     compactNowCost: now.cost,
     keepThenForceCost: defer.cost,
     waitOneThenCompactCost: waitOne.cost,
