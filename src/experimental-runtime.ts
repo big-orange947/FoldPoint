@@ -1,6 +1,12 @@
 /** Opt-in research policy. Not wired into FoldPoint.decide or the Pi adapter. */
 import { isCachingInPlay } from "./cache";
 import { type CompactorTokenModel, predictCompactorTokens } from "./experimental-compactor";
+import {
+  type CycleBilling,
+  postCompactBill,
+  summaryBill,
+  validateCycleBilling,
+} from "./experimental-cycle";
 import { costOfCall, resolveUnitPrices } from "./pricing";
 import type { FoldPointDecision, FoldPointInput } from "./types";
 
@@ -98,6 +104,8 @@ export interface RuntimeSurvivalOptions {
   savingMarginBasis?: "summary" | "timing";
   /** Past successful observations only; never supply fixture truth or future summaries. */
   compactorTokenModel?: CompactorTokenModel;
+  /** Explicit host billing contract only; never infer summary cache sharing from model name. */
+  cycleBilling?: CycleBilling;
   /** Opt-in host execution gates; values must match the host, not fixture targets. */
   executionConstraints?: {
     hasAttempt: boolean;
@@ -279,6 +287,11 @@ export function estimateRuntimeSurvival(
   const growth = m.estimatedGrowthTokensPerCall;
   const summaryPerToken = original > 0 ? m.estimatedCompactCallCost / original : 0;
   const tokenModel = options.compactorTokenModel;
+  const billing = options.cycleBilling;
+  if (billing) {
+    validateCycleBilling(billing);
+    if (!tokenModel) throw new RangeError("cycleBilling requires compactorTokenModel");
+  }
   const constraints = options.executionConstraints;
   if (constraints) {
     if (typeof constraints.hasAttempt !== "boolean")
@@ -299,7 +312,9 @@ export function estimateRuntimeSurvival(
   }
   // Independently observed input billing, not the old ratio's output fee subtracted twice.
   const summaryInputPerToken = tokenModel ? tokenModel.summaryInputCostPerToken : summaryPerToken;
-  function summaryCost(context: number, stressed = false) {
+  function summaryCost(context: number, stressed = false, prefix = 0, alive = 0) {
+    if (billing && tokenModel)
+      return summaryBill(prices, tokenModel, context, prefix, alive, billing, stressed);
     return tokenModel
       ? context * summaryInputPerToken +
           predictCompactorTokens(tokenModel, context, stressed).outputTokens * prices.outputPerToken
@@ -322,6 +337,17 @@ export function estimateRuntimeSurvival(
     },
     m.estimatedCacheLaterCandidateTokens > 0,
   );
+  const currentPrefix =
+    input.reusablePrefixTokens ??
+    input.cachedTokens ??
+    (m.estimatedCacheAliveProbability > 0
+      ? m.estimatedEffectiveCachedTokens / m.estimatedCacheAliveProbability
+      : 0);
+  function rebuildCost(after: number) {
+    if (!billing) return after * (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken);
+    const cost = postCompactBill(prices, after, cachingInPlay, billing);
+    return cost.prewarm + cost.ordinary;
+  }
 
   function riskLoss(loss: number, probability: number) {
     return loss * (options.endingRiskMode === "survival-weighted" ? 1 - probability : 1);
@@ -334,7 +360,7 @@ export function estimateRuntimeSurvival(
     curve?: readonly number[],
   ) {
     let context = original;
-    let prefix = 0;
+    let prefix = currentPrefix;
     let cost = 0;
     let survival = 1;
     let reachForce = 0;
@@ -372,9 +398,13 @@ export function estimateRuntimeSurvival(
         });
         const loss = Math.max(
           0,
-          summaryCost(context, keptRatio > retention) +
-            postTokens(context, keptRatio) *
-              (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken) -
+          summaryCost(
+            context,
+            keptRatio > retention,
+            prefix * coverage,
+            m.estimatedCacheLaterAliveProbability,
+          ) +
+            rebuildCost(postTokens(context, keptRatio)) -
             keepReplay,
         );
         const prospectiveBudget =
@@ -393,14 +423,21 @@ export function estimateRuntimeSurvival(
       }
       if (force && reachForce === 0) reachForce = survival;
       if (compact) {
-        cost += survival * summaryCost(context, keptRatio > retention);
+        cost +=
+          survival *
+          summaryCost(
+            context,
+            keptRatio > retention,
+            first ? currentPrefix : prefix * coverage,
+            first ? m.estimatedCacheAliveProbability : m.estimatedCacheLaterAliveProbability,
+          );
         context = postTokens(context, keptRatio);
         prefix = 0;
         hasAttempt = true;
         callsSinceAttempt = 0;
       }
       const replay = compact
-        ? context * (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken)
+        ? rebuildCost(context)
         : first
           ? m.estimatedCurrentCallReplayCost
           : costOfCall(prices, context, {
@@ -476,10 +513,9 @@ export function estimateRuntimeSurvival(
   }
   const immediateLoss = Math.max(
     0,
-    summaryCost(original) +
+    summaryCost(original, false, currentPrefix, m.estimatedCacheAliveProbability) +
       (tokenModel
-        ? postTokens(original, retention) *
-          (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken)
+        ? rebuildCost(postTokens(original, retention))
         : m.estimatedFirstPostCompactReplayCost) -
       m.estimatedCurrentCallReplayCost,
   );
@@ -489,9 +525,8 @@ export function estimateRuntimeSurvival(
       : lossRatio * m.estimatedCurrentCallReplayCost;
   const stressedImmediateLoss = Math.max(
     0,
-    summaryCost(original, true) +
-      postTokens(original, stressRetention) *
-        (cachingInPlay ? prices.cacheWritePerToken : prices.inputPerToken) -
+    summaryCost(original, true, currentPrefix, m.estimatedCacheAliveProbability) +
+      rebuildCost(postTokens(original, stressRetention)) -
       m.estimatedCurrentCallReplayCost,
   );
   const eligible =
@@ -512,8 +547,22 @@ export function estimateRuntimeSurvival(
   // exposed by advancing a request and one growth increment, not the entire shared summary.
   const savingMarginCostScale =
     options.savingMarginBasis === "timing" && waitOneAvailable
-      ? m.estimatedCurrentCallReplayCost + growth * summaryPerToken
-      : m.estimatedCompactCallCost;
+      ? m.estimatedCurrentCallReplayCost +
+        (billing
+          ? Math.max(
+              0,
+              summaryCost(
+                original + growth,
+                false,
+                currentPrefix + growth,
+                m.estimatedCacheLaterAliveProbability,
+              ) -
+                summaryCost(original, false, currentPrefix, m.estimatedCacheLaterAliveProbability),
+            )
+          : growth * summaryPerToken)
+      : billing
+        ? summaryCost(original, false, currentPrefix, m.estimatedCacheAliveProbability)
+        : m.estimatedCompactCallCost;
   const requiredSaving = marginRatio * savingMarginCostScale;
   return {
     compactNowCost: now.cost,

@@ -59,6 +59,7 @@
     "simulate:compactor": "tsx benchmarks/compactor-model.ts",
     "simulate:execution": "tsx benchmarks/execution-consistency.ts",
     "simulate:history": "tsx benchmarks/history-reuse.ts",
+    "simulate:cycles": "tsx benchmarks/cycle-reference.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",

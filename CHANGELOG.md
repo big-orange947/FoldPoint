@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Explicit summary cache and prewarm billing diagnostics
+
+- Add opt-in `cycleBilling` for experimental runtime forecasts. Summary cache sharing
+  requires an explicit host contract and a compactor token model. Separate prewarm
+  requests include input/write and output charges, followed by an ordinary cache read.
+- Add hand-calculable steady warm-cycle diagnostics against fixed 60%, with historical
+  metadata only. Ordinary work calls, not all model requests, form the cost denominator.
+- Preserve default core/Pi behavior, old complete-task reports and all negative results.
+  Steady references and hypothetical cache sharing are not realized task savings.
+
 ### Bounded historical compactor feedback and common-cutoff billing
 
 - Import/export up to 32 copied, whitelisted numeric observations for the experimental

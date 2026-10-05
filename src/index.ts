@@ -27,6 +27,14 @@ export type { BreakEvenInput } from "./estimator";
 export { computeBreakEvenCalls, decideFoldPoint, validateFoldPointInput } from "./estimator";
 export type { CompactorTokenModel, CompactorTokenObservation } from "./experimental-compactor";
 export { ExperimentalCompactorLearner, predictCompactorTokens } from "./experimental-compactor";
+export type { CycleBilling } from "./experimental-cycle";
+export {
+  cycleBill,
+  postCompactBill,
+  stableCycleCandidates,
+  summaryBill,
+  thresholdCycleAverage,
+} from "./experimental-cycle";
 export type {
   RuntimeDurationModel,
   RuntimeSurvivalEstimate,
