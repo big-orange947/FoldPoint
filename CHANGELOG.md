@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Single-cycle qualification ablation (not promoted)
+
+- Add opt-in experimental `forecastPaybackGate: "single-cycle"`, with closed-form
+  survival-weighted payback diagnostics and explicit counterfactual summary/rebuild bills.
+  This is an additional conservative hypothesis, not a necessary condition for full-task savings.
+- Preserve 96 frozen long-task controls and 63 short-task comparisons, including regressions.
+  Cutting off value before KEEP's next safety compaction sacrifices multi-cycle gains:
+  Sonnet 5m uncached-summary mean savings falls from 12.63% to 3.11% versus fixed 60%.
+- Do not promote the gate or change core/Pi defaults. Future forecasts still do not reuse
+  the entire current economic rule; this is not a complete policy-consistency fix.
+  Zero paid calls; no real-provider or task-quality claim.
+
 ### Paired nominal-policy stress ablation
 
 - Add opt-in `stressWaitSelection: "paired-policy"`: freeze WAIT's nominally selected

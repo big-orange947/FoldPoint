@@ -12,7 +12,11 @@ import { PRICE_PROFILES } from "./provider-ratios";
 import type { Scenario } from "./scenarios";
 import { createFoldPointStrategy, runSession } from "./simulator";
 
-export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "paired-policy") {
+export function cycleExecutionCase(
+  scenario: Scenario,
+  stressWaitSelection?: "paired-policy",
+  forecastPaybackGate?: "single-cycle",
+) {
   // Collection is completed beforehand, no evaluation endpoint or future feedback is read.
   const history = collectCompactorHistory({ ...scenario, cycleBilling: undefined });
   let estimate: RuntimeSurvivalEstimate | undefined;
@@ -26,6 +30,7 @@ export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "pa
     requiredSaving: number;
     eligible: boolean;
     endingRiskAllowed: boolean;
+    cyclePayback?: RuntimeSurvivalEstimate["cyclePayback"];
   }[] = [];
   const base = createFoldPointStrategy(scenario, {
     learnedCompactorTokens: true,
@@ -46,6 +51,7 @@ export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "pa
       durationModel: { completedCalls: 0, components: DURATION_PRIOR },
       cycleBilling: scenario.cycleBilling,
       stressWaitSelection,
+      forecastPaybackGate,
     },
     onSurvivalEstimate: (e) => {
       estimate = e;
@@ -116,6 +122,7 @@ export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "pa
         endingRiskAllowed:
           estimate.runtimeRiskAllowed &&
           estimate.assessedEndingLoss <= estimate.immediateLossBudget,
+        ...(estimate.cyclePayback ? { cyclePayback: estimate.cyclePayback } : {}),
       });
       return decision;
     },
@@ -159,6 +166,13 @@ export function cycleExecutionCase(scenario: Scenario, stressWaitSelection?: "pa
     dynamic,
     change: dynamic.cost / fixed60.cost - 1,
     audit: {
+      ...(forecastPaybackGate
+        ? {
+            cycleRejections: trace.filter(
+              (t) => t.action === "KEEP" && t.eligible && t.cyclePayback?.allowed === false,
+            ).length,
+          }
+        : {}),
       decisions: trace.length,
       aboveModeledRepeatAndKeep: aboveAndKeep.length,
       stressOrMarginBlocked: aboveAndKeep.filter(

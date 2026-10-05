@@ -108,6 +108,9 @@ export interface RuntimeSurvivalOptions {
   cycleBilling?: CycleBilling;
   /** Opt-in: stress the SAME nominally selected WAIT policy, not an independent envelope winner. */
   stressWaitSelection?: "paired-policy";
+  /** Extra conservative qualification hypothesis for current and forecast economic attempts.
+   * Stops before KEEP's next safety action; NOT necessary for full-task savings or recursive equivalence. */
+  forecastPaybackGate?: "single-cycle";
   /** Opt-in host execution gates; values must match the host, not fixture targets. */
   executionConstraints?: {
     hasAttempt: boolean;
@@ -119,6 +122,14 @@ export interface RuntimeSurvivalOptions {
 }
 
 export interface RuntimeSurvivalEstimate {
+  forecastPaybackBlocks?: number;
+  cyclePayback?: {
+    horizonCalls: number;
+    nominalSaving: number;
+    stressedSaving: number;
+    requiredSaving: number;
+    allowed: boolean;
+  };
   stressWaitPolicy?: {
     firstCompactAt: 1 | null;
     repeatBoundaryTokens: number;
@@ -248,6 +259,8 @@ export function estimateRuntimeSurvival(
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
   if (options.stressWaitSelection !== undefined && options.stressWaitSelection !== "paired-policy")
     throw new RangeError("invalid stressWaitSelection");
+  if (options.forecastPaybackGate !== undefined && options.forecastPaybackGate !== "single-cycle")
+    throw new RangeError("invalid forecastPaybackGate");
   const retentionStress = bounded("retentionStress", options.retentionStress ?? 0.05);
   const marginRatio = bounded("savingMarginRatio", options.savingMarginRatio ?? 0.1);
   if (
@@ -364,6 +377,96 @@ export function estimateRuntimeSurvival(
   function riskLoss(loss: number, probability: number) {
     return loss * (options.endingRiskMode === "survival-weighted" ? 1 - probability : 1);
   }
+  function futureMass(age: number, horizon: number, stressed: boolean) {
+    const geometric = (probability: number) =>
+      horizon <= 1 ? 0 : (probability * (1 - probability ** (horizon - 1))) / (1 - probability);
+    if (!duration || !options.durationModel)
+      return geometric(stressed ? Math.max(0, q - qStress) : q);
+    const components = options.durationModel.components;
+    const masses = duration.posterior.map(
+      (w, j) => w * (components[j]?.continuationProbability ?? 0) ** age,
+    );
+    const total = masses.reduce((sum, v) => sum + v, 0);
+    if (total === 0) return 0;
+    const shortest = components.reduce(
+      (best, c, j) =>
+        c.continuationProbability < (components[best]?.continuationProbability ?? Infinity)
+          ? j
+          : best,
+      0,
+    );
+    return masses.reduce(
+      (sum, v, j) =>
+        sum +
+        ((v / total) * (stressed ? 1 - qStress : 1) + (stressed && j === shortest ? qStress : 0)) *
+          geometric(components[j]?.continuationProbability ?? 0),
+      0,
+    );
+  }
+  function cycleAllowed(context: number, prefix: number, age: number, first: boolean) {
+    const horizon =
+      growth > 0
+        ? Math.max(
+            1,
+            Math.min(maxCalls, Math.ceil((m.guardedForceBoundaryTokens - context) / growth)),
+          )
+        : maxCalls;
+    const alive = first ? m.estimatedCacheAliveProbability : m.estimatedCacheLaterAliveProbability;
+    const shared = first ? currentPrefix : prefix * coverage;
+    const keep = first
+      ? m.estimatedCurrentCallReplayCost
+      : costOfCall(prices, context, {
+          prefixTokens: shared,
+          aliveProbability: alive,
+          cachingInPlay,
+        });
+    const unit = costOfCall(prices, 1, {
+      prefixTokens: coverage,
+      aliveProbability: m.estimatedCacheLaterAliveProbability,
+      cachingInPlay,
+    });
+    const nominalAfter = postTokens(context, retention);
+    const stressedAfter = postTokens(context, Math.min(1, retention + retentionStress));
+    const nominalSummary = summaryCost(context, false, shared, alive);
+    const stressedSummary = summaryCost(context, true, shared, alive);
+    const saving = (after: number, fee: number, stressed: boolean) => {
+      const delta = (context - after) * unit;
+      // A zero-token summary has no readable prefix on its first appended request.
+      const nextCost = (tokens: number) =>
+        costOfCall(prices, tokens + growth, {
+          prefixTokens: tokens * coverage,
+          aliveProbability: m.estimatedCacheLaterAliveProbability,
+          cachingInPlay,
+        });
+      const correction =
+        horizon > 1
+          ? (nextCost(context) - nextCost(after) - delta) * futureMass(age, 2, stressed)
+          : 0;
+      return (
+        keep - fee - rebuildCost(after) + delta * futureMass(age, horizon, stressed) + correction
+      );
+    };
+    const scale =
+      options.savingMarginBasis === "timing" && options.allowWaitOne !== false && horizon > 1
+        ? keep +
+          (billing
+            ? Math.max(
+                0,
+                summaryCost(context + growth, false, shared + growth, alive) - nominalSummary,
+              )
+            : growth * summaryPerToken)
+        : nominalSummary;
+    const nominalSaving = saving(nominalAfter, nominalSummary, false);
+    const stressedSaving = saving(stressedAfter, stressedSummary, true);
+    const requiredSaving = marginRatio * scale;
+    return {
+      horizonCalls: horizon,
+      nominalSaving,
+      stressedSaving,
+      requiredSaving,
+      allowed: nominalSaving > requiredSaving && stressedSaving > requiredSaving,
+    };
+  }
   function path(
     firstCompactAt: 0 | 1 | null,
     probability: number,
@@ -382,6 +485,7 @@ export function estimateRuntimeSurvival(
     let callsSinceAttempt = m.callsSinceLastAttempt;
     let cooldownBlocks = 0;
     let reclaimBlocks = 0;
+    let paybackBlocks = 0;
     for (let i = 0; i < maxCalls; i++) {
       if (curve) survival = curve[i] ?? 0;
       const stepProbability = curve && survival > 0 ? (curve[i + 1] ?? 0) / survival : probability;
@@ -401,6 +505,17 @@ export function estimateRuntimeSurvival(
           compact = false;
           if (planned) available = false;
         }
+      }
+      if (
+        compact &&
+        !force &&
+        options.forecastPaybackGate === "single-cycle" &&
+        !cycleAllowed(context, prefix, i, first).allowed
+      ) {
+        paybackBlocks++;
+        if (planned) available = false;
+        // Price NOW as a counterfactual even when it cannot dispatch.
+        if (i > 0) compact = false;
       }
       if (compact && i > 0 && !force) {
         const keepReplay = costOfCall(prices, context, {
@@ -464,7 +579,7 @@ export function estimateRuntimeSurvival(
       callsSinceAttempt++;
       survival *= probability;
     }
-    return { cost, reachForce, available, cooldownBlocks, reclaimBlocks };
+    return { cost, reachForce, available, cooldownBlocks, reclaimBlocks, paybackBlocks };
   }
 
   let now = path(0, q, retention, undefined, nominalCurve);
@@ -603,6 +718,12 @@ export function estimateRuntimeSurvival(
         : m.estimatedCompactCallCost;
   const requiredSaving = marginRatio * savingMarginCostScale;
   return {
+    ...(options.forecastPaybackGate
+      ? {
+          forecastPaybackBlocks: now.paybackBlocks,
+          cyclePayback: cycleAllowed(original, currentPrefix, 0, true),
+        }
+      : {}),
     ...(options.stressWaitSelection === "paired-policy"
       ? {
           stressWaitPolicy: {
