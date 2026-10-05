@@ -16,6 +16,7 @@ export function cycleExecutionCase(
   scenario: Scenario,
   stressWaitSelection?: "paired-policy",
   forecastPaybackGate?: "single-cycle",
+  renewalComparison?: "shared-wait-continuation",
 ) {
   // Collection is completed beforehand, no evaluation endpoint or future feedback is read.
   const history = collectCompactorHistory({ ...scenario, cycleBilling: undefined });
@@ -31,6 +32,7 @@ export function cycleExecutionCase(
     eligible: boolean;
     endingRiskAllowed: boolean;
     cyclePayback?: RuntimeSurvivalEstimate["cyclePayback"];
+    commonContinuation?: RuntimeSurvivalEstimate["commonContinuation"];
   }[] = [];
   const base = createFoldPointStrategy(scenario, {
     learnedCompactorTokens: true,
@@ -52,6 +54,7 @@ export function cycleExecutionCase(
       cycleBilling: scenario.cycleBilling,
       stressWaitSelection,
       forecastPaybackGate,
+      renewalComparison,
     },
     onSurvivalEstimate: (e) => {
       estimate = e;
@@ -123,6 +126,7 @@ export function cycleExecutionCase(
           estimate.runtimeRiskAllowed &&
           estimate.assessedEndingLoss <= estimate.immediateLossBudget,
         ...(estimate.cyclePayback ? { cyclePayback: estimate.cyclePayback } : {}),
+        ...(estimate.commonContinuation ? { commonContinuation: estimate.commonContinuation } : {}),
       });
       return decision;
     },

@@ -108,6 +108,9 @@ export interface RuntimeSurvivalOptions {
   cycleBilling?: CycleBilling;
   /** Opt-in: stress the SAME nominally selected WAIT policy, not an independent envelope winner. */
   stressWaitSelection?: "paired-policy";
+  /** One-step improvement against WAIT's nominally selected common continuation policy.
+   * Reuses its repeat boundary on NOW; no recursive future economic-rule equivalence. */
+  renewalComparison?: "shared-wait-continuation";
   /** Extra conservative qualification hypothesis for current and forecast economic attempts.
    * Stops before KEEP's next safety action; NOT necessary for full-task savings or recursive equivalence. */
   forecastPaybackGate?: "single-cycle";
@@ -122,6 +125,12 @@ export interface RuntimeSurvivalOptions {
 }
 
 export interface RuntimeSurvivalEstimate {
+  commonContinuation?: {
+    repeatBoundaryTokens: number;
+    waitFirstCompactAt: 1 | null;
+    independentlyOptimizedNowCost: number;
+    independentlyOptimizedStressedNowCost: number;
+  };
   forecastPaybackBlocks?: number;
   cyclePayback?: {
     horizonCalls: number;
@@ -259,6 +268,14 @@ export function estimateRuntimeSurvival(
   const qStress = bounded("probabilityStress", options.probabilityStress ?? 0.05);
   if (options.stressWaitSelection !== undefined && options.stressWaitSelection !== "paired-policy")
     throw new RangeError("invalid stressWaitSelection");
+  if (options.renewalComparison !== undefined) {
+    if (options.renewalComparison !== "shared-wait-continuation")
+      throw new RangeError("invalid renewalComparison");
+    if (options.rolloutMode !== "renewal" || options.stressWaitSelection !== "paired-policy")
+      throw new RangeError("shared continuation requires renewal and paired-policy stress");
+    if (options.forecastPaybackGate !== undefined)
+      throw new RangeError("shared continuation ablation excludes the single-cycle gate");
+  }
   if (options.forecastPaybackGate !== undefined && options.forecastPaybackGate !== "single-cycle")
     throw new RangeError("invalid forecastPaybackGate");
   const retentionStress = bounded("retentionStress", options.retentionStress ?? 0.05);
@@ -662,6 +679,21 @@ export function estimateRuntimeSurvival(
       bestStressNow;
     independentStressWaitCost = Math.min(independentStressWaitCost, bestStressWait);
   }
+  let commonContinuation: RuntimeSurvivalEstimate["commonContinuation"];
+  if (options.renewalComparison === "shared-wait-continuation") {
+    commonContinuation = {
+      repeatBoundaryTokens: pairedWait.repeatBoundaryTokens,
+      waitFirstCompactAt: pairedWait.firstCompactAt,
+      independentlyOptimizedNowCost: now.cost,
+      independentlyOptimizedStressedNowCost: stressNow.cost,
+    };
+    // One baseline policy, selected on WAIT only. Do not optimize a different NOW future.
+    // Both branches retain their own context, cache, cooldown, summaries and prewarm bills.
+    selectedRepeatBoundaryTokens = pairedWait.repeatBoundaryTokens;
+    now = path(0, q, retention, selectedRepeatBoundaryTokens, nominalCurve);
+    stressNow = path(0, stressQ, stressRetention, selectedRepeatBoundaryTokens, stressedCurve);
+    bestWaitCost = pairedWait.nominalCost;
+  }
   if (options.stressWaitSelection === "paired-policy")
     stressedSaving = pairedWait.stressedCost - stressNow.cost;
   const immediateLoss = Math.max(
@@ -718,6 +750,7 @@ export function estimateRuntimeSurvival(
         : m.estimatedCompactCallCost;
   const requiredSaving = marginRatio * savingMarginCostScale;
   return {
+    ...(commonContinuation ? { commonContinuation } : {}),
     ...(options.forecastPaybackGate
       ? {
           forecastPaybackBlocks: now.paybackBlocks,

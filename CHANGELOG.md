@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Common WAIT continuation ablation (not promoted)
+
+- Add experimental `renewalComparison: "shared-wait-continuation"`: select WAIT's
+  nominal continuation boundary once, evaluate NOW with that same boundary, and retain
+  paired stress evaluation. Requires renewal/paired-policy; excludes the single-cycle gate.
+- Preserve independently optimized NOW costs for audit. No recursion, fixture endpoint,
+  changed price priors or hidden summary/prewarm costs; at most two extra bounded rollouts.
+- Compare 96 complete long tasks and 63 short tasks with frozen controls. 88 long bills
+  are unchanged, two cheaper and six dearer; all short bills unchanged. Flash still averages
+  0.51% above fixed 60%. Independent continuation selection is not the dominant failure
+  explanation in these seen fixtures. No default core/Pi change or real-quality claim.
+
 ### Single-cycle qualification ablation (not promoted)
 
 - Add opt-in experimental `forecastPaybackGate: "single-cycle"`, with closed-form
