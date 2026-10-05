@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen warm-task length and seed expansion
+
+- Freeze algorithm/parameters at `69d2752`; add a versioned 252-case main factorial
+  over seven price ratios, four growth/floor fixtures, three seeds and 120/240/360 calls.
+  Add 42 explicitly limited summary-sharing/prewarm sensitivity cases. No core/Pi changes.
+- Retain fixed 60%, paired stress and common-continuation bills. Check 588 growth/action
+  prefix intervals before subtracting longer and shorter bills; record selected source hashes,
+  end-position sign flips and ordinary/summary/prewarm fee deltas. Incomplete matrices fail.
+- Gains persist in several synthetic price ratios, not universally: paired Sonnet 5m is
+  33/36 wins with -11.86% mean cost change, Gemini Lite 36/36 with -14.50%; Flash is
+  17/36 with +0.69%, Opus 6/36 with +2.72%. Flash has nine endpoint-sensitive streams
+  out of twelve; all twelve 360-call Opus cases lose. Preserve these negative findings.
+- Separate equal-weight relative mean from pooled cost ratio; correlated endpoints are
+  not independent samples. Prior-history fees are separate; no provider/quality proof.
+  Add `analyze:warm-lengths` to reproject completed rows without resimulation.
+
 ### Common WAIT continuation ablation (not promoted)
 
 - Add experimental `renewalComparison: "shared-wait-continuation"`: select WAIT's

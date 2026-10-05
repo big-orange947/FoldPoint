@@ -1,7 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
-    "maxSize": 4000000
+    "maxSize": 4000000,
+    "includes": ["**", "!benchmarks/reports/warm-length-seed.json"]
   },
   "vcs": {
     "enabled": true,

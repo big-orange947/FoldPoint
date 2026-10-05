@@ -1,0 +1,32 @@
+{
+  "version": "foldpoint.warm-length-seed.v1",
+  "algorithmBaselineCommit": "69d2752",
+  "seeds": [151, 919, 2027],
+  "lengths": [120, 240, 360],
+  "sourceFixtures": [
+    "heldout-floor-180-22000-20000",
+    "heldout-floor-180-22000-50000",
+    "heldout-floor-180-41000-20000",
+    "heldout-floor-180-41000-50000"
+  ],
+  "profiles": [
+    "deepseek-flash-peak",
+    "deepseek-v4-pro-peak",
+    "claude-sonnet-5.5-5m-price",
+    "claude-sonnet-5.5-1h-price",
+    "claude-opus-5.5-5m-price",
+    "gemini-2.5-flash-text",
+    "gemini-2.5-flash-lite-text"
+  ],
+  "mainContract": "summary-uncached",
+  "sensitivity": {
+    "seed": 151,
+    "sourceFixture": "heldout-floor-180-22000-20000",
+    "contracts": ["hypothetical-summary-shared-80", "hypothetical-shared-80-prewarm-1"]
+  },
+  "mainCases": 252,
+  "sensitivityCases": 42,
+  "excludedScalarControl": "deepseek-flash-offpeak",
+  "exclusionReason": "全部单价是 peak 的 0.5 倍，价格比例与决策不变；不重复计为独立价格制度。",
+  "scope": "固定参数扩展验证；首请求建立缓存，其余请求 TTL 内持续暖缓存。成功压缩模拟，无真实任务质量证明。"
+}
