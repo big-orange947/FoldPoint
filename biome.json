@@ -5,7 +5,8 @@
     "includes": [
       "**",
       "!benchmarks/reports/warm-length-seed.json",
-      "!benchmarks/reports/forecast-attribution.json"
+      "!benchmarks/reports/forecast-attribution.json",
+      "!benchmarks/reports/future-qualification.json"
     ]
   },
   "vcs": {

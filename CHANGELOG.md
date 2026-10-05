@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Bounded selected-future incumbent qualification (not promoted)
+
+- Add opt-in experimental `futureQualification`: screen up to four future economic
+  attempts per selected nominal branch using the unmodified incumbent's full economic,
+  stress, ending-risk and execution rule. Depth one; remaining attempts explicitly retain
+  the old assumptions. No fixture endpoint, future token truth or hypothetical learning.
+- Freeze nominal approvals for stress repricing and preserve safety-only alternatives on
+  BOTH NOW and WAIT. Expose screened costs, fallback choices, rejected checks and unassessed
+  attempts. Exclude cumulative risk budgets and other ablations; no default core/Pi change.
+- Evaluate two checks per path on 28 seen 360-call warm combinations and 21 short controls.
+  Sonnet 5m/1h mean costs versus fixed 60% are -18.30%/-15.17%; Gemini Flash/Lite
+  -17.87%/-19.29%, all four wins each. Opus -1.41% with two wins/two losses; Flash
+  +0.12% with two wins/two losses, Pro -0.48% with one win/three losses.
+- Short controls are two cheaper/nineteen unchanged versus incumbent, but retain a 13.14%
+  worst increase versus fixed 60%. Single seed, synthetic warm success paths, no paid calls
+  or task-quality proof. Freeze this candidate before testing additional seeds/lengths.
+
 ### Selected-policy bill explanations and one-time fork diagnostics
 
 - Add opt-in experimental `explainBills`, requiring paired-policy stress. Re-evaluate only

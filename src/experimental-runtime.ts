@@ -114,6 +114,9 @@ export interface RuntimeSurvivalOptions {
   /** Audit-only: replay selected nominal policies with component bills and schedules.
    * Requires paired-policy stress; ordinary output cancels and is not modeled. */
   explainBills?: boolean;
+  /** Partial diagnostic: screen the first N economic attempts of selected nominal paths
+   * with the incumbent rule. Depth one only; later attempts retain the old assumption. */
+  futureQualification?: { maxChecksPerPath: number };
   /** Extra conservative qualification hypothesis for current and forecast economic attempts.
    * Stops before KEEP's next safety action; NOT necessary for full-task savings or recursive equivalence. */
   forecastPaybackGate?: "single-cycle";
@@ -128,6 +131,19 @@ export interface RuntimeSurvivalOptions {
 }
 
 export interface RuntimeSurvivalEstimate {
+  futureQualification?: {
+    maxChecksPerPath: number;
+    now: { checks: FutureRuleCheck[]; unassessedAttempts: number };
+    wait: { checks: FutureRuleCheck[]; unassessedAttempts: number };
+    incumbentNowCost: number;
+    incumbentWaitCost: number;
+    qualifiedNowCost: number;
+    qualifiedWaitCost: number;
+    safetyNowCost: number;
+    safetyWaitCost: number;
+    nowSafetyFallback: boolean;
+    waitSafetyFallback: boolean;
+  };
   forecastBills?: { now: RuntimeForecastBill; wait: RuntimeForecastBill };
   commonContinuation?: {
     repeatBoundaryTokens: number;
@@ -196,6 +212,16 @@ export interface RuntimeForecastBill {
     summaryCost: number;
     prewarmCost: number;
   }[];
+}
+
+interface FutureRuleCheck {
+  call: number;
+  context: number;
+  completedCalls: number | null;
+  allowed: boolean;
+  expectedSaving: number;
+  stressedSaving: number;
+  requiredSaving: number;
 }
 
 function bounded(name: string, value: number, max = 1): number {
@@ -293,6 +319,25 @@ export function estimateRuntimeSurvival(
     throw new RangeError("explainBills must be boolean");
   if (options.explainBills && options.stressWaitSelection !== "paired-policy")
     throw new RangeError("bill explanation requires paired-policy stress");
+  if (options.futureQualification !== undefined) {
+    if (!options.futureQualification || typeof options.futureQualification !== "object")
+      throw new RangeError("future qualification must be a configuration object");
+    const limit = options.futureQualification.maxChecksPerPath;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 4)
+      throw new RangeError("future qualification requires 1..4 checks per path");
+    if (
+      options.rolloutMode !== "renewal" ||
+      options.stressWaitSelection !== "paired-policy" ||
+      !options.executionConstraints ||
+      !options.compactorTokenModel ||
+      options.forecastPaybackGate ||
+      options.renewalComparison ||
+      options.remainingRuntimeLossBudget !== undefined
+    )
+      throw new RangeError(
+        "future qualification requires renewal, paired stress, execution gates and token model; excludes other ablations and cumulative budgets",
+      );
+  }
   if (options.stressWaitSelection !== undefined && options.stressWaitSelection !== "paired-policy")
     throw new RangeError("invalid stressWaitSelection");
   if (options.renewalComparison !== undefined) {
@@ -518,6 +563,13 @@ export function estimateRuntimeSurvival(
     repeatBoundary = m.guardedForceBoundaryTokens,
     curve?: readonly number[],
     explain = false,
+    qualify?: (state: {
+      call: number;
+      context: number;
+      prefix: number;
+      hasAttempt: boolean;
+      callsSinceAttempt: number;
+    }) => boolean,
   ) {
     const bill: RuntimeForecastBill | undefined = explain
       ? {
@@ -604,6 +656,17 @@ export function estimateRuntimeSurvival(
         if (planned) available = allowed;
         else if (!allowed) compact = false;
       }
+      if (
+        compact &&
+        i > 0 &&
+        !force &&
+        qualify &&
+        survival > 0 &&
+        !qualify({ call: i, context, prefix, hasAttempt, callsSinceAttempt })
+      ) {
+        compact = false;
+        if (planned) available = false;
+      }
       if (force && reachForce === 0) reachForce = survival;
       const beforeTokens = context;
       let fee = 0;
@@ -671,6 +734,8 @@ export function estimateRuntimeSurvival(
   let stressNow = path(0, stressQ, stressRetention, undefined, stressedCurve);
   const stressDefer = path(null, stressQ, stressRetention, undefined, stressedCurve);
   const stressWaitOne = path(1, stressQ, stressRetention, undefined, stressedCurve);
+  const safetyNow = now;
+  const safetyStressNow = stressNow;
   if (options.allowWaitOne !== undefined && typeof options.allowWaitOne !== "boolean")
     throw new RangeError("allowWaitOne must be boolean");
   const waitOneAvailable =
@@ -758,6 +823,170 @@ export function estimateRuntimeSurvival(
     stressNow = path(0, stressQ, stressRetention, selectedRepeatBoundaryTokens, stressedCurve);
     bestWaitCost = pairedWait.nominalCost;
   }
+  let futureQualification: RuntimeSurvivalEstimate["futureQualification"];
+  let qualifiedNow: Parameters<typeof path>[6];
+  let qualifiedWait: Parameters<typeof path>[6];
+  if (options.futureQualification && tokenModel && constraints) {
+    const maxChecks = options.futureQualification.maxChecksPerPath;
+    const screen = () => {
+      const checks: FutureRuleCheck[] = [];
+      const decisions = new Map<number, boolean>();
+      let unassessedAttempts = 0;
+      const qualify: NonNullable<Parameters<typeof path>[6]> = (state) => {
+        const previous = decisions.get(state.call);
+        if (previous !== undefined) return previous;
+        if (checks.length >= maxChecks) {
+          unassessedAttempts++;
+          decisions.set(state.call, true);
+          return true;
+        }
+        const shared = state.prefix * coverage;
+        const alive = m.estimatedCacheLaterAliveProbability;
+        const replay = costOfCall(prices, state.context, {
+          prefixTokens: shared,
+          aliveProbability: alive,
+          cachingInPlay,
+        });
+        const after = postTokens(state.context, retention);
+        const localBaseline: FoldPointDecision = {
+          ...baseline,
+          action: "KEEP",
+          reasons: baseline.reasons.filter(
+            (r) =>
+              ![
+                "COOLDOWN_ACTIVE",
+                "INSUFFICIENT_RECLAIM_TOKENS",
+                "INSUFFICIENT_RECLAIM_RATIO",
+                "BELOW_SOFT_WINDOW",
+              ].includes(r),
+          ),
+          metrics: {
+            ...m,
+            callsSinceLastAttempt: state.callsSinceAttempt,
+            estimatedCurrentCallReplayCost: replay,
+            estimatedCompactCallCost: summaryCost(state.context, false, shared, alive),
+            estimatedFirstPostCompactReplayCost: rebuildCost(after),
+            estimatedPostCompactTokens: after,
+            estimatedCacheLaterCandidateTokens: state.context * coverage,
+            estimatedEffectiveCachedTokens: shared * alive,
+            estimatedCacheAliveProbability: alive,
+          },
+        };
+        const completedCalls = options.durationModel
+          ? options.durationModel.completedCalls + state.call
+          : null;
+        const result = estimateRuntimeSurvival(
+          {
+            ...input,
+            contextTokens: state.context,
+            reusablePrefixTokens: shared,
+            cachedTokens: undefined,
+          },
+          localBaseline,
+          {
+            ...options,
+            futureQualification: undefined,
+            explainBills: false,
+            executionConstraints: { ...constraints, hasAttempt: state.hasAttempt },
+            ...(options.durationModel && completedCalls !== null
+              ? {
+                  durationModel: { ...options.durationModel, completedCalls },
+                }
+              : {}),
+          },
+        );
+        checks.push({
+          call: state.call,
+          context: state.context,
+          completedCalls,
+          allowed: result.shouldCompact,
+          expectedSaving: result.expectedSaving,
+          stressedSaving: result.stressedSaving,
+          requiredSaving: result.requiredSaving,
+        });
+        decisions.set(state.call, result.shouldCompact);
+        return result.shouldCompact;
+      };
+      return { qualify, checks, decisions, unassessed: () => unassessedAttempts };
+    };
+    const nowScreen = screen();
+    const waitScreen = screen();
+    const incumbentNowCost = now.cost;
+    const incumbentWaitCost = bestWaitCost;
+    qualifiedNow = nowScreen.qualify;
+    qualifiedWait = waitScreen.qualify;
+    const boundary = selectedRepeatBoundaryTokens ?? m.guardedForceBoundaryTokens;
+    now = path(0, q, retention, boundary, nominalCurve, false, qualifiedNow);
+    const wait = path(
+      pairedWait.firstCompactAt,
+      q,
+      retention,
+      pairedWait.repeatBoundaryTokens,
+      nominalCurve,
+      false,
+      qualifiedWait,
+    );
+    // Freeze nominal approval by call index; do not independently optimize stress actions.
+    // Stress still applies its own safety, cooldown, reclaim and immediate-risk constraints.
+    const freeze =
+      (s: ReturnType<typeof screen>): NonNullable<Parameters<typeof path>[6]> =>
+      (state) =>
+        s.decisions.get(state.call) === true;
+    stressNow = path(
+      0,
+      stressQ,
+      stressRetention,
+      boundary,
+      stressedCurve,
+      false,
+      freeze(nowScreen),
+    );
+    const stressWait = path(
+      pairedWait.firstCompactAt,
+      stressQ,
+      stressRetention,
+      pairedWait.repeatBoundaryTokens,
+      stressedCurve,
+      false,
+      freeze(waitScreen),
+    );
+    const qualifiedNowCost = now.cost;
+    const qualifiedWaitCost = wait.cost;
+    // Always preserve the valid safety-only alternatives on BOTH sides. Otherwise
+    // denying future economic actions could make WAIT artificially expensive.
+    const nowSafetyFallback = safetyNow.cost < now.cost;
+    const waitSafetyFallback = defer.cost < wait.cost;
+    if (nowSafetyFallback) {
+      now = safetyNow;
+      stressNow = safetyStressNow;
+      selectedRepeatBoundaryTokens = m.guardedForceBoundaryTokens;
+      qualifiedNow = undefined;
+    }
+    pairedWait = { ...pairedWait, nominalCost: wait.cost, stressedCost: stressWait.cost };
+    if (waitSafetyFallback) {
+      pairedWait = {
+        firstCompactAt: null,
+        repeatBoundaryTokens: m.guardedForceBoundaryTokens,
+        nominalCost: defer.cost,
+        stressedCost: stressDefer.cost,
+      };
+      qualifiedWait = undefined;
+    }
+    bestWaitCost = pairedWait.nominalCost;
+    futureQualification = {
+      maxChecksPerPath: maxChecks,
+      now: { checks: nowScreen.checks, unassessedAttempts: nowScreen.unassessed() },
+      wait: { checks: waitScreen.checks, unassessedAttempts: waitScreen.unassessed() },
+      incumbentNowCost,
+      incumbentWaitCost,
+      qualifiedNowCost,
+      qualifiedWaitCost,
+      safetyNowCost: safetyNow.cost,
+      safetyWaitCost: defer.cost,
+      nowSafetyFallback,
+      waitSafetyFallback,
+    };
+  }
   if (options.stressWaitSelection === "paired-policy")
     stressedSaving = pairedWait.stressedCost - stressNow.cost;
   const immediateLoss = Math.max(
@@ -822,6 +1051,7 @@ export function estimateRuntimeSurvival(
       selectedRepeatBoundaryTokens ?? undefined,
       nominalCurve,
       true,
+      qualifiedNow,
     );
     const explainedWait = path(
       pairedWait.firstCompactAt,
@@ -830,6 +1060,7 @@ export function estimateRuntimeSurvival(
       pairedWait.repeatBoundaryTokens,
       nominalCurve,
       true,
+      qualifiedWait,
     );
     if (
       !explainedNow.bill ||
@@ -841,6 +1072,7 @@ export function estimateRuntimeSurvival(
     forecastBills = { now: explainedNow.bill, wait: explainedWait.bill };
   }
   return {
+    ...(futureQualification ? { futureQualification } : {}),
     ...(forecastBills ? { forecastBills } : {}),
     ...(commonContinuation ? { commonContinuation } : {}),
     ...(options.forecastPaybackGate

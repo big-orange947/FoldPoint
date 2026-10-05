@@ -17,6 +17,7 @@ export function cycleExecutionCase(
   stressWaitSelection?: "paired-policy",
   forecastPaybackGate?: "single-cycle",
   renewalComparison?: "shared-wait-continuation",
+  futureQualification?: { maxChecksPerPath: number },
 ) {
   // Collection is completed beforehand, no evaluation endpoint or future feedback is read.
   const history = collectCompactorHistory({ ...scenario, cycleBilling: undefined });
@@ -33,6 +34,7 @@ export function cycleExecutionCase(
     endingRiskAllowed: boolean;
     cyclePayback?: RuntimeSurvivalEstimate["cyclePayback"];
     commonContinuation?: RuntimeSurvivalEstimate["commonContinuation"];
+    futureQualification?: RuntimeSurvivalEstimate["futureQualification"];
   }[] = [];
   const base = createFoldPointStrategy(scenario, {
     learnedCompactorTokens: true,
@@ -55,6 +57,7 @@ export function cycleExecutionCase(
       stressWaitSelection,
       forecastPaybackGate,
       renewalComparison,
+      futureQualification,
     },
     onSurvivalEstimate: (e) => {
       estimate = e;
@@ -127,6 +130,9 @@ export function cycleExecutionCase(
           estimate.assessedEndingLoss <= estimate.immediateLossBudget,
         ...(estimate.cyclePayback ? { cyclePayback: estimate.cyclePayback } : {}),
         ...(estimate.commonContinuation ? { commonContinuation: estimate.commonContinuation } : {}),
+        ...(estimate.futureQualification
+          ? { futureQualification: estimate.futureQualification }
+          : {}),
       });
       return decision;
     },
@@ -170,6 +176,31 @@ export function cycleExecutionCase(
     dynamic,
     change: dynamic.cost / fixed60.cost - 1,
     audit: {
+      ...(futureQualification
+        ? {
+            futureRuleChecks: trace.reduce(
+              (n, t) =>
+                n +
+                (t.futureQualification?.now.checks.length ?? 0) +
+                (t.futureQualification?.wait.checks.length ?? 0),
+              0,
+            ),
+            futureRuleRejected: trace.reduce(
+              (n, t) =>
+                n +
+                (t.futureQualification?.now.checks.filter((c) => !c.allowed).length ?? 0) +
+                (t.futureQualification?.wait.checks.filter((c) => !c.allowed).length ?? 0),
+              0,
+            ),
+            futureRuleUnassessed: trace.reduce(
+              (n, t) =>
+                n +
+                (t.futureQualification?.now.unassessedAttempts ?? 0) +
+                (t.futureQualification?.wait.unassessedAttempts ?? 0),
+              0,
+            ),
+          }
+        : {}),
       ...(forecastPaybackGate
         ? {
             cycleRejections: trace.filter(
