@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen future-rule replication: conditional gains and two hard failures
+
+- Freeze candidate `dafcc42` and all algorithm dependencies; attempt 252 warm factorial
+  combinations over seven frozen prices, four growth/floor fixtures, three seeds and
+  120/240/360 ordinary calls. Reuse exactly 28 initial long and 21 initial short records;
+  retain execution-harness provenance for already completed compatible worker profiles.
+- Complete 250 main combinations; record two Gemini Lite 360-call product hard failures,
+  not zero-cost wins. Keep nonzero execution gate, successful-only fee denominators,
+  unavailable adjacent-prefix checks and complete accounting for all attempted cases.
+- Sonnet 5m/1h and Gemini Flash are 36/36 wins versus fixed 60%, mean -16.40%/-13.81%/
+  -16.35%. Flash is 14 wins/22 losses at +1.47%; Pro 16/20 at +0.11%; Opus 21/15 at
+  -0.24%. Lite's 34 successful cases average -17.53%, not a 36-case success claim.
+- Add failure reproduction with an audit-only mirror of actual compaction feedback.
+  The rolling learner can lose input-span identifiability; candidate handling remains
+  unchanged during the frozen evaluation. No prior/parameter tuning or core/Pi promotion.
+- Preserve all 63 short controls (8 cheaper/55 unchanged versus incumbent, worst +13.15%
+  versus fixed 60%), full fee ledgers and correlated endpoint stability checks. No paid
+  calls or key reads; synthetic task costs do not establish real-provider task quality.
+
 ### Bounded selected-future incumbent qualification (not promoted)
 
 - Add opt-in experimental `futureQualification`: screen up to four future economic

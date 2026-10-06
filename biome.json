@@ -6,7 +6,8 @@
       "**",
       "!benchmarks/reports/warm-length-seed.json",
       "!benchmarks/reports/forecast-attribution.json",
-      "!benchmarks/reports/future-qualification.json"
+      "!benchmarks/reports/future-qualification.json",
+      "!benchmarks/reports/future-replication.json"
     ]
   },
   "vcs": {
