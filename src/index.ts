@@ -25,7 +25,11 @@ export {
 export { FoldPoint, profileKey, sessionKey } from "./engine";
 export type { BreakEvenInput } from "./estimator";
 export { computeBreakEvenCalls, decideFoldPoint, validateFoldPointInput } from "./estimator";
-export type { CompactorTokenModel, CompactorTokenObservation } from "./experimental-compactor";
+export type {
+  CompactorModelAvailability,
+  CompactorTokenModel,
+  CompactorTokenObservation,
+} from "./experimental-compactor";
 export { ExperimentalCompactorLearner, predictCompactorTokens } from "./experimental-compactor";
 export type { CycleBilling } from "./experimental-cycle";
 export {

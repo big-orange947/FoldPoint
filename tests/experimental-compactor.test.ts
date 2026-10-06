@@ -77,4 +77,50 @@ describe("experimental compactor token learner", () => {
     if (!model) throw new Error("missing model");
     expect(() => predictCompactorTokens(model, NaN)).toThrow();
   });
+  it("retains a learned affine model across consistent low-span feedback without changing strict snapshot", () => {
+    const l = new ExperimentalCompactorLearner();
+    for (const x of [100000, 200000, 300000]) observe(l, x, 10000 + x * 0.1);
+    for (let i = 0; i < 100; i++) observe(l, 150000, 25000);
+    expect(l.snapshot()).toBeUndefined();
+    const state = l.snapshotWithFallback();
+    expect(state.source).toBe("retained");
+    expect(state.observationsSinceFit).toBeGreaterThan(32);
+    if (!state.model) throw new Error("missing retained model");
+    expect(predictCompactorTokens(state.model, 150000).afterTokens).toBeCloseTo(25000);
+    state.model.after.intercept = 999999;
+    expect(l.snapshotWithFallback().model?.after.intercept).toBeCloseTo(10000);
+    expect(l.exportObservations()).toHaveLength(32);
+  });
+  it("never invents a model for an unidentifiable cold start", () => {
+    const l = new ExperimentalCompactorLearner();
+    for (let i = 0; i < 40; i++) observe(l, 150000, 25000);
+    expect(l.snapshotWithFallback()).toMatchObject({
+      source: "unavailable",
+      reason: "not-learned",
+    });
+    expect(l.snapshotWithFallback().model).toBeUndefined();
+  });
+  it.each(["retention", "output", "price"] as const)(
+    "invalidates retention on %s drift and never resurrects it after eviction",
+    (kind) => {
+      const l = new ExperimentalCompactorLearner();
+      for (const x of [100000, 200000, 300000]) observe(l, x, 25000);
+      for (let i = 0; i < 32; i++) observe(l, 150000, 25000);
+      expect(l.snapshotWithFallback().source).toBe("retained");
+      l.observe({
+        beforeTokens: 150000,
+        afterTokens: kind === "retention" ? 50000 : 25000,
+        outputTokens: kind === "output" ? 5000 : 2000,
+        summaryInputCostPerToken: kind === "price" ? 3e-6 : 2e-6,
+      });
+      expect(l.snapshotWithFallback()).toMatchObject({
+        source: "unavailable",
+        reason: kind === "price" ? "summary-price-change" : "feedback-drift",
+      });
+      for (let i = 0; i < 32; i++) observe(l, 150000, 25000);
+      expect(l.snapshotWithFallback().source).toBe("unavailable");
+      for (const x of [100000, 200000, 300000]) observe(l, x, 25000);
+      expect(l.snapshotWithFallback().source).toBe("fitted");
+    },
+  );
 });

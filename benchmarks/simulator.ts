@@ -208,6 +208,12 @@ export function createFoldPointStrategy(
     /** Duration ablation only: false keeps the caller's declared age fixed. */
     advanceDurationAge?: boolean;
     learnedCompactorTokens?: boolean;
+    /** Explicit reliability candidate; no effect on existing benchmark/default strategies. */
+    recoverCompactorModel?: boolean;
+    onCompactorAvailability?: (
+      state: import("../src/index").CompactorModelAvailability,
+      step: number,
+    ) => void;
     /** Previously completed compatible sessions only; independently copied per branch. */
     compactorHistory?: readonly import("../src/index").CompactorTokenObservation[];
     warmCoreFromHistory?: boolean;
@@ -242,6 +248,8 @@ export function createFoldPointStrategy(
   const compactorLearner = options.learnedCompactorTokens
     ? new ExperimentalCompactorLearner(options.compactorHistory)
     : undefined;
+  if (options.recoverCompactorModel && !compactorLearner)
+    throw new RangeError("model recovery requires learnedCompactorTokens");
   let risk: RuntimeRiskBudget | undefined;
   let pendingRisk = 0;
   let lastSentPrefix = 0;
@@ -303,7 +311,12 @@ export function createFoldPointStrategy(
       }
 
       const decision = foldPoint.decide(input);
-      const tokenModel = compactorLearner?.snapshot();
+      const availability = options.recoverCompactorModel
+        ? compactorLearner?.snapshotWithFallback()
+        : undefined;
+      if (availability)
+        options.onCompactorAvailability?.(structuredClone(availability), request.step);
+      const tokenModel = availability ? availability.model : compactorLearner?.snapshot();
       const predicted = tokenModel
         ? predictCompactorTokens(tokenModel, input.contextTokens)
         : undefined;
@@ -384,6 +397,15 @@ export function createFoldPointStrategy(
             ...(risk ? { remainingRuntimeLossBudget: risk.report().remaining } : {}),
           }
         : undefined;
+      if (options.recoverCompactorModel && availability?.source === "unavailable") {
+        // Never invent model coefficients, a zero forecast bill or an economic approval.
+        pendingRisk = 0;
+        return {
+          action: decision.action === "FORCE" ? "FORCE" : "KEEP",
+          reasons: decision.action === "FORCE" ? decision.reasons : [],
+          estimatedBreakEvenCalls: null,
+        };
+      }
       const experiment = survivalOptions
         ? estimateRuntimeSurvival(input, decision, survivalOptions)
         : undefined;

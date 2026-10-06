@@ -71,6 +71,7 @@
     "simulate:future-replication": "tsx benchmarks/future-replication.ts",
     "analyze:future-replication": "tsx benchmarks/future-replication.ts --analyze-existing",
     "diagnose:future-model": "tsx tools/future-model-diagnose.ts",
+    "simulate:model-recovery": "tsx tools/model-recovery-evaluate.ts",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",

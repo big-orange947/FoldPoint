@@ -15,6 +15,24 @@ export type CompactorTokenObservation = {
   summaryInputCostPerToken: number;
 };
 
+export type CompactorModelAvailability = {
+  source: "fitted" | "retained" | "unavailable";
+  reason:
+    | "identifiable"
+    | "low-span-consistent"
+    | "not-learned"
+    | "feedback-drift"
+    | "summary-price-change";
+  observationsSinceFit: number;
+  model?: CompactorTokenModel;
+};
+
+const copyModel = (m: CompactorTokenModel): CompactorTokenModel => ({
+  ...m,
+  after: { ...m.after },
+  output: { ...m.output },
+});
+
 /** Nonnegative affine least squares; compare interior and both boundary solutions. */
 function fitAffine(
   points: readonly CompactorTokenObservation[],
@@ -49,6 +67,10 @@ function fitAffine(
 
 export class ExperimentalCompactorLearner {
   private points: CompactorTokenObservation[] = [];
+  private lastIdentifiable?: CompactorTokenModel;
+  private fittedPriceRange?: { min: number; max: number };
+  private observationsSinceFit = 0;
+  private unavailableReason: CompactorModelAvailability["reason"] = "not-learned";
 
   /** Host owns compatibility and storage. Copy bounded prior observations, never task truth. */
   constructor(history: readonly CompactorTokenObservation[] = []) {
@@ -78,6 +100,68 @@ export class ExperimentalCompactorLearner {
       summaryInputCostPerToken: observation.summaryInputCostPerToken,
     });
     if (this.points.length > 32) this.points.shift();
+    const fit = this.snapshot();
+    if (fit) {
+      this.lastIdentifiable = copyModel(fit);
+      this.fittedPriceRange = {
+        min: Math.min(...this.points.map((p) => p.summaryInputCostPerToken)),
+        max: Math.max(...this.points.map((p) => p.summaryInputCostPerToken)),
+      };
+      this.observationsSinceFit = 0;
+    } else {
+      this.observationsSinceFit++;
+      const incompatibility = this.retentionIncompatibility();
+      if (incompatibility) {
+        this.lastIdentifiable = undefined;
+        this.fittedPriceRange = undefined;
+        this.unavailableReason = incompatibility;
+      }
+    }
+  }
+
+  private retentionIncompatibility(): "feedback-drift" | "summary-price-change" | undefined {
+    const model = this.lastIdentifiable;
+    const prices = this.fittedPriceRange;
+    if (!model || !prices) return undefined;
+    for (const p of this.points) {
+      const epsilon = 1e-10 * Math.max(prices.max, p.summaryInputCostPerToken, Number.MIN_VALUE);
+      if (
+        p.summaryInputCostPerToken < prices.min - epsilon ||
+        p.summaryInputCostPerToken > prices.max + epsilon
+      )
+        return "summary-price-change";
+      for (const key of ["after", "output"] as const) {
+        const c = model[key];
+        const predicted = c.slope * p.beforeTokens + c.intercept;
+        const observed = key === "after" ? p.afterTokens : p.outputTokens;
+        // Quantization + observed residual + explicit 5% drift tolerance. Not a confidence interval.
+        if (Math.abs(observed - predicted) > Math.max(1, c.residual) + 0.05 * predicted)
+          return "feedback-drift";
+      }
+    }
+    return undefined;
+  }
+
+  /** Explicit recovery; snapshot() remains the strict current-window fit.
+   * Host must create a new learner when model/compactor compatibility changes.
+   * Retention validates recent observed inputs only, not extrapolation or task quality.
+   */
+  snapshotWithFallback(): CompactorModelAvailability {
+    const current = this.snapshot();
+    if (current)
+      return { source: "fitted", reason: "identifiable", observationsSinceFit: 0, model: current };
+    if (this.lastIdentifiable)
+      return {
+        source: "retained",
+        reason: "low-span-consistent",
+        observationsSinceFit: this.observationsSinceFit,
+        model: copyModel(this.lastIdentifiable),
+      };
+    return {
+      source: "unavailable",
+      reason: this.unavailableReason,
+      observationsSinceFit: this.observationsSinceFit,
+    };
   }
 
   snapshot(): CompactorTokenModel | undefined {

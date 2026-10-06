@@ -6,6 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Opt-in recovery of identifiable compactor models
+
+- Preserve strict current-window `snapshot()` semantics. Add `snapshotWithFallback()`
+  with explicit fitted/retained/unavailable state. Keep a bounded last identifiable model
+  only while recent length/output feedback and fitted input-price support remain compatible.
+  Invalidate on drift without silently resurrecting it after eviction; relearn only from
+  identifiable observations. Host owns profile/compactor compatibility.
+- Use an explicit residual + quantization + 5% prediction drift heuristic, not a confidence
+  guarantee or a per-price tuned rule. Deep-copy exposed models and audit callbacks.
+- Add simulator-only opt-in recovery. Unavailable models suppress economic decisions while
+  preserving legitimate core safety FORCE; do not fabricate a forecast or zero bill.
+- Re-execute both failed 360-call cases and fourteen frozen best/worst successful controls.
+  Both failures complete; fourteen complete bills/compaction records remain identical.
+  Strict legacy runs reproduce the same pre-recovery action prefixes and original failures.
+- Repaired cases cost -23.70%/-23.04% versus fixed 60%, with 111/112 summaries versus
+  26/25. This repairs interruption, not compaction frequency or task quality. Sixteen targeted
+  regressions are not a new full matrix. Core defaults and Pi timing remain unchanged.
+- All tests and evaluation are offline, with no paid requests or key reads. Retain old
+  failed reports and version-pinned runners; do not rewrite their findings.
+
 ### Frozen future-rule replication: conditional gains and two hard failures
 
 - Freeze candidate `dafcc42` and all algorithm dependencies; attempt 252 warm factorial
