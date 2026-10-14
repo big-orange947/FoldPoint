@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen repaired-candidate full matrix and frequency audit
+
+- Freeze `8c054cc` source/parameters and execute all candidate/fixed60 arms for 252 warm
+  main combinations plus 63 short controls. No old result stitching; version-addressed
+  per-case execution checkpoints support interruption recovery. Preserve all old reports.
+- All 315 cases complete, zero hard failures; all 250 previously successful main bills
+  and 63 short bills unchanged. Both former failures repaired; 168 growth/action/checkpoint
+  prefix comparisons pass. Add source/input hashes and strict report reaggregation guards.
+- Sonnet 5m/1h and Gemini Flash/Lite each win 36/36 versus fixed60, mean -16.40%/-13.81%/
+  -16.35%/-17.85%. Keep Flash +1.47% (14/22), Pro +0.11% (16/20) and Opus -0.24% (21/15).
+- Expose summary counts, within-session median spacing/utilization and ordinary/summary
+  fee deltas. Stronger-saving groups consume 2.2–3.0x as many summaries; fees include them,
+  but length-only simulation cannot establish repeated-summary information retention.
+- Preserve the short-control worst +13.15% versus fixed60. No price/scenario special cases,
+  probability/margin/drift/cooldown tuning, default core changes, Pi promotion or paid calls.
+
 ### Opt-in recovery of identifiable compactor models
 
 - Preserve strict current-window `snapshot()` semantics. Add `snapshotWithFallback()`
