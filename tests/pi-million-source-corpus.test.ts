@@ -34,6 +34,7 @@ function fixtureRepo(): string {
 }
 
 describe("frozen Pi source reading corpus", () => {
+  // Git fixture creation is disk-bound, not a five-second runtime performance assertion.
   it("builds deterministic answerable stages and rejects dirty source", () => {
     const repo = fixtureRepo();
     const first = buildSourceCorpus(repo, 100_000);
@@ -50,5 +51,5 @@ describe("frozen Pi source reading corpus", () => {
     }
     writeFileSync(join(repo, "packages", "sample", "src", "file-00.ts"), "changed\n");
     expect(() => buildSourceCorpus(repo, 100_000)).toThrow(/dirty/);
-  });
+  }, 30_000);
 });

@@ -16,6 +16,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request against an independent hand bill; verify model invalidation/recovery after drift.
 - Add nine tests and a deterministic Chinese report with 17 wiring checks. No paid calls,
   live quality claims, default-policy changes or Pi feedback replacement.
+- Give the Git source-corpus fixture a 30-second setup budget on busy hosts; its determinism,
+  answerability and dirty-source assertions are unchanged.
 
 ### Pi compaction measurement provenance
 
