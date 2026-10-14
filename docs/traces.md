@@ -112,6 +112,13 @@ the Pi learner still receives its historical host-size proxy. Validating or repl
 feedback with compatible, growth-free before/after units remains separate work. No new real
 retention measurement is retroactively inferred from old summary output counts.
 
+`npm run verify:feedback` exercises that contract with a public controlled host whose before/
+after units and intervening growth are known. The replay admits only successful `host-measured`
+sizes with complete token usage, derives input-only summary cost from the cache partitions,
+and fits context and output separately. Estimated/unknown/legacy sizes do not train this research
+learner; failed attempts still enter the bill. This is an offline wiring fixture, not a new
+admission rule for the default learner or Pi. See [the report](../benchmarks/compactor-feedback.md).
+
 `usableForCalibration: true` only means the prediction-calibration samples are structurally
 usable; it does not turn a lower-bound session cost into a complete bill.
 

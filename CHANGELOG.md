@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Controlled compactor feedback verification
+
+- Add offline-only `npm run verify:feedback`: exercise core EMA updates and the opt-in
+  affine learner separately, predicting a held-out size before revealing its synthetic outcome.
+- Keep post-compaction context, summary output and subsequent request growth in separate units;
+  reject estimated/unknown/unlabelled/incomplete feedback from this research replay learner.
+- Reconcile four successful summaries, one failed attempt, one prewarm and one ordinary
+  request against an independent hand bill; verify model invalidation/recovery after drift.
+- Add nine tests and a deterministic Chinese report with 17 wiring checks. No paid calls,
+  live quality claims, default-policy changes or Pi feedback replacement.
+
 ### Pi compaction measurement provenance
 
 - Label Pi's delayed post-compaction context as a host estimate, not measured retention.
