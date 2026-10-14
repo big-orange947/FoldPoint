@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi compaction measurement provenance
+
+- Label Pi's delayed post-compaction context as a host estimate, not measured retention.
+  Keep the first successful subsequent provider prompt/output usage in separate optional v4
+  diagnostic metadata; preserve it even if shutdown leaves the host size unknown.
+- Exclude labelled estimates from measured retention calibration; expose measurement-basis
+  counts and warn about legacy unlabelled samples. Compaction/request fees remain counted once.
+- Do not retune default policy or learning, rewrite the previous paid probe, or make paid calls.
+- Give the 351-case frequency recomputation tests an explicit 30-second timeout rather than
+  the default five seconds; a nested frozen-task check exceeded five seconds under load.
+  All scenario, bill-reconciliation and artifact-equality assertions remain unchanged.
+
 ### Frozen-schedule real repeated-summary retention probe
 
 - Add opt-in `--profile repeated` to the Pi summary runner; retain the legacy plan/default.

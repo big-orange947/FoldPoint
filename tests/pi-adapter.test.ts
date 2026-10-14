@@ -667,6 +667,84 @@ describe("Pi observer adapter", () => {
     expect(analysis.sessionCosts[0]?.compactionCost).toBeCloseTo(0.48);
   });
 
+  it.each([false, true])(
+    "separates first provider prompt from delayed host estimate (terminal=%s)",
+    (terminal) => {
+      const path = newTracePath("compaction-measurement-basis");
+      const fake = fakePi();
+      createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+        fake.pi,
+      );
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+      fake.emit("context", { type: "context" }, fake.ctxWith(120_000));
+      fake.emit("session_before_compact", {
+        type: "session_before_compact",
+        reason: "threshold",
+        preparation: { tokensBefore: 120_000 },
+      });
+      fake.emit("session_compact", {
+        type: "session_compact",
+        reason: "threshold",
+        compactionEntry: {
+          tokensBefore: 120_000,
+          usage: { input: 120_000, output: 2_000, cacheRead: 0, cacheWrite: 0 },
+        },
+      });
+      fake.emit("context", { type: "context" }, fake.ctxWith(null));
+      // Failed requests must not occupy the first successful-request measurement.
+      fake.emit("message_end", {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "error",
+          usage: { input: 999, output: 1, cacheRead: 0, cacheWrite: 0 },
+        },
+      });
+      fake.emit("message_end", {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 1_000, output: 500, cacheRead: 20_000, cacheWrite: 3_000 },
+        },
+      });
+      // A later response must not overwrite the first observation.
+      fake.emit("message_end", {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 99_000, output: 9_000, cacheRead: 0, cacheWrite: 0 },
+        },
+      });
+      if (!terminal) fake.emit("context", { type: "context" }, fake.ctxWith(35_000));
+      fake.emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+      const events = readTrace(path);
+      const compactions = events.filter((event) => event.type === "compaction");
+      expect(compactions).toHaveLength(1);
+      expect(compactions[0]?.afterTokens).toBe(terminal ? null : 35_000);
+      expect(compactions[0]?.afterTokensSource).toBe(terminal ? undefined : "host-estimate");
+      expect(compactions[0]?.usage?.outputTokens).toBe(2_000);
+      expect(compactions[0]?.firstPostCompactionRequest).toEqual({
+        timestamp: 1_000_000,
+        promptTokens: 24_000,
+        outputTokens: 500,
+      });
+      const analysis = analyzeTraceEvents(events);
+      expect(analysis.overall.retention.count).toBe(0);
+      expect(analysis.compactionMeasurements.firstProviderRequests).toBe(1);
+      expect(analysis.compactionMeasurements.hostEstimated).toBe(terminal ? 0 : 1);
+      expect(analysis.sessionCosts[0]?.compactions).toBe(1);
+      expect(analysis.sessionCosts[0]?.unpricedCompactions).toBe(0);
+      const withoutDiagnostic = analyzeTraceEvents(
+        events.map((event) =>
+          event.type === "compaction" ? { ...event, firstPostCompactionRequest: undefined } : event,
+        ),
+      );
+      expect(analysis.sessionCosts).toEqual(withoutDiagnostic.sessionCosts);
+      if (!terminal)
+        expect(analysis.notes.some((note) => note.includes("host-estimate"))).toBe(true);
+    },
+  );
+
   it("does not lose an earlier paid compaction when Pi compacts again before size is known", () => {
     const path = newTracePath("back-to-back-compactions");
     const fake = fakePi();

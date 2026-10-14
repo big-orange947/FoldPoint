@@ -332,6 +332,7 @@ interface PendingDecision {
 }
 
 interface PendingCompaction {
+  firstPostCompactionRequest?: { timestamp: number; promptTokens: number; outputTokens: number };
   reason: PiCompactionReason;
   tokensBefore: number;
   usage: PiUsage | undefined;
@@ -972,6 +973,7 @@ export function createFoldPointObserver(
               action: "COMPACT",
               reason: pending.reason,
               initiatedBy: pending.initiatedBy,
+              firstPostCompactionRequest: pending.firstPostCompactionRequest,
             },
           ),
         );
@@ -1111,8 +1113,8 @@ export function createFoldPointObserver(
       // A compaction that Pi finished since the last call: only now is the new context size
       // known, so the compaction record is written here. Pi reports `tokens: null` until the
       // first response after a compaction, so the record waits for the first event that does
-      // know the size - that prompt is the post-compaction context, which is what the
-      // retention comparison needs.
+      // know an estimate. That estimate may already include a response/tool tail; it is
+      // NOT the pristine compacted prompt, nor the provider's summary output count.
       const pending = state.pendingCompaction;
       if (pending?.completed === true) {
         const afterTokens = ctx.getContextUsage()?.tokens ?? null;
@@ -1139,6 +1141,8 @@ export function createFoldPointObserver(
               action: "COMPACT",
               reason: pending.reason,
               initiatedBy: pending.initiatedBy,
+              afterTokensSource: "host-estimate",
+              firstPostCompactionRequest: pending.firstPostCompactionRequest,
             }),
           );
         }
@@ -1267,6 +1271,18 @@ export function createFoldPointObserver(
         outputTokens: usage.output,
       };
       const outcome = outcomeFromStopReason(event.message.stopReason);
+      const compaction = state.pendingCompaction;
+      if (
+        outcome === "ok" &&
+        compaction?.completed === true &&
+        compaction.firstPostCompactionRequest === undefined
+      ) {
+        compaction.firstPostCompactionRequest = {
+          timestamp: now(),
+          promptTokens: totalPromptTokens(usage),
+          outputTokens: usage.output,
+        };
+      }
       if (pending === undefined) {
         // The decision for this call was skipped (Pi does not know the context size right
         // after a compaction). The usage is still measured data, so it goes into the trace

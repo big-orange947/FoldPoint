@@ -58,6 +58,8 @@ it("attributes a hand-priced summary and its ordinary replay once, without inven
   ).toThrow(/Recovery costs/);
 });
 
+// This recomputes 351 scenarios, including inside the frozen repository's nested test run.
+// Its correctness assertions are not a five-second performance gate on a busy Windows host.
 it("keeps all cases, reconciles bills and reproduces existing strategies rather than changing policy", () => {
   const report = frequencyReport();
   const previous = JSON.parse(
@@ -88,10 +90,10 @@ it("keeps all cases, reconciles bills and reproduces existing strategies rather 
     expect(summary.compared + summary.excludedNoCompaction).toBe(summary.scenarios);
     expect(summary.wins + summary.losses).toBeLessThanOrEqual(summary.compared);
   }
-});
+}, 30_000);
 
 it("keeps the generated report and markdown synchronized", () => {
   const saved = JSON.parse(readFileSync("benchmarks/reports/compaction-frequency.json", "utf8"));
   expect(saved).toEqual(frequencyReport());
   expect(readFileSync("benchmarks/compaction-frequency.md", "utf8")).toBe(renderFrequency(saved));
-});
+}, 30_000);

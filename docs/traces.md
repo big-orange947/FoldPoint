@@ -88,6 +88,30 @@ Identifiers receive the same privacy validation as session IDs.
 In v3 and later, a successful compaction may have `afterTokens: null` when the session ends before Pi
 reports the size of a subsequent context. Its known usage is still billed, but it contributes
 no retention-calibration sample. v1/v2 traces remain readable; neither permits this null value.
+Optional additive v4 metadata now distinguishes `afterTokensSource: "host-estimate"` from
+`"host-measured"`. Pi's `getContextUsage().tokens` is an estimate, not provider usage: after
+compaction it remains null until a successful assistant response and can subsequently include
+response/tool growth. The Pi adapter labels this value `host-estimate`. Such values remain
+visible but are excluded from measured retention calibration. Older unlabelled records retain
+legacy analysis behavior with an explicit warning; no accuracy is inferred from missing labels.
+
+`firstPostCompactionRequest: { timestamp, promptTokens, outputTokens }` optionally captures the
+first successful assistant request observed while the completed compaction awaits a host size.
+`promptTokens` sums provider input/cache-read/cache-write partitions, excluding output. It is
+distinct from the summary call's `usage.outputTokens` and from `afterTokens`. This request can
+include system instructions, retained messages and new input; **it is not a pristine summary
+token count or a before/after retention ratio**. It is diagnostic metadata, never a second
+billable request. Failed responses do not fill it; later responses do not overwrite it. It
+survives session shutdown or another compaction even if `afterTokens` is still null. If Pi
+reports a context size before a subsequent response is observed, this optional field is absent.
+
+Analysis JSON exposes `compactionMeasurements` counts for host estimates, declared host
+measurements, legacy unlabelled sizes and first provider requests. `host-measured` is a host
+declaration, not independent verification. This instrumentation does not change core learning:
+the Pi learner still receives its historical host-size proxy. Validating or replacing that
+feedback with compatible, growth-free before/after units remains separate work. No new real
+retention measurement is retroactively inferred from old summary output counts.
+
 `usableForCalibration: true` only means the prediction-calibration samples are structurally
 usable; it does not turn a lower-bound session cost into a complete bill.
 

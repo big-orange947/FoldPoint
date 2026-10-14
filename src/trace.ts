@@ -200,6 +200,14 @@ export interface TraceCompactionEvent {
   beforeTokens: number;
   /** Null when the session ended before Pi could report the post-compaction context size. */
   afterTokens: number | null;
+  /** Missing on older traces; never infer provider accuracy from an unlabelled value. */
+  afterTokensSource?: "host-estimate" | "host-measured";
+  /** First successful request after compaction, NOT the pristine compacted context. */
+  firstPostCompactionRequest?: {
+    timestamp: number;
+    promptTokens: number;
+    outputTokens: number;
+  };
   success: boolean;
   usage?: {
     promptTokens?: number;
@@ -230,6 +238,25 @@ export interface TraceCompactionEvent {
    */
   reasons?: string[];
   policyLatencyMs?: number;
+}
+
+function validateCompactionMeasurements(event: TraceCompactionEvent): void {
+  if (
+    event.afterTokensSource !== undefined &&
+    event.afterTokensSource !== "host-estimate" &&
+    event.afterTokensSource !== "host-measured"
+  ) {
+    throw new RangeError("Invalid compaction afterTokensSource");
+  }
+  const request = event.firstPostCompactionRequest;
+  if (request !== undefined) {
+    if (!event.success) {
+      throw new RangeError("Failed compaction cannot have a post-compaction request");
+    }
+    assertFinite("firstPostCompactionRequest.timestamp", request?.timestamp, 0);
+    assertFinite("firstPostCompactionRequest.promptTokens", request?.promptTokens, 0);
+    assertFinite("firstPostCompactionRequest.outputTokens", request?.outputTokens, 0);
+  }
 }
 
 export interface TraceSessionEndEvent {
@@ -426,6 +453,8 @@ export class TraceRecorder {
       reason?: string;
       reasons?: readonly string[];
       policyLatencyMs?: number;
+      afterTokensSource?: TraceCompactionEvent["afterTokensSource"];
+      firstPostCompactionRequest?: TraceCompactionEvent["firstPostCompactionRequest"];
     } = {},
   ): TraceCompactionEvent {
     assertTraceLabel("sessionId", sessionId);
@@ -480,6 +509,13 @@ export class TraceRecorder {
     if (options.policyLatencyMs !== undefined) {
       event.policyLatencyMs = options.policyLatencyMs;
     }
+    if (options.afterTokensSource !== undefined) {
+      event.afterTokensSource = options.afterTokensSource;
+    }
+    if (options.firstPostCompactionRequest !== undefined) {
+      event.firstPostCompactionRequest = { ...options.firstPostCompactionRequest };
+    }
+    validateCompactionMeasurements(event);
 
     const usage: NonNullable<TraceCompactionEvent["usage"]> = {};
     if (observation.promptTokens !== undefined) {
@@ -790,6 +826,7 @@ export function validateTraceEvent(value: unknown): TraceEvent {
       return event;
     }
     case "compaction": {
+      validateCompactionMeasurements(event);
       if (event.callId !== undefined) {
         assertTraceLabel("callId", event.callId);
       }

@@ -128,6 +128,12 @@ export interface TraceAnalysis {
   decisions: number;
   requests: number;
   compactions: number;
+  compactionMeasurements: {
+    hostEstimated: number;
+    hostMeasured: number;
+    legacyUnspecified: number;
+    firstProviderRequests: number;
+  };
   cacheWarms: number;
   unpriceable: number;
   unpairedDecisions: number;
@@ -336,6 +342,12 @@ export function analyzeTraceEvents(
   const holdout = newCollectors(worstCases);
 
   const notes: string[] = [];
+  const compactionMeasurements = {
+    hostEstimated: 0,
+    hostMeasured: 0,
+    legacyUnspecified: 0,
+    firstProviderRequests: 0,
+  };
   const calibrationBlockers: string[] = [];
   let unpriceable = 0;
   let unpairedDecisions = 0;
@@ -523,10 +535,22 @@ export function analyzeTraceEvents(
       }
     }
 
-    // --- retention: the model's post-compaction estimate against the real one ---
+    // Host estimates can include subsequent growth: do not call them measured retention.
     for (const compaction of session.compactions) {
+      if (compaction.firstPostCompactionRequest !== undefined) {
+        compactionMeasurements.firstProviderRequests += 1;
+      }
+      if (compaction.success && compaction.afterTokensSource === "host-estimate") {
+        compactionMeasurements.hostEstimated += 1;
+        continue;
+      }
       if (!compaction.success || compaction.afterTokens === null) {
         continue;
+      }
+      if (compaction.afterTokensSource === "host-measured") {
+        compactionMeasurements.hostMeasured += 1;
+      } else {
+        compactionMeasurements.legacyUnspecified += 1;
       }
       const decision = retentionDecisionByCompaction.get(compaction);
       if (decision === undefined) {
@@ -548,6 +572,16 @@ export function analyzeTraceEvents(
     }
   }
 
+  if (compactionMeasurements.hostEstimated > 0) {
+    notes.push(
+      `${compactionMeasurements.hostEstimated} host-estimate compaction size(s) excluded from measured retention calibration; first request usage is diagnostic only.`,
+    );
+  }
+  if (compactionMeasurements.legacyUnspecified > 0) {
+    notes.push(
+      `${compactionMeasurements.legacyUnspecified} unlabelled compaction size(s) retain legacy calibration behavior; their measurement basis is unknown, not verified provider token counts.`,
+    );
+  }
   if (unpairedDecisions > 0) {
     notes.push(
       `${unpairedDecisions} decision(s) have no request event with the same callId; they are excluded from the cost, cache and horizon error.`,
@@ -658,6 +692,7 @@ export function analyzeTraceEvents(
       (total, session) => total + session.compactions.length,
       0,
     ),
+    compactionMeasurements,
     cacheWarms: [...sessions.values()].reduce(
       (total, session) => total + session.cacheWarms.length,
       0,

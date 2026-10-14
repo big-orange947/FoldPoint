@@ -40,6 +40,59 @@ function recorder(): TraceRecorder {
 }
 
 describe("trace format", () => {
+  it("excludes only labelled host estimates while exposing legacy measurement uncertainty", () => {
+    const trace = recorder();
+    const input = makeInput({ sessionId: "basis", timestamp: 1, contextTokens: 120_000 });
+    const decision = trace.decision(input, decideFoldPoint(input, makeLearning(), makeSession()));
+    const compaction = trace.compaction(
+      "basis",
+      { timestamp: 3, beforeTokens: 120_000, afterTokens: 35_000, success: true },
+      { callId: decision.callId },
+    );
+    for (const source of [undefined, "host-measured", "host-estimate"] as const) {
+      const analysis = analyzeTraceEvents([
+        trace.header(),
+        decision,
+        { ...compaction, ...(source === undefined ? {} : { afterTokensSource: source }) },
+      ]);
+      expect(analysis.overall.retention.count).toBe(source === "host-estimate" ? 0 : 1);
+      expect(analysis.compactionMeasurements.legacyUnspecified).toBe(source === undefined ? 1 : 0);
+      expect(analysis.compactionMeasurements.hostMeasured).toBe(source === "host-measured" ? 1 : 0);
+      if (source === undefined) {
+        expect(analysis.notes.some((note) => note.includes("measurement basis is unknown"))).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it("validates and copies optional compaction measurement metadata", () => {
+    const trace = recorder();
+    const measurement = { timestamp: 2, promptTokens: 24_000, outputTokens: 500 };
+    const event = trace.compaction(
+      "s",
+      { timestamp: 1, beforeTokens: 120_000, afterTokens: 35_000, success: true },
+      { afterTokensSource: "host-estimate", firstPostCompactionRequest: measurement },
+    );
+    measurement.promptTokens = 999;
+    expect(event.firstPostCompactionRequest?.promptTokens).toBe(24_000);
+    expect(validateTraceEvent(event)).toEqual(event);
+    for (const invalid of [
+      { ...event, afterTokensSource: "guessed" },
+      { ...event, firstPostCompactionRequest: { ...measurement, promptTokens: -1 } },
+      { ...event, firstPostCompactionRequest: { ...measurement, outputTokens: Number.NaN } },
+      { ...event, success: false },
+    ]) {
+      expect(() => validateTraceEvent(invalid)).toThrow(RangeError);
+    }
+    expect(() =>
+      trace.compaction(
+        "s",
+        { timestamp: 1, beforeTokens: 120_000, afterTokens: null, success: true },
+        { firstPostCompactionRequest: { ...measurement, timestamp: -1 } },
+      ),
+    ).toThrow(RangeError);
+  });
   it("calibrates completed runtime calls without counting later user commands", () => {
     const trace = recorder();
     const events: TraceEvent[] = [trace.header()];
