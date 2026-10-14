@@ -76,6 +76,8 @@
     "analyze:recovery-matrix": "tsx tools/recovery-matrix.ts --analyze-existing",
     "audit:pi-prefix": "tsx tools/pi-prefix-audit.mjs",
     "quality:summary": "tsx tools/pi-summary-quality.mjs",
+    "quality:repeated": "tsx tools/pi-summary-quality.mjs --profile repeated",
+    "quality:repeated:analyze": "tsx tools/repeated-summary-report.ts",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
     "trace:shadow": "tsx tools/pi-policy-shadow.ts",

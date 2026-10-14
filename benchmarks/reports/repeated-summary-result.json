@@ -1,0 +1,566 @@
+{
+  "kind": "foldpoint.repeated-summary-result.v1",
+  "sourceReportSha256": "e7ca43c489591e4551bf17674fa7e415bf416b80c95c58a9260ecbacc48ba516",
+  "plan": {
+    "kind": "foldpoint.repeated-summary-plan.v1",
+    "stages": 90,
+    "checkpoints": [
+      29,
+      59,
+      89
+    ],
+    "scheduleSource": "frozen-8c054cc-matrix-prefix",
+    "source": {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "sourceFixture": "heldout-floor-180-22000-20000",
+      "seed": 151,
+      "steps": 120
+    },
+    "matrixSha256": "052fc67fb6dc5ae931d7dbf8d0ad354d3833ec345ccd97949fb238d6262a08b6",
+    "schedules": {
+      "fixed60": [
+        27,
+        52,
+        77
+      ],
+      "experimental": [
+        0,
+        15,
+        22,
+        29,
+        37,
+        45,
+        53,
+        60,
+        68,
+        76,
+        84
+      ]
+    },
+    "summaryCalls": 14,
+    "checkpointCalls": 9,
+    "corpusSha256": "d10ead1a2d6503578c260b5f43821e7b0220e7fd97565401847de27ac59a4d8b",
+    "summaryMaxOutputTokens": 13107,
+    "maxHttpCalls": 24,
+    "maxPromptByteUnits": 1500000,
+    "limitations": [
+      "Frozen 90-step exposure prefix from a 120-call synthetic schedule, applied to a smaller public task log. NOT live adaptive timing, a new 1M trial or a provider-cost comparison.",
+      "One predeclared source case, not the whole frequency matrix or a heldout quality dataset. No selection using retention scores.",
+      "Only Pi initial/update summary prompts are exercised; normal agent reasoning/tool execution, native cut points and recent-tail preservation are not.",
+      "Answer probes measure evidence retention and simple state prerequisites, not task completion. Dry-run fake responses are never scored as quality evidence."
+    ]
+  },
+  "executionModel": {
+    "provider": "deepseek",
+    "id": "deepseek-flash",
+    "api": "openai-completions",
+    "contextWindow": 1000000,
+    "summaryOutputCap": 13107
+  },
+  "provenance": {
+    "piCommit": "d201760ffee16564aa8d9a759e0c85b70db33674",
+    "piCompactionSourceSha256": "16973a169a6f5dc1b7a35875d0c9a186da5bbf53dd850dd64fe292d34b50b8b0",
+    "harnessSourceSha256": "82ea2fa7104bd41cc262e5386ff8c49fc14c23c91d388cbdc53b5fa72a59b736",
+    "corpusSourceSha256": "3ad6fc0e5c552ef1b0a910dbc750fe0df85d5892914708123e7a39c260c1fab0"
+  },
+  "paidHttpCalls": 23,
+  "reportedTokens": 218155,
+  "unaccountedHttpAttempts": 0,
+  "catalogEstimatedCost": 0.087993168,
+  "costScope": "Pi catalog estimate for summary/probe requests only, not a provider invoice or complete agent-session cost comparison",
+  "arms": [
+    {
+      "arm": "fullHistory",
+      "summaryCalls": 0,
+      "probeCalls": 3,
+      "correctFields": 36,
+      "totalFields": 36,
+      "exactProbes": 3,
+      "summaryOutputTokens": [],
+      "firstSummaryOutput": null,
+      "lastSummaryOutput": null
+    },
+    {
+      "arm": "fixed60",
+      "summaryCalls": 3,
+      "probeCalls": 3,
+      "correctFields": 36,
+      "totalFields": 36,
+      "exactProbes": 3,
+      "summaryOutputTokens": [
+        628,
+        817,
+        973
+      ],
+      "firstSummaryOutput": 628,
+      "lastSummaryOutput": 973
+    },
+    {
+      "arm": "experimental",
+      "summaryCalls": 11,
+      "probeCalls": 3,
+      "correctFields": 36,
+      "totalFields": 36,
+      "exactProbes": 3,
+      "summaryOutputTokens": [
+        427,
+        1253,
+        1572,
+        2006,
+        2501,
+        3003,
+        3404,
+        3731,
+        4256,
+        4761,
+        5183
+      ],
+      "firstSummaryOutput": 427,
+      "lastSummaryOutput": 5183
+    }
+  ],
+  "fieldRegressions": [],
+  "probes": [
+    {
+      "arm": "fullHistory",
+      "step": 29,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "fullHistory",
+      "step": 59,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "fullHistory",
+      "step": 89,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "fixed60",
+      "step": 29,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "fixed60",
+      "step": 59,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "fixed60",
+      "step": 89,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "experimental",
+      "step": 29,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "experimental",
+      "step": 59,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    },
+    {
+      "arm": "experimental",
+      "step": 89,
+      "measured": true,
+      "grade": {
+        "fields": {
+          "branch": true,
+          "deployment_window": true,
+          "retention": true,
+          "build": true,
+          "test_status": true,
+          "approval": true,
+          "backup": true,
+          "rollback": true,
+          "owner": true,
+          "config_path": true,
+          "deployment_allowed": true,
+          "next_action": true
+        },
+        "correct": 12,
+        "total": 12,
+        "exact": true
+      }
+    }
+  ],
+  "usageLedger": [
+    {
+      "arm": "fullHistory",
+      "kind": "check",
+      "input": 10968,
+      "output": 115,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0034284
+    },
+    {
+      "arm": "fullHistory",
+      "kind": "check",
+      "input": 11051,
+      "output": 115,
+      "cacheRead": 10624,
+      "cacheWrite": 0,
+      "catalogCost": 0.003517044
+    },
+    {
+      "arm": "fullHistory",
+      "kind": "check",
+      "input": 11134,
+      "output": 114,
+      "cacheRead": 21248,
+      "cacheWrite": 0,
+      "catalogCost": 0.0036044879999999994
+    },
+    {
+      "arm": "fixed60",
+      "kind": "summary",
+      "input": 10420,
+      "output": 628,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0038796
+    },
+    {
+      "arm": "fixed60",
+      "kind": "check",
+      "input": 1534,
+      "output": 115,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0005981999999999999
+    },
+    {
+      "arm": "fixed60",
+      "kind": "summary",
+      "input": 9988,
+      "output": 817,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0039768
+    },
+    {
+      "arm": "fixed60",
+      "kind": "check",
+      "input": 3503,
+      "output": 115,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0011889000000000001
+    },
+    {
+      "arm": "fixed60",
+      "kind": "summary",
+      "input": 10177,
+      "output": 973,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0042207
+    },
+    {
+      "arm": "fixed60",
+      "kind": "check",
+      "input": 5439,
+      "output": 114,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0017685
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 447,
+      "output": 427,
+      "cacheRead": 256,
+      "cacheWrite": 0,
+      "catalogCost": 0.000648036
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 6180,
+      "output": 1253,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0033575999999999996
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 4124,
+      "output": 1572,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0031236
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 4457,
+      "output": 2006,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0037443
+    },
+    {
+      "arm": "experimental",
+      "kind": "check",
+      "input": 2200,
+      "output": 115,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.000798
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 5253,
+      "output": 2501,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0045771
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 5741,
+      "output": 3003,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0053259
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 6233,
+      "output": 3404,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.005954699999999999
+    },
+    {
+      "arm": "experimental",
+      "kind": "check",
+      "input": 5734,
+      "output": 115,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0018582
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 6275,
+      "output": 3731,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.006359699999999999
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 6974,
+      "output": 4256,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0071994
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 7500,
+      "output": 4761,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0079632
+    },
+    {
+      "arm": "experimental",
+      "kind": "summary",
+      "input": 7991,
+      "output": 5183,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0086169
+    },
+    {
+      "arm": "experimental",
+      "kind": "check",
+      "input": 7157,
+      "output": 114,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "catalogCost": 0.0022838999999999997
+    }
+  ],
+  "interpretation": {
+    "comparisonReady": true,
+    "allProbesCorrect": true,
+    "measuredRetention": true,
+    "measuredAgentTaskCompletion": false,
+    "measuredLiveTiming": false,
+    "measuredOneMillionContext": false,
+    "statisticalNonInferiorityEstablished": false,
+    "piDefaultChanged": false
+  },
+  "limitations": [
+    "Frozen 90-step exposure prefix from a 120-call synthetic schedule, applied to a smaller public task log. NOT live adaptive timing, a new 1M trial or a provider-cost comparison.",
+    "One predeclared source case, not the whole frequency matrix or a heldout quality dataset. No selection using retention scores.",
+    "Only Pi initial/update summary prompts are exercised; normal agent reasoning/tool execution, native cut points and recent-tail preservation are not.",
+    "Answer probes measure evidence retention and simple state prerequisites, not task completion. Dry-run fake responses are never scored as quality evidence."
+  ]
+}

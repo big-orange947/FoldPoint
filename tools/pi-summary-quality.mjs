@@ -13,12 +13,18 @@ import {
   QUALITY_QUESTION,
   qualityMessages,
 } from "../benchmarks/summary-quality-corpus.ts";
+import {
+  buildRepeatedQualityPlan,
+  gradeRepeated,
+  REPEATED_QUESTION,
+  repeatedMessages,
+} from "./repeated-summary-corpus.ts";
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (["--live", "--fake-summary-cap"].includes(args[i])) continue;
   if (
-    ["--pi", "--out", "--arms"].includes(args[i]) &&
+    ["--pi", "--out", "--arms", "--profile"].includes(args[i]) &&
     args[i + 1] &&
     !args[i + 1].startsWith("--")
   ) {
@@ -36,7 +42,13 @@ const value = (name, fallback) => {
 };
 const piRoot = resolve(value("--pi", "D:/pi"));
 const out = value("--out", undefined);
-const plan = buildQualityPlan();
+const profile = value("--profile", "legacy");
+if (!["legacy", "repeated"].includes(profile)) throw new Error("Invalid quality profile");
+const repeated = profile === "repeated";
+const plan = repeated ? buildRepeatedQualityPlan() : buildQualityPlan();
+const messagesAt = repeated ? repeatedMessages : qualityMessages;
+const question = repeated ? REPEATED_QUESTION : QUALITY_QUESTION;
+const gradeAnswer = repeated ? gradeRepeated : gradeQuality;
 const runArms = value("--arms", "fullHistory,fixed60,experimental").split(",");
 if (
   runArms.length !== new Set(runArms).size ||
@@ -49,8 +61,8 @@ const plannedCalls = runArms.reduce(
 );
 if (live && !out) throw new Error("Live runs require a fresh --out directory");
 if (out && existsSync(out)) throw new Error("Refusing to overwrite an existing quality result");
-const maxHttpCalls = 24;
-const maxPromptByteUnits = 500_000; // conservative planning proxy, not a tokenizer guarantee
+const maxHttpCalls = plan.maxHttpCalls ?? 24;
+const maxPromptByteUnits = plan.maxPromptByteUnits ?? 500_000; // proxy, not a tokenizer guarantee
 let httpCalls = 0;
 let promptByteUnits = 0;
 let logicalCalls = 0;
@@ -177,16 +189,32 @@ const stream = async (requestModel, context, options) => {
   );
 };
 const report = {
-  kind: "foldpoint.pi-summary-quality.v2",
+  kind: repeated ? "foldpoint.pi-repeated-summary-quality.v1" : "foldpoint.pi-summary-quality.v2",
+  profile,
   mode: live ? "live" : "dry-run-fake",
   plan,
+  executionModel: {
+    provider: model.provider,
+    id: model.id,
+    api: model.api,
+    contextWindow: model.contextWindow,
+    summaryOutputCap: plan.summaryMaxOutputTokens,
+    catalogCost: model.cost,
+  },
   runArms,
   plannedCalls,
   harnessSourceSha256: createHash("sha256")
     .update(readFileSync(new URL(import.meta.url)))
     .digest("hex"),
   corpusSourceSha256: createHash("sha256")
-    .update(readFileSync(new URL("../benchmarks/summary-quality-corpus.ts", import.meta.url)))
+    .update(
+      readFileSync(
+        new URL(
+          repeated ? "./repeated-summary-corpus.ts" : "../benchmarks/summary-quality-corpus.ts",
+          import.meta.url,
+        ),
+      ),
+    )
     .digest("hex"),
   piCompactionSourceSha256: createHash("sha256")
     .update(readFileSync(join(piRoot, "packages/coding-agent/src/core/compaction/compaction.ts")))
@@ -240,7 +268,7 @@ try {
     let previousSummary;
     let pending = [];
     for (let step = 0; step < plan.stages; step++) {
-      pending.push(...qualityMessages(step));
+      pending.push(...messagesAt(step));
       if (arm !== "fullHistory" && plan.schedules[arm].includes(step)) {
         const result = await invoke("summary", arm, (signal) =>
           generateSummaryWithUsage(
@@ -271,7 +299,7 @@ try {
               ? [{ role: "user", content: `Prior task summary:\n${previousSummary}`, timestamp: 0 }]
               : []),
             ...pending,
-            { role: "user", content: QUALITY_QUESTION, timestamp: step + 100 },
+            { role: "user", content: question, timestamp: step + 100 },
           ],
         };
         const answer = await invoke("check", arm, async (signal) => {
@@ -291,7 +319,7 @@ try {
           arm,
           step,
           measured: live,
-          grade: live ? gradeQuality(answer.text, step) : null,
+          grade: live ? gradeAnswer(answer.text, step) : null,
         });
       }
     }

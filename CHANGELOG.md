@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen-schedule real repeated-summary retention probe
+
+- Add opt-in `--profile repeated` to the Pi summary runner; retain the legacy plan/default.
+  Bind the repaired 8c054cc matrix by hash and predeclare a 90-stage prefix with 11 candidate
+  summaries, 3 fixed60 summaries and 9 probes including a full-history reference (23 calls).
+- Exercise actual Pi initial/update prompts with a public synthetic ledger; evaluate twelve
+  current-state fields, corrections and prerequisites. Expected answers stay evaluator-only;
+  probe answers are not fed back into subsequent summaries. Dry runs never receive scores.
+- Complete one real DeepSeek three-arm run: all arms 36/36 fields and 3/3 exact probes,
+  23 HTTP requests, 218,155 reported tokens, zero unaccounted requests. Pi-catalog estimate
+  about US$0.087993, not an invoice or a complete policy-cost comparison.
+- Preserve candidate summary output growth 427 -> 5,183 tokens (fixed60 628 -> 973).
+  This small evidence-retention result is not live timing, 1M task quality or statistical
+  non-inferiority; no generic retention prior or timing parameter was tuned from it.
+- Export whitelisted metadata/grades/usage and deterministic no-network analysis; reject
+  dry/incomplete evidence and expose paired field regressions or invalid full-history baselines.
+  Add offline tests for measured/fake separation, truncation, stale facts and premature actions.
+  Core defaults and Pi timing remain unchanged.
+
 ### Frozen repaired-candidate full matrix and frequency audit
 
 - Freeze `8c054cc` source/parameters and execute all candidate/fixed60 arms for 252 warm
