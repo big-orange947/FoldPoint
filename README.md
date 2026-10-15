@@ -47,6 +47,8 @@ Pi 的压缩长度观测会区分**摘要输出量、首个后续请求的 provi
 
 研究路径现可显式使用带来源与误差假设的近似反馈：`--approx-error-fraction` 只创建独立旁路估计，不增加精确样本，也不驱动压缩。`npm run verify:approximate-feedback` 可零付费复跑敏感性检查；误差范围未经实测校准，历史包络不是置信区间。详见 [近似反馈说明](docs/approximate-feedback.md) 和 [离线报告](benchmarks/approximate-feedback.md)。
 
+连续预测检查现覆盖 9 类合成流、3 个 seed、1,080 次尝试，每次先预测再接收反馈。当前近似 EMA 相比固定 10% 为 15 胜 / 9 负 / 3 平，面对固定保留底座和阶段突变存在明显缺陷，不能替换默认预测器；这也不是省钱或真实任务质量结果。用 `npm run verify:feedback-prediction` 复跑，见 [完整正负结果](benchmarks/feedback-prequential.md)。
+
 核心只接收数字和标识符，不包含正文。**轨迹仍可能暴露模型、时间和使用频率**，应按日志保护，不能视为完全匿名数据。
 
 ### 实验中的 runtime 继续概率

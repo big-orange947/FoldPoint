@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen prequential feedback comparison
+
+- Compare fixed 10%, last observable ratio, plain EMA and existing uncertain EMA over nine
+  declared synthetic cases and three seeds, issuing every prediction before the current outcome.
+- Score cold fallbacks and unknown-growth predictions on the same successful attempts; separate
+  failed attempts and report point errors, range widths, coverage denominators and invalid budgets.
+- Preserve the a6bca36 learner by normalized source hash. Report 15/9/3 versus fixed 10% and
+  12/9/6 versus plain EMA, with structural floor/drift failures and no policy promotion.
+- Add reproducible report and six tests covering causality, prefix invariance, arithmetic,
+  failure/noise alignment, honest negative cases and frozen-source refusal. No paid calls.
+
 ### Explicit approximate-feedback research lane
 
 - Add bounded metadata-only retention EMA with host-supplied error assumptions, source counts,
