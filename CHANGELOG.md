@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Uncertain floor-plus-ratio research candidate
+
+- Add nonnegative affine prediction over compatible approximate host feedback, with bounded
+  history, recency/error weighting, explicit identification checks and last-observation fallback.
+  Keep the existing learner, baseline scenarios, seeds and scoring denominators frozen.
+- Compare predictions causally on the same 27 synthetic streams: macro MAE 7,309 versus
+  14,475 for the old approximate EMA. Preserve stable-ratio regressions, uncorrected bias and
+  very wide residual envelopes; this is development evidence, not independent validation.
+- Add eight tests for fitting, uncertainty weighting, admission, bounded history, causal replay,
+  arithmetic and reproducible reports. No paid calls, policy promotion or claimed bill saving.
+
 ### Frozen prequential feedback comparison
 
 - Compare fixed 10%, last observable ratio, plain EMA and existing uncertain EMA over nine
