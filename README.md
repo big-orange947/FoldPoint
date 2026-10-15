@@ -45,6 +45,8 @@ Pi 的压缩长度观测会区分**摘要输出量、首个后续请求的 provi
 
 `npm run capture:pi-feedback -- --out traces/pi-feedback-offline-NEW` 可通过本地 Pi SDK 离线验证完整事件链。一次显式付费的小规模采集已完成 4 次请求、10,128 provider tokens，9 项采集检查通过；它确认了立即估计、后续真实用量和延后估计的区别，但精确反馈合格样本仍为 0，旁路模型没有接管压缩。**不是 1M 测试或省钱对照**。见 [原生 Pi 采集报告](benchmarks/pi-feedback-capture.md)。
 
+研究路径现可显式使用带来源与误差假设的近似反馈：`--approx-error-fraction` 只创建独立旁路估计，不增加精确样本，也不驱动压缩。`npm run verify:approximate-feedback` 可零付费复跑敏感性检查；误差范围未经实测校准，历史包络不是置信区间。详见 [近似反馈说明](docs/approximate-feedback.md) 和 [离线报告](benchmarks/approximate-feedback.md)。
+
 核心只接收数字和标识符，不包含正文。**轨迹仍可能暴露模型、时间和使用频率**，应按日志保护，不能视为完全匿名数据。
 
 ### 实验中的 runtime 继续概率

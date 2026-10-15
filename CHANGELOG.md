@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Explicit approximate-feedback research lane
+
+- Add bounded metadata-only retention EMA with host-supplied error assumptions, source counts,
+  same-unit growth correction, sequence guards and configuration isolation in tools only.
+- Keep nominal observations independent of error-budget width; uncertain samples influence
+  later updates less, while recent intervals remain visible as a historical envelope.
+- Add optional --approx-error-fraction to native Pi capture; default behavior, exact affine
+  feedback, measured calibration and policy remain unchanged. Always mark estimates non-authoritative.
+- Replay existing live metadata under three labelled assumptions without paid calls or
+  reattributing old results; add eight offline checks, unit guards and an SDK opt-in test.
+
 ### Native Pi SDK feedback capture
 
 - Add explicit opt-in capture through Pi createAgentSession, not a manually constructed

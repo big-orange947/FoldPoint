@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
 import { ExperimentalCompactorLearner, parseTraceJsonl } from "../src/index.ts";
+import { ApproximateRetentionTracker } from "./approximate-feedback.ts";
 import { admitMeasuredFeedback } from "./compactor-feedback-probe.ts";
 import { repeatedMessages } from "./repeated-summary-corpus.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
@@ -17,7 +18,11 @@ import { analyzeTraceEvents } from "./trace-analyze.ts";
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (["--live", "--fake-summary-cap", "--fake-summary-error"].includes(args[i])) continue;
-  if (["--pi", "--out"].includes(args[i]) && args[i + 1] && !args[i + 1].startsWith("--")) {
+  if (
+    ["--pi", "--out", "--approx-error-fraction"].includes(args[i]) &&
+    args[i + 1] &&
+    !args[i + 1].startsWith("--")
+  ) {
     i++;
     continue;
   }
@@ -25,6 +30,13 @@ for (let i = 0; i < args.length; i++) {
 }
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const live = args.includes("--live");
+const errorAssumptionArg = value("--approx-error-fraction", undefined);
+const errorAssumption = errorAssumptionArg === undefined ? undefined : Number(errorAssumptionArg);
+if (
+  errorAssumption !== undefined &&
+  (!Number.isFinite(errorAssumption) || errorAssumption < 0 || errorAssumption >= 1)
+)
+  throw new Error("Approximate error fraction must be in [0,1)");
 const fakeCap = args.includes("--fake-summary-cap");
 const fakeError = args.includes("--fake-summary-error");
 if ((live && (fakeCap || fakeError)) || (fakeCap && fakeError))
@@ -313,6 +325,45 @@ try {
     economicForecastProduced: false,
     policyChanged: false,
   };
+  // Opt-in metadata research only. No approximate samples enter the exact model or core.
+  if (errorAssumption !== undefined) {
+    const basisKey = `pi-host-estimate/${createHash("sha256")
+      .update(
+        JSON.stringify({
+          provider: model.provider,
+          model: model.id,
+          piCommit: report.piCommit,
+          summaryCap,
+          keepRecentTokens: 512,
+          estimator: "pi-native-boundary-v1",
+        }),
+      )
+      .digest("hex")}`;
+    const approximate = new ApproximateRetentionTracker(basisKey);
+    const before = report.compaction.beforeTokens;
+    const errorBefore = Math.ceil(errorAssumption * before);
+    report.approximateShadow =
+      errorBefore >= before
+        ? { reason: "unbounded-before", canDrivePolicy: false }
+        : {
+            assumedErrorFraction: errorAssumption,
+            admission: approximate.observe({
+              basisKey,
+              sequence: 1,
+              success: true,
+              source: "host-immediate",
+              beforeTokens: before,
+              afterTokens: report.compaction.immediateAfterEstimate,
+              beforeErrorTokens: errorBefore,
+              afterErrorTokens: Math.ceil(
+                errorAssumption * report.compaction.immediateAfterEstimate,
+              ),
+            }),
+            state: approximate.snapshot(),
+            sameSizePrediction: approximate.predict(before),
+            calibratedErrorBudget: false,
+          };
+  }
   report.checks = {
     fourCompletedCalls:
       ledger.length === 4 &&

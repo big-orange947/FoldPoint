@@ -28,6 +28,7 @@ describe("native Pi SDK feedback capture", () => {
       const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
       expect(r.completed).toBe(true);
       expect(r.mode).toBe("offline-fake-provider");
+      expect(r.approximateShadow).toBeUndefined();
       expect(Object.values(r.checks).every(Boolean)).toBe(true);
       expect(r.ledger.map((row: { stage: string }) => row.stage)).toEqual([
         "pre-compaction",
@@ -127,8 +128,42 @@ describe("native Pi SDK feedback capture", () => {
     40_000,
   );
 
+  it.skipIf(!available)(
+    "keeps optional approximate feedback separate from exact calibration and policy",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-approx-")), "result");
+      execFileSync(
+        process.execPath,
+        ["--import", "tsx", script, "--pi", piRoot, "--out", out, "--approx-error-fraction", "0.1"],
+        { encoding: "utf8", timeout: 30_000, env: cleanEnv() },
+      );
+      const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+      expect(r.completed).toBe(true);
+      expect(r.shadow.eligibleFeedback).toBe(0);
+      expect(r.shadow.availability.source).toBe("unavailable");
+      expect(r.analysis.overall.retention.count).toBe(0);
+      expect(r.approximateShadow).toMatchObject({
+        assumedErrorFraction: 0.1,
+        admission: "accepted-approximate",
+        state: { acceptedApproximate: 1, exactSamples: 0, canDrivePolicy: false },
+        calibratedErrorBudget: false,
+      });
+      expect(r.approximateShadow.sameSizePrediction.pointTokens).toBe(
+        r.compaction.immediateAfterEstimate,
+      );
+      expect(r.usage.httpCalls).toBe(0);
+    },
+    40_000,
+  );
+
   it("refuses unknown flags and live runs without a key before creating output", () => {
-    for (const flags of [["--unknown"], ["--live"], ["--live", "--fake-summary-cap"]]) {
+    for (const flags of [
+      ["--unknown"],
+      ["--live"],
+      ["--live", "--fake-summary-cap"],
+      ["--approx-error-fraction", "2"],
+      ["--approx-error-fraction", "NaN"],
+    ]) {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-refuse-")), "result");
       const r = spawnSync(process.execPath, ["--import", "tsx", script, "--out", out, ...flags], {
         encoding: "utf8",
