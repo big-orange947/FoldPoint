@@ -1,0 +1,80 @@
+{
+  "runner": "foldpoint.pi-feedback-capture.v1",
+  "mode": "live",
+  "completed": true,
+  "provenance": {
+    "runBaseCommit": "6627a0e",
+    "sourceArchiveCommit": "a4ffff5",
+    "sourceSha256": "92b11ab075868e1fb773bcb2888a76732f7c229e2db63965503234a8d44d6b3b",
+    "originalReportSha256": "965303000082b0b3be4bf3f2c4bfdd2c9ed16797959b5f86545ebd0346cd158d",
+    "originalTraceSha256": "4856395fe7f6cbcd780d5ff1bb16c96cb56107b808867e6fe83809ce2c39fda2",
+    "piCommit": "d201760ffee16564aa8d9a759e0c85b70db33674"
+  },
+  "model": { "provider": "deepseek", "id": "deepseek-flash", "contextWindow": 1000000 },
+  "budget": {
+    "maxCalls": 4,
+    "maxInputBytes": 200000,
+    "summaryOutputCap": 2048,
+    "ordinaryOutputCap": 128
+  },
+  "ledger": [
+    { "stage": "pre-compaction", "input": 3417, "output": 1, "cacheRead": 0, "cacheWrite": 0 },
+    { "stage": "summary", "input": 2681, "output": 717, "cacheRead": 256, "cacheWrite": 0 },
+    { "stage": "first-post", "input": 1390, "output": 1, "cacheRead": 128, "cacheWrite": 0 },
+    { "stage": "second-post", "input": 256, "output": 1, "cacheRead": 1280, "cacheWrite": 0 }
+  ],
+  "boundaries": {
+    "preContextEstimate": 3554,
+    "compactionBefore": 3418,
+    "immediateAfterEstimate": 1474,
+    "immediatelyKnownContext": null,
+    "firstPostContext": null,
+    "secondPostContextEstimate": 1532,
+    "firstPostProviderInput": 1518
+  },
+  "usage": {
+    "httpCalls": 4,
+    "logicalCalls": 4,
+    "httpRequestBytes": 41851,
+    "reportedTokens": 10128,
+    "unaccountedHttpAttempts": 0
+  },
+  "catalogPricing": {
+    "currency": "USD",
+    "inputPerMillion": 0.3,
+    "outputPerMillion": 1.2,
+    "cacheReadPerMillion": 0.006,
+    "source": "pi:deepseek/deepseek-flash"
+  },
+  "catalogCost": {
+    "ordinary": 0.001530948,
+    "compaction": 0.001666236,
+    "total": 0.003197184,
+    "isProviderInvoice": false
+  },
+  "checks": {
+    "fourCompletedCalls": true,
+    "oneNativeCompaction": true,
+    "immediatelyUnknownContext": true,
+    "hostEstimateLabelled": true,
+    "firstProviderPromptPreserved": true,
+    "noEstimatedRetentionCalibration": true,
+    "completeSession": true,
+    "correctCallAccounting": true,
+    "noHiddenHttp": true
+  },
+  "shadow": {
+    "eligibleFeedback": 0,
+    "availability": "unavailable",
+    "economicForecastProduced": false,
+    "policyChanged": false
+  },
+  "interpretation": {
+    "nativeSdkLifecycleExercised": true,
+    "preciseRetentionMeasured": false,
+    "taskQualityMeasured": false,
+    "adaptiveTimingCompared": false,
+    "oneMillionContextMeasured": false,
+    "defaultPolicyChanged": false
+  }
+}

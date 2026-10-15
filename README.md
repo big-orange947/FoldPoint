@@ -43,6 +43,8 @@ Pi 的压缩长度观测会区分**摘要输出量、首个后续请求的 provi
 
 `npm run verify:feedback` 可零付费检查受控压缩反馈：分别验证默认 EMA 的更新、实验模型的上下文/输出预测、无效反馈拒绝，以及摘要失败、预热和普通请求的完整账单。当前 17 项通过；这只是公开确定性 fixture 上的接线验证，不是实际 Pi 任务效果，也没有更改默认策略。见 [受控反馈报告](benchmarks/compactor-feedback.md)。
 
+`npm run capture:pi-feedback -- --out traces/pi-feedback-offline-NEW` 可通过本地 Pi SDK 离线验证完整事件链。一次显式付费的小规模采集已完成 4 次请求、10,128 provider tokens，9 项采集检查通过；它确认了立即估计、后续真实用量和延后估计的区别，但精确反馈合格样本仍为 0，旁路模型没有接管压缩。**不是 1M 测试或省钱对照**。见 [原生 Pi 采集报告](benchmarks/pi-feedback-capture.md)。
+
 核心只接收数字和标识符，不包含正文。**轨迹仍可能暴露模型、时间和使用频率**，应按日志保护，不能视为完全匿名数据。
 
 ### 实验中的 runtime 继续概率

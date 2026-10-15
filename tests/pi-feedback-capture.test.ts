@@ -108,6 +108,25 @@ describe("native Pi SDK feedback capture", () => {
     40_000,
   );
 
+  it.skipIf(!available)(
+    "treats error responses with zero usage as unknown, not accounted free calls",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-error-")), "result");
+      const result = spawnSync(
+        process.execPath,
+        ["--import", "tsx", script, "--pi", piRoot, "--out", out, "--fake-summary-error"],
+        { encoding: "utf8", timeout: 30_000, env: cleanEnv() },
+      );
+      expect(result.status).toBe(1);
+      const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+      expect(r.completed).toBe(false);
+      expect(r.failure).toBe("incomplete-summary");
+      expect(r.ledger[1]).toMatchObject({ stage: "summary", stopReason: "error", usage: null });
+      expect(r.usage.httpCalls).toBe(0);
+    },
+    40_000,
+  );
+
   it("refuses unknown flags and live runs without a key before creating output", () => {
     for (const flags of [["--unknown"], ["--live"], ["--live", "--fake-summary-cap"]]) {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-refuse-")), "result");

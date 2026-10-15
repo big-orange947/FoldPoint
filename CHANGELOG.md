@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Native Pi SDK feedback capture
+
+- Add explicit opt-in capture through Pi createAgentSession, not a manually constructed
+  AgentSession missing SDK context hooks. Keep isolated settings, no tools and warming off.
+- Complete one four-request live probe: 10,128 provider tokens, no unaccounted HTTP requests,
+  nine lifecycle/accounting checks passed. Preserve the byte-identical producer at a4ffff5;
+  later formatting and usage-error handling do not reattribute or rerun that experiment.
+- Keep immediate after-size estimates, subsequent provider prompt usage and delayed host
+  estimates distinct. Research replay rejects estimated feedback; shadow remains unavailable.
+- Preserve truncated-call usage, treat zero-usage error responses as unknown and refuse
+  unapproved live/failure-injection combinations. Publish sanitized metadata and source hashes,
+  with tests independently reconciling the local-catalog bill (not a verified provider invoice).
+- No default-policy change, precise retention claim, task-quality score or 1M timing comparison.
+
 ### Controlled compactor feedback verification
 
 - Add offline-only `npm run verify:feedback`: exercise core EMA updates and the opt-in

@@ -119,6 +119,12 @@ and fits context and output separately. Estimated/unknown/legacy sizes do not tr
 learner; failed attempts still enter the bill. This is an offline wiring fixture, not a new
 admission rule for the default learner or Pi. See [the report](../benchmarks/compactor-feedback.md).
 
+`npm run capture:pi-feedback -- --out traces/pi-feedback-offline-NEW` runs the native local Pi
+SDK with a fake provider by default. The explicit live mode separately captures the immediate
+`compact().estimatedTokensAfter` (still an estimate), the first subsequent provider input, and
+the delayed getContextUsage estimate. It never upgrades these into same-basis measured feedback.
+One small live probe completed; see [the report](../benchmarks/pi-feedback-capture.md).
+
 `usableForCalibration: true` only means the prediction-calibration samples are structurally
 usable; it does not turn a lower-bound session cost into a complete bill.
 
