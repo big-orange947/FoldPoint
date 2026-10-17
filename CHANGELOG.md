@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Prospective synthetic affine holdout
+
+- Preregister 12 cases, three new seeds and 64 steps in 712446a before execution; guard the
+  plan and 3fc64c4 candidate by normalized source hashes. Do not retune the candidate.
+- Compare five methods on 2,283 common successful outcomes from 2,304 attempts, including
+  cold/refused-feedback fallbacks; report relative errors, common warm suffix and range widths.
+- Preserve narrow-input, repeated-window and delayed-growth regressions despite aggregate
+  MAE improvement (3,340 versus 6,518 for uncertain EMA; 19/14/3 by stream).
+- Add six checks for source guards, causal prediction, independent arithmetic, RNG/prefix
+  alignment, negative cases and reproducible reports. No paid calls or default-policy change.
+
 ### Uncertain floor-plus-ratio research candidate
 
 - Add nonnegative affine prediction over compatible approximate host feedback, with bounded

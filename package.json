@@ -82,6 +82,7 @@
     "verify:approximate-feedback": "tsx tools/approximate-feedback-probe.ts",
     "verify:feedback-prediction": "tsx tools/feedback-prequential.ts",
     "verify:affine-feedback": "tsx tools/affine-feedback-comparison.ts",
+    "verify:affine-holdout": "tsx tools/affine-holdout.ts",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
