@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Independent summary-output nominal ablation
+
+- Freeze the output-only experiment in 8960876, reusing the same 24 cells, controller,
+  after-size predictor and full billing. Reexecute and exactly reproduce both old controls.
+- Add a bounded output floor-plus-slope learner using declared host input error and reported
+  summary output; retain the original 0.002 ratio EMA until identification is supported.
+- Preserve the negative result: better common-stream output prediction does not reduce warm
+  task fees overall (Flash unchanged, Sonnet +0.73%, Opus +1.27% versus the old output model).
+- Add nine checks for fallback, proportional/mixed/zero output, drift, causality, admission,
+  billing separation and saved-result arithmetic. No paid calls, new cold-cache scenarios,
+  default promotion or live quality claims.
+
 ### Frozen full-bill trajectory attribution
 
 - Audit the worst existing Flash long-task row and its failure sensitivity, preserving the
