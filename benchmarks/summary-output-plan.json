@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "baselineCommit": "349c182",
+  "baselineReport": "benchmarks/reports/affine-cost.json",
+  "baselineReportSha256": "5c41a55c7a031b49a99401b2fa2fc609b390752363bde3749d7760545c1f953c",
+  "cases": "All 24 existing affine-cost cells; no new cold-cache cases or price-specific selection.",
+  "arms": ["fixed60", "legacyOutputRatio", "affineOutput"],
+  "change": "Only summary-output coefficients change. After-size learner, controller, prices, cache contracts, simulator and feedback rule stay frozen. Execute both dynamic arms; legacy output arm must reproduce every old uncertainAffine bill exactly. Reexecute fixed60 as well.",
+  "outputPredictor": {
+    "form": "nonnegative floor + nonnegative slope * host input size",
+    "fitter": "Frozen UncertainAffineFeedback at 3fc64c4; nominal input with declared host error, reported summary output with zero declared output error.",
+    "history": 32,
+    "alpha": 0.25,
+    "minimumSamples": 3,
+    "minimumRelativeSpan": 0.2,
+    "fallback": "Original ratio EMA, prior 0.002, updated by alpha=0.25 only after successful compatible feedback. No hardcoded output floor.",
+    "residualInController": 0
+  },
+  "scope": "Warm-cache long-task nominal wiring experiment, plus existing short/failure/prewarm sensitivities. All attempts, outputs, rebuilds and prewarm calls remain billed; no default promotion, paid calls, real provider quality or general saving claims. Existing fixtures have an output minimum, so proportional/mixed/zero/narrow/drift unit checks are required."
+}
