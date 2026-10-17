@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen full-bill trajectory attribution
+
+- Audit the worst existing Flash long-task row and its failure sensitivity, preserving the
+  candidate, controller, scenarios and original report. Reproduce every frozen bill and schedule.
+- Split common 120-call prefixes/suffixes into summary, read, tail, write and output fees.
+  Recompute remove-last and fixed-schedule-all-success interventions with independent cache state.
+- Reject over-window interventions instead of silently using emergency recovery; keep missing
+  comparisons null. Use chronological callbacks rather than settlement-ordered saved arrays.
+- Expose shared early summary-output underprediction and expensive high-context failures,
+  without claiming additive causal percentages, general savings or a new default policy.
+- Add five tests for source identity, selection, schedule replay, capacity, accounting and
+  reproducible reports. No paid calls or algorithm changes.
+
 ### Nominal approximate-predictor full-bill experiment
 
 - Freeze the comparison plan in 6a9e485; compare two approximate after-size predictors in

@@ -84,6 +84,7 @@
     "verify:affine-feedback": "tsx tools/affine-feedback-comparison.ts",
     "verify:affine-holdout": "tsx tools/affine-holdout.ts",
     "simulate:affine-cost": "tsx tools/affine-cost.ts",
+    "audit:affine-cost": "tsx tools/affine-cost-audit.ts",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
