@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Nominal approximate-predictor full-bill experiment
+
+- Freeze the comparison plan in 6a9e485; compare two approximate after-size predictors in
+  the same existing controller without changing the SDK, simulator or frozen candidate.
+- Execute fixed 60%, native-threshold proxy and both dynamic arms independently on 24 cells:
+  12 warm long tasks, six short controls and six failure/shared-summary-prewarm sensitivities.
+- Charge ordinary output, all summary attempts, rebuilds and separate prewarm calls; preserve
+  worse Flash/failure/short-task results. Exclude over-window proxy inputs from fee advantages.
+- Keep host estimates out of exact compactor calibration and clearly label zero fitted residuals
+  as a nominal laboratory assumption, not calibrated uncertainty or production policy.
+
 ### Prospective synthetic affine holdout
 
 - Preregister 12 cases, three new seeds and 64 steps in 712446a before execution; guard the
