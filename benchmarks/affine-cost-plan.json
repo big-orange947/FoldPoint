@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "candidateCommit": "3fc64c4",
+  "profiles": ["deepseek-flash-peak", "claude-sonnet-5.5-5m-price", "claude-opus-5.5-5m-price"],
+  "fixtures": ["heldout-floor-180-22000-20000", "heldout-floor-180-41000-50000"],
+  "seed": 104729,
+  "mainLengths": [120, 240],
+  "shortLength": 4,
+  "sensitivityLength": 240,
+  "contracts": ["summary-uncached", "hypothetical-shared-80-prewarm-1"],
+  "failureSensitivity": 0.85,
+  "arms": ["fixed60", "nativeThresholdProxy", "approximateEma", "uncertainAffine"],
+  "feedback": {
+    "errorFraction": 0.12,
+    "noiseFraction": 0.03,
+    "sequenceUnit": "compaction-attempt",
+    "before": "simulated-host-count",
+    "after": "noisy-host-estimate",
+    "summaryOutput": "reported-usage",
+    "history": "none"
+  },
+  "controller": {
+    "maxCalls": 256,
+    "continuationProbability": 0.95,
+    "maxImmediateLossRatio": 1,
+    "rolloutMode": "renewal",
+    "endingRiskMode": "survival-weighted",
+    "endingLossBudgetRatio": 1,
+    "savingMarginBasis": "timing",
+    "stressWaitSelection": "paired-policy",
+    "futureQualificationChecks": 2
+  },
+  "uncertainty": "Nominal synthetic wiring experiment only. Both arms use zero fitted residual, leaving controller stress unchanged. Broad host error envelopes are not calibrated and are not treated as exact models. Not enabled in SDK/Pi.",
+  "comparison": "First request establishes cache; later requests within TTL. Cold learner starts without training bills. Same base controller, summary-output EMA, observations rule and independent branch state. Only after-size predictor differs. Native threshold proxy is (window-16384)/window, not actual Pi execution. All ordinary outputs, summary attempts including failures, rebuilds and independent prewarm calls charged. No quality claim or current-price claim."
+}
