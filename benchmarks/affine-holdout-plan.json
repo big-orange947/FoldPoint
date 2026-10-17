@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "candidateCommit": "3fc64c4",
+  "purpose": "Prospective synthetic holdout, declared before executing; not external or real-provider validation.",
+  "seeds": [104729, 130363, 155921],
+  "steps": 64,
+  "parameters": { "alpha": 0.25, "history": 32, "minimumSamples": 3, "minimumRelativeSpan": 0.2 },
+  "scoring": "All successful attempts including cold and rejected-feedback fallbacks. Per-stream MAE and relative MAE, then equal-stream macro averages; also common warm suffix after three successes. No tuning, selection or policy promotion from this test.",
+  "cases": [
+    {
+      "id": "irregular-floor",
+      "path": "irregular",
+      "ratio": 0.065,
+      "floor": 17500,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "irregular-proportion",
+      "path": "irregular",
+      "ratio": 0.16,
+      "floor": 0,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "narrow-floor",
+      "path": "narrow",
+      "ratio": 0.045,
+      "floor": 24000,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "narrow-proportion",
+      "path": "narrow",
+      "ratio": 0.075,
+      "floor": 0,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "slow-ramp",
+      "path": "ramp",
+      "ratio": 0.055,
+      "floor": 21000,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "repeated-window",
+      "path": "cycle",
+      "ratio": 0.085,
+      "floor": 16000,
+      "noise": 0.04,
+      "error": 0.12
+    },
+    {
+      "id": "floor-switch",
+      "path": "irregular",
+      "ratio": 0.065,
+      "floor": 9000,
+      "noise": 0.04,
+      "error": 0.12,
+      "change": { "at": 27, "floor": 32000, "ratio": 0.065 }
+    },
+    {
+      "id": "gradual-drift",
+      "path": "cycle",
+      "ratio": 0.055,
+      "floor": 12000,
+      "noise": 0.04,
+      "error": 0.12,
+      "driftPerStep": 0.0015
+    },
+    {
+      "id": "correlated-error",
+      "path": "irregular",
+      "ratio": 0.13,
+      "floor": 10000,
+      "noise": 0.02,
+      "error": 0.12,
+      "correlatedBias": 0.07
+    },
+    {
+      "id": "understated-error",
+      "path": "irregular",
+      "ratio": 0.095,
+      "floor": 7000,
+      "noise": 0.02,
+      "error": 0.03,
+      "bias": 0.2
+    },
+    {
+      "id": "delayed-variable-growth",
+      "path": "cycle",
+      "ratio": 0.095,
+      "floor": 13000,
+      "noise": 0.04,
+      "error": 0.12,
+      "delayed": "known",
+      "failEvery": 9
+    },
+    {
+      "id": "delayed-missing-growth",
+      "path": "narrow",
+      "ratio": 0.095,
+      "floor": 13000,
+      "noise": 0.04,
+      "error": 0.12,
+      "delayed": "unknown"
+    }
+  ]
+}
