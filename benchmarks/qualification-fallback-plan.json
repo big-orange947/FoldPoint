@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "baselineCommit": "5621eb6",
+  "purpose": "Isolate fail-closed continuation after bounded future-qualification checks are exhausted",
+  "cells": "all 24 affineCostCases; unchanged prices, streams, warm-cache contracts, short/failure/prewarm sensitivities",
+  "arms": ["fixed60", "incumbent", "budgetSafety"],
+  "models": "frozen uncertain-affine after-size and legacy output-ratio EMA, no new predictor",
+  "candidateChange": "After two checks per NOW/WAIT path, reject unassessed economic attempts; retain assessed approvals and safety FORCE",
+  "implementation": "Research-only mechanically derived runtime; frozen core and reports untouched; exact derivation verified in tests",
+  "controls": "reexecute and exactly reproduce frozen uncertainAffine and fixed60 complete ledgers",
+  "billing": "ordinary input/output, all summaries including failures, rebuilt prefixes and explicit prewarm",
+  "report": "all cells and losses; per-profile main means versus incumbent and fixed60; no default promotion",
+  "limits": "depth-one child qualification remains incumbent, not a full recursive solution; synthetic seen streams, no task-quality or live-provider claim",
+  "paidCalls": 0
+}
