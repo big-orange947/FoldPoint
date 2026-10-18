@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### One-renewal execution commitment experiment (not promoted)
+
+- Preregister b15dec4 with four arms in all 24 frozen warm-cache cells: fixed60, incumbent,
+  shared-WAIT continuation with per-call replanning, and that same rule with one-renewal commitment.
+  Keep learners, prices, duration prior, existing boundary family and full billing unchanged.
+- Add a research-only state machine: successful economic root summary commits its next repeat
+  boundary; the next successful summary releases it. Pending-root and committed failures retain
+  plans and respect cooldown/reclaim/permission gates; host FORCE remains authoritative.
+- Reexecute and exactly reproduce incumbent and fixed60 control ledgers. Report per-profile
+  losses rather than promote: main mean versus incumbent is Flash +0.43%, Sonnet +1.02%,
+  Opus +6.55%. Sonnet improves 1.42% against shared replanning but not against incumbent.
+- Add ten tests covering state transitions, failed retries, gates, stale replans, defensive state,
+  exact control bills, decision replay, short paths, negative outcomes and source/report identity.
+  No SDK/Pi/default changes and no paid calls. One-renewal commitment is not full policy consistency.
+
 ### Qualification fork accounting diagnosis
 
 - Preregister the already reported Sonnet-price 240-step 37-to-71-summary failure plus an
