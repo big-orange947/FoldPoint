@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "baselineCommit": "bedb525",
+  "selection": {
+    "profile": "claude-sonnet-5.5-5m-price",
+    "fixture": "heldout-floor-180-22000-20000",
+    "suite": "main",
+    "steps": 240,
+    "reason": "Previously reported 37 to 71 summaries, not selected from new results"
+  },
+  "control": {
+    "profile": "deepseek-flash-peak",
+    "fixture": "heldout-floor-180-41000-50000",
+    "suite": "main",
+    "steps": 120,
+    "reason": "Previously unchanged action stream"
+  },
+  "checks": [
+    "Reproduce both complete frozen bills and the unchanged control",
+    "First divergence has identical input, baseline, options, model and observed prefix bills",
+    "Explain switches preserve the original decisions and estimates",
+    "Decompose NOW and WAIT bill changes into input, summary and prewarm; ordinary output cancels",
+    "Recheck first 12 future non-forced states on candidate NOW path with frozen model, no-qualification incumbent, deployed incumbent and safety candidate",
+    "Show first 12 actual decisions after the fork separately from hypothetical projected states",
+    "Compare chosen forecast versus actual suffix using identical survival weights, not as a causal counterfactual"
+  ],
+  "limits": "Local diagnostic, not a new algorithm or proof that the first fork alone caused all later cost changes; no model/default/threshold changes",
+  "paidCalls": 0
+}
