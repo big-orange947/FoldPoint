@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Qualification fork accounting diagnosis
+
+- Preregister the already reported Sonnet-price 240-step 37-to-71-summary failure plus an
+  unchanged Flash-price control in 11c6ebb. Reproduce both complete bills, including the
+  control's actions and per-step bills, before explaining the first fork.
+- Verify identical snapshots through step 37; decompose NOW/WAIT changes into input, summary
+  and prewarm, reconciling WAIT-minus-NOW with the decision's saving delta. Preserve estimates
+  under bill explanation and validate the producer and frozen source identities.
+- Recheck twelve projected future states with a frozen model, distinguishing inner incumbent,
+  deployed incumbent and candidate. At relative call 3 the path predicts KEEP but the same
+  candidate would choose COMPACT. Report actual decisions separately from projected states.
+- Keep the negative outcome explicit: ordinary costs decrease by 1.2394032 but summary costs
+  increase by 2.04, leaving a 0.8005968 total increase. Do not attribute every later summary
+  to the first action, claim a causal counterfactual, or promote a new policy.
+- Add six tests, a reproducible diagnostic command and Chinese report. No production algorithm,
+  model, threshold, Pi default or paid-call changes.
+
 ### Budget-exhaustion safety-continuation ablation (not promoted)
 
 - Preregister plan 179542d before running all 24 existing warm-cache cells. Change only

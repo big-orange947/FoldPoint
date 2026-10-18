@@ -1,0 +1,2775 @@
+{
+  "runner": "foldpoint.qualification-divergence.v1",
+  "planCommit": "11c6ebb",
+  "baselineCommit": "bedb525",
+  "paidCalls": 0,
+  "planHash": "ff56b3f4f5a31cfee13aea61a1a840c6deb975edc3cbd17f829a7a4ab256ba93",
+  "frozenResultHash": "28623bca2d3fd4e7b532eddf77e98fe76c63b26b093efd9aa1709f220be492ce",
+  "sourceHash": "669fda994e11bddb7603b82a6ecc3463c5cd7cfb4bfa0c8fabfac85eec6d820b",
+  "selected": {
+    "selection": {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 240,
+      "reason": "Previously reported 37 to 71 summaries, not selected from new results"
+    },
+    "baselineMatches": true,
+    "incumbentBill": {
+      "cost": 28.8913997,
+      "overWindowSummaryCalls": 0,
+      "overWindowOrdinaryCalls": 0,
+      "overWindowPrewarmCalls": 0,
+      "inputWithinWindow": true,
+      "ordinary": 15.97116370000002,
+      "summary": 12.920236000000004,
+      "prewarm": 0,
+      "ordinaryCalls": 240,
+      "summaryCalls": 37,
+      "prewarmCalls": 0,
+      "totalCalls": 277,
+      "failed": 0,
+      "overflow": 0,
+      "fingerprint": "4937e067",
+      "compactions": [
+        {
+          "step": 0,
+          "before": 22182,
+          "after": 20000,
+          "success": true,
+          "cost": 0.064364
+        },
+        {
+          "step": 31,
+          "before": 689310,
+          "after": 68931,
+          "success": true,
+          "cost": 1.39862
+        },
+        {
+          "step": 34,
+          "before": 142324,
+          "after": 20000,
+          "success": true,
+          "cost": 0.30464800000000003
+        },
+        {
+          "step": 40,
+          "before": 154895,
+          "after": 20000,
+          "success": true,
+          "cost": 0.32979
+        },
+        {
+          "step": 45,
+          "before": 130566,
+          "after": 20000,
+          "success": true,
+          "cost": 0.281132
+        },
+        {
+          "step": 48,
+          "before": 85700,
+          "after": 20000,
+          "success": true,
+          "cost": 0.1914
+        },
+        {
+          "step": 52,
+          "before": 108372,
+          "after": 20000,
+          "success": true,
+          "cost": 0.23674399999999998
+        },
+        {
+          "step": 59,
+          "before": 164212,
+          "after": 20000,
+          "success": true,
+          "cost": 0.348424
+        },
+        {
+          "step": 63,
+          "before": 114529,
+          "after": 20000,
+          "success": true,
+          "cost": 0.24905799999999997
+        },
+        {
+          "step": 68,
+          "before": 133460,
+          "after": 20000,
+          "success": true,
+          "cost": 0.28692
+        },
+        {
+          "step": 73,
+          "before": 134037,
+          "after": 20000,
+          "success": true,
+          "cost": 0.288074
+        },
+        {
+          "step": 78,
+          "before": 134914,
+          "after": 20000,
+          "success": true,
+          "cost": 0.28982800000000003
+        },
+        {
+          "step": 83,
+          "before": 141813,
+          "after": 20000,
+          "success": true,
+          "cost": 0.303626
+        },
+        {
+          "step": 87,
+          "before": 108942,
+          "after": 20000,
+          "success": true,
+          "cost": 0.23788399999999998
+        },
+        {
+          "step": 92,
+          "before": 133735,
+          "after": 20000,
+          "success": true,
+          "cost": 0.28747
+        },
+        {
+          "step": 97,
+          "before": 133731,
+          "after": 20000,
+          "success": true,
+          "cost": 0.287462
+        },
+        {
+          "step": 102,
+          "before": 131324,
+          "after": 20000,
+          "success": true,
+          "cost": 0.282648
+        },
+        {
+          "step": 107,
+          "before": 137647,
+          "after": 20000,
+          "success": true,
+          "cost": 0.295294
+        },
+        {
+          "step": 114,
+          "before": 172970,
+          "after": 20000,
+          "success": true,
+          "cost": 0.36594
+        },
+        {
+          "step": 120,
+          "before": 166009,
+          "after": 20000,
+          "success": true,
+          "cost": 0.352018
+        },
+        {
+          "step": 127,
+          "before": 167118,
+          "after": 20000,
+          "success": true,
+          "cost": 0.354236
+        },
+        {
+          "step": 134,
+          "before": 168799,
+          "after": 20000,
+          "success": true,
+          "cost": 0.357598
+        },
+        {
+          "step": 141,
+          "before": 159715,
+          "after": 20000,
+          "success": true,
+          "cost": 0.33943
+        },
+        {
+          "step": 148,
+          "before": 167399,
+          "after": 20000,
+          "success": true,
+          "cost": 0.354798
+        },
+        {
+          "step": 155,
+          "before": 170869,
+          "after": 20000,
+          "success": true,
+          "cost": 0.361738
+        },
+        {
+          "step": 163,
+          "before": 186644,
+          "after": 20000,
+          "success": true,
+          "cost": 0.393288
+        },
+        {
+          "step": 171,
+          "before": 192409,
+          "after": 20000,
+          "success": true,
+          "cost": 0.404818
+        },
+        {
+          "step": 178,
+          "before": 186892,
+          "after": 20000,
+          "success": true,
+          "cost": 0.393784
+        },
+        {
+          "step": 185,
+          "before": 182247,
+          "after": 20000,
+          "success": true,
+          "cost": 0.384494
+        },
+        {
+          "step": 192,
+          "before": 176103,
+          "after": 20000,
+          "success": true,
+          "cost": 0.372206
+        },
+        {
+          "step": 199,
+          "before": 172221,
+          "after": 20000,
+          "success": true,
+          "cost": 0.364442
+        },
+        {
+          "step": 207,
+          "before": 185162,
+          "after": 20000,
+          "success": true,
+          "cost": 0.390324
+        },
+        {
+          "step": 212,
+          "before": 132769,
+          "after": 20000,
+          "success": true,
+          "cost": 0.285538
+        },
+        {
+          "step": 219,
+          "before": 181027,
+          "after": 20000,
+          "success": true,
+          "cost": 0.382054
+        },
+        {
+          "step": 226,
+          "before": 179404,
+          "after": 20000,
+          "success": true,
+          "cost": 0.378808
+        },
+        {
+          "step": 233,
+          "before": 189200,
+          "after": 20000,
+          "success": true,
+          "cost": 0.3984
+        },
+        {
+          "step": 239,
+          "before": 151468,
+          "after": 20000,
+          "success": true,
+          "cost": 0.322936
+        }
+      ]
+    },
+    "candidateBill": {
+      "cost": 29.69199650000005,
+      "overWindowSummaryCalls": 0,
+      "overWindowOrdinaryCalls": 0,
+      "overWindowPrewarmCalls": 0,
+      "inputWithinWindow": true,
+      "ordinary": 14.731760500000036,
+      "summary": 14.960236,
+      "prewarm": 0,
+      "ordinaryCalls": 240,
+      "summaryCalls": 71,
+      "prewarmCalls": 0,
+      "totalCalls": 311,
+      "failed": 0,
+      "overflow": 0,
+      "fingerprint": "4937e067",
+      "compactions": [
+        {
+          "step": 0,
+          "before": 22182,
+          "after": 20000,
+          "success": true,
+          "cost": 0.064364
+        },
+        {
+          "step": 31,
+          "before": 689310,
+          "after": 68931,
+          "success": true,
+          "cost": 1.39862
+        },
+        {
+          "step": 34,
+          "before": 142324,
+          "after": 20000,
+          "success": true,
+          "cost": 0.30464800000000003
+        },
+        {
+          "step": 37,
+          "before": 87464,
+          "after": 20000,
+          "success": true,
+          "cost": 0.194928
+        },
+        {
+          "step": 40,
+          "before": 87431,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19486199999999998
+        },
+        {
+          "step": 43,
+          "before": 85120,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19024
+        },
+        {
+          "step": 46,
+          "before": 87067,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19413399999999997
+        },
+        {
+          "step": 49,
+          "before": 87288,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19457599999999997
+        },
+        {
+          "step": 52,
+          "before": 85163,
+          "after": 20000,
+          "success": true,
+          "cost": 0.190326
+        },
+        {
+          "step": 55,
+          "before": 85000,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18999999999999997
+        },
+        {
+          "step": 58,
+          "before": 78914,
+          "after": 20000,
+          "success": true,
+          "cost": 0.17782799999999999
+        },
+        {
+          "step": 61,
+          "before": 85547,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19109399999999999
+        },
+        {
+          "step": 64,
+          "before": 89170,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19834
+        },
+        {
+          "step": 67,
+          "before": 87158,
+          "after": 20000,
+          "success": true,
+          "cost": 0.194316
+        },
+        {
+          "step": 70,
+          "before": 93006,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20601199999999997
+        },
+        {
+          "step": 73,
+          "before": 87443,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19488599999999998
+        },
+        {
+          "step": 76,
+          "before": 91092,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20218399999999997
+        },
+        {
+          "step": 79,
+          "before": 87808,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19561599999999998
+        },
+        {
+          "step": 82,
+          "before": 92621,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20524199999999998
+        },
+        {
+          "step": 85,
+          "before": 83025,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18605
+        },
+        {
+          "step": 88,
+          "before": 92379,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20475799999999997
+        },
+        {
+          "step": 91,
+          "before": 86120,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19224
+        },
+        {
+          "step": 94,
+          "before": 94153,
+          "after": 20000,
+          "success": true,
+          "cost": 0.208306
+        },
+        {
+          "step": 97,
+          "before": 85937,
+          "after": 20000,
+          "success": true,
+          "cost": 0.191874
+        },
+        {
+          "step": 100,
+          "before": 84035,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18807
+        },
+        {
+          "step": 103,
+          "before": 89561,
+          "after": 20000,
+          "success": true,
+          "cost": 0.199122
+        },
+        {
+          "step": 106,
+          "before": 92053,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20410599999999998
+        },
+        {
+          "step": 109,
+          "before": 92963,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20592599999999997
+        },
+        {
+          "step": 112,
+          "before": 86590,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19318
+        },
+        {
+          "step": 115,
+          "before": 78850,
+          "after": 20000,
+          "success": true,
+          "cost": 0.17769999999999997
+        },
+        {
+          "step": 118,
+          "before": 94651,
+          "after": 20000,
+          "success": true,
+          "cost": 0.209302
+        },
+        {
+          "step": 121,
+          "before": 91407,
+          "after": 20000,
+          "success": true,
+          "cost": 0.202814
+        },
+        {
+          "step": 124,
+          "before": 80316,
+          "after": 20000,
+          "success": true,
+          "cost": 0.180632
+        },
+        {
+          "step": 127,
+          "before": 84642,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18928399999999998
+        },
+        {
+          "step": 130,
+          "before": 83551,
+          "after": 20000,
+          "success": true,
+          "cost": 0.187102
+        },
+        {
+          "step": 133,
+          "before": 86802,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19360399999999997
+        },
+        {
+          "step": 136,
+          "before": 79005,
+          "after": 20000,
+          "success": true,
+          "cost": 0.17800999999999997
+        },
+        {
+          "step": 140,
+          "before": 99518,
+          "after": 20000,
+          "success": true,
+          "cost": 0.21903599999999998
+        },
+        {
+          "step": 143,
+          "before": 86558,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19311599999999998
+        },
+        {
+          "step": 146,
+          "before": 79155,
+          "after": 20000,
+          "success": true,
+          "cost": 0.17831
+        },
+        {
+          "step": 149,
+          "before": 79539,
+          "after": 20000,
+          "success": true,
+          "cost": 0.179078
+        },
+        {
+          "step": 152,
+          "before": 89819,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19963799999999998
+        },
+        {
+          "step": 155,
+          "before": 82835,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18566999999999997
+        },
+        {
+          "step": 158,
+          "before": 89575,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19915
+        },
+        {
+          "step": 161,
+          "before": 77063,
+          "after": 20000,
+          "success": true,
+          "cost": 0.17412599999999998
+        },
+        {
+          "step": 164,
+          "before": 82847,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18569399999999997
+        },
+        {
+          "step": 167,
+          "before": 90389,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20077799999999998
+        },
+        {
+          "step": 170,
+          "before": 80729,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18145799999999998
+        },
+        {
+          "step": 173,
+          "before": 83198,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18639599999999998
+        },
+        {
+          "step": 176,
+          "before": 94547,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20909399999999997
+        },
+        {
+          "step": 179,
+          "before": 90411,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20082199999999997
+        },
+        {
+          "step": 182,
+          "before": 94420,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20883999999999997
+        },
+        {
+          "step": 185,
+          "before": 85013,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19002599999999997
+        },
+        {
+          "step": 188,
+          "before": 86479,
+          "after": 20000,
+          "success": true,
+          "cost": 0.192958
+        },
+        {
+          "step": 191,
+          "before": 87969,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19593799999999997
+        },
+        {
+          "step": 194,
+          "before": 86027,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19205399999999997
+        },
+        {
+          "step": 197,
+          "before": 84554,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18910799999999997
+        },
+        {
+          "step": 200,
+          "before": 84174,
+          "after": 20000,
+          "success": true,
+          "cost": 0.188348
+        },
+        {
+          "step": 203,
+          "before": 81791,
+          "after": 20000,
+          "success": true,
+          "cost": 0.183582
+        },
+        {
+          "step": 206,
+          "before": 80736,
+          "after": 20000,
+          "success": true,
+          "cost": 0.181472
+        },
+        {
+          "step": 209,
+          "before": 84960,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18991999999999998
+        },
+        {
+          "step": 212,
+          "before": 89565,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19912999999999997
+        },
+        {
+          "step": 215,
+          "before": 91939,
+          "after": 20000,
+          "success": true,
+          "cost": 0.20387799999999998
+        },
+        {
+          "step": 218,
+          "before": 83615,
+          "after": 20000,
+          "success": true,
+          "cost": 0.18722999999999998
+        },
+        {
+          "step": 221,
+          "before": 89490,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19898
+        },
+        {
+          "step": 224,
+          "before": 91337,
+          "after": 20000,
+          "success": true,
+          "cost": 0.202674
+        },
+        {
+          "step": 227,
+          "before": 89114,
+          "after": 20000,
+          "success": true,
+          "cost": 0.198228
+        },
+        {
+          "step": 230,
+          "before": 97792,
+          "after": 20000,
+          "success": true,
+          "cost": 0.21558399999999997
+        },
+        {
+          "step": 233,
+          "before": 86344,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19268799999999997
+        },
+        {
+          "step": 236,
+          "before": 84274,
+          "after": 20000,
+          "success": true,
+          "cost": 0.188548
+        },
+        {
+          "step": 239,
+          "before": 87194,
+          "after": 20000,
+          "success": true,
+          "cost": 0.19438799999999998
+        }
+      ]
+    },
+    "status": "DIVERGED",
+    "checkpoint": {
+      "step": 37,
+      "snapshot": {
+        "input": {
+          "sessionId": "bench-affine-cost-9",
+          "profile": {
+            "provider": "benchmark",
+            "model": "benchmark-model",
+            "contextWindowTokens": 1000000,
+            "compactorId": "benchmark-compactor",
+            "pricing": {
+              "currency": "USD",
+              "inputPerMillion": 2,
+              "outputPerMillion": 10,
+              "cacheReadPerMillion": 0.2,
+              "cacheWritePerMillion": 2.5
+            },
+            "cachePolicy": {
+              "ttlMs": 60000
+            }
+          },
+          "timestamp": 1700000038000,
+          "contextTokens": 87464,
+          "reusablePrefixTokens": 63875,
+          "idleMs": 1000,
+          "safeBoundary": true,
+          "compactionAllowed": true
+        },
+        "baseline": {
+          "action": "KEEP",
+          "reasons": ["CACHE_STILL_VALUABLE", "BREAK_EVEN_BEYOND_HORIZON", "NO_POSITIVE_SAVING"],
+          "confidence": 0.7073333333333334,
+          "metrics": {
+            "utilization": 0.087464,
+            "remainingTokens": 912536,
+            "estimatedPostCompactTokens": 19381.65722591627,
+            "estimatedReclaimTokens": 68082.34277408372,
+            "estimatedReclaimRatio": 0.7784041751358699,
+            "estimatedCacheCoverageRatio": 0.7303004664776365,
+            "estimatedCacheAliveProbability": 1,
+            "estimatedCacheLaterAliveProbability": 1,
+            "estimatedCacheLaterCandidateTokens": 87464,
+            "estimatedEffectiveCachedTokens": 63875,
+            "estimatedCurrentCallReplayCost": 0.059953,
+            "estimatedLaterCallReplayCost": 0.017492800000000003,
+            "estimatedKeepCost": 0.059953,
+            "estimatedCompactCallCost": 0.19030424341374935,
+            "estimatedFirstPostCompactReplayCost": 0.048454143064790685,
+            "estimatedCompactCost": 0.23875838647854003,
+            "estimatedDeferCost": 0.059953,
+            "estimatedEconomicAlternativeCost": 0.059953,
+            "estimatedDecisionNetSaving": -0.17880538647854002,
+            "estimatedNetSaving": -0.17880538647854002,
+            "adjustedNetSaving": -0.15502064654788306,
+            "stressedAdjustedNetSaving": -0.1627539218812164,
+            "requiredEconomicSaving": 0.019030424341374936,
+            "estimatedSavingPerFutureCall": 0.013616468554816748,
+            "breakEvenCalls": 14.131553585917741,
+            "expectedFutureCalls": 1,
+            "effectiveHorizonCalls": 1,
+            "estimatedGrowthTokensPerCall": 22565.25364483727,
+            "growthGuardTokens": 27468,
+            "rawForceBoundaryTokens": 700000,
+            "guardedForceBoundaryTokens": 672532,
+            "callsUntilForce": 26,
+            "probabilityReachForce": 0,
+            "callsSinceLastAttempt": 3,
+            "retentionSamples": 3
+          },
+          "nextCheckAtTokens": 672532
+        },
+        "options": {
+          "continuationProbability": 0.95,
+          "maxImmediateLossRatio": 1,
+          "maxCalls": 256,
+          "rolloutMode": "renewal",
+          "endingRiskMode": "survival-weighted",
+          "endingLossBudgetRatio": 1,
+          "savingMarginBasis": "timing",
+          "durationModel": {
+            "completedCalls": 37,
+            "components": [
+              {
+                "weight": 0.8,
+                "continuationProbability": 0.8
+              },
+              {
+                "weight": 0.2,
+                "continuationProbability": 0.98
+              }
+            ]
+          },
+          "cycleBilling": {},
+          "stressWaitSelection": "paired-policy",
+          "futureQualification": {
+            "maxChecksPerPath": 2
+          },
+          "compactorTokenModel": {
+            "after": {
+              "slope": 0.06727865101726462,
+              "intercept": 13899.09295634982,
+              "residual": 0
+            },
+            "output": {
+              "slope": 0.01758008256396844,
+              "intercept": 0,
+              "residual": 0
+            },
+            "samples": 3,
+            "minBefore": 22182,
+            "maxBefore": 689310,
+            "summaryInputCostPerToken": 0.000002
+          },
+          "executionConstraints": {
+            "hasAttempt": true,
+            "minCallsBetweenCompactions": 3,
+            "minReclaimTokens": 4096,
+            "minReclaimRatio": 0.2,
+            "softWindowTokens": 0
+          }
+        }
+      },
+      "commonPrefixBill": {
+        "ordinaryInputCost": 3.7739269000000006,
+        "ordinaryOutputCost": 0.11100000000000006,
+        "summaryCost": 1.767632,
+        "prewarmCost": 0,
+        "summaryCalls": 3,
+        "prewarmCalls": 0
+      },
+      "incumbent": {
+        "action": "KEEP",
+        "shouldCompact": false,
+        "eligible": true,
+        "expectedSaving": 0.003912757934029898,
+        "stressedSaving": -0.0025161523028529587,
+        "requiredSaving": 0.010905049751120582,
+        "compactNowCost": 5.7511804386604215,
+        "bestWaitCost": 5.755093196594451,
+        "qualification": {
+          "maxChecksPerPath": 2,
+          "now": {
+            "checks": [
+              {
+                "call": 5,
+                "context": 132609.8211131102,
+                "completedCalls": 42,
+                "allowed": false,
+                "expectedSaving": 0.004131810067765862,
+                "stressedSaving": 0.0024047372361053476,
+                "requiredSaving": 0.011623691829453492
+              },
+              {
+                "call": 6,
+                "context": 155175.07475794747,
+                "completedCalls": 43,
+                "allowed": false,
+                "expectedSaving": 0.006090794252584963,
+                "stressedSaving": 0.0051017840224352184,
+                "requiredSaving": 0.012074996902350244
+              }
+            ],
+            "unassessedAttempts": 50
+          },
+          "wait": {
+            "checks": [
+              {
+                "call": 2,
+                "context": 132594.50728967454,
+                "completedCalls": 39,
+                "allowed": false,
+                "expectedSaving": 0.004105945300831415,
+                "stressedSaving": 0.0023750928388475145,
+                "requiredSaving": 0.011623385552984785
+              },
+              {
+                "call": 3,
+                "context": 155159.7609345118,
+                "completedCalls": 40,
+                "allowed": false,
+                "expectedSaving": 0.006069562731050304,
+                "stressedSaving": 0.005071751163887583,
+                "requiredSaving": 0.01207469062588153
+              }
+            ],
+            "unassessedAttempts": 51
+          },
+          "incumbentNowCost": 5.742194103567131,
+          "incumbentWaitCost": 5.74381161224877,
+          "qualifiedNowCost": 5.7511804386604215,
+          "qualifiedWaitCost": 5.755093196594451,
+          "safetyNowCost": 7.422126261447609,
+          "safetyWaitCost": 7.528779052043645,
+          "nowSafetyFallback": false,
+          "waitSafetyFallback": false
+        },
+        "pathBills": {
+          "now": {
+            "ordinaryInputCost": 2.821292096043285,
+            "summaryCost": 2.9298883426171383,
+            "prewarmCost": 0,
+            "expectedOrdinaryCalls": 49.61846396055774,
+            "expectedSummaryCalls": 10.123879711624232,
+            "expectedPrewarmCalls": 0,
+            "steps": [
+              {
+                "call": 0,
+                "survival": 0.9999999999999999,
+                "compact": true,
+                "beforeTokens": 87464,
+                "afterTokens": 19783.552888923852,
+                "ordinaryInputCost": 0.04945888222230963,
+                "summaryCost": 0.19030424341374935,
+                "prewarmCost": 0
+              },
+              {
+                "call": 1,
+                "survival": 0.979606136369314,
+                "compact": false,
+                "beforeTokens": 42348.80653376112,
+                "afterTokens": 42348.80653376112,
+                "ordinaryInputCost": 0.04908721786745931,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 2,
+                "survival": 0.9596989227373789,
+                "compact": false,
+                "beforeTokens": 64914.06017859839,
+                "afterTokens": 64914.06017859839,
+                "ordinaryInputCost": 0.05360026859642677,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 3,
+                "survival": 0.9402528715589924,
+                "compact": false,
+                "beforeTokens": 87479.31382343566,
+                "afterTokens": 87479.31382343566,
+                "ordinaryInputCost": 0.05811331932539422,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 4,
+                "survival": 0.9212461559489015,
+                "compact": false,
+                "beforeTokens": 110044.56746827293,
+                "afterTokens": 110044.56746827293,
+                "ordinaryInputCost": 0.06262637005436167,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 5,
+                "survival": 0.9026599062867944,
+                "compact": false,
+                "beforeTokens": 132609.8211131102,
+                "afterTokens": 132609.8211131102,
+                "ordinaryInputCost": 0.06713942078332913,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 6,
+                "survival": 0.8844776469265553,
+                "compact": false,
+                "beforeTokens": 155175.07475794747,
+                "afterTokens": 155175.07475794747,
+                "ordinaryInputCost": 0.07165247151229659,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 7,
+                "survival": 0.8666848450004218,
+                "compact": true,
+                "beforeTokens": 177740.32840278474,
+                "afterTokens": 25857.22248265478,
+                "ordinaryInputCost": 0.06464305620663695,
+                "summaryCost": 0.38672755328824765,
+                "prewarmCost": 0
+              },
+              {
+                "call": 8,
+                "survival": 0.8492685489103311,
+                "compact": false,
+                "beforeTokens": 48422.476127492046,
+                "afterTokens": 48422.476127492046,
+                "ordinaryInputCost": 0.05030195178620549,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 9,
+                "survival": 0.832217098580059,
+                "compact": false,
+                "beforeTokens": 70987.72977232932,
+                "afterTokens": 70987.72977232932,
+                "ordinaryInputCost": 0.05481500251517295,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 10,
+                "survival": 0.8155198931268053,
+                "compact": false,
+                "beforeTokens": 93552.98341716659,
+                "afterTokens": 93552.98341716659,
+                "ordinaryInputCost": 0.05932805324414041,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 11,
+                "survival": 0.7991672044789471,
+                "compact": true,
+                "beforeTokens": 116118.23706200386,
+                "afterTokens": 21711.371304384378,
+                "ordinaryInputCost": 0.05427842826096095,
+                "summaryCost": 0.25265015607133257,
+                "prewarmCost": 0
+              },
+              {
+                "call": 12,
+                "survival": 0.7831500277611106,
+                "compact": false,
+                "beforeTokens": 44276.624949221645,
+                "afterTokens": 44276.624949221645,
+                "ordinaryInputCost": 0.04947278155055141,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              }
+            ]
+          },
+          "wait": {
+            "ordinaryInputCost": 2.8423633495158214,
+            "summaryCost": 2.9127298470786314,
+            "prewarmCost": 0,
+            "expectedOrdinaryCalls": 49.61846396055774,
+            "expectedSummaryCalls": 9.70063508123086,
+            "expectedPrewarmCalls": 0,
+            "steps": [
+              {
+                "call": 0,
+                "survival": 0.9999999999999999,
+                "compact": false,
+                "beforeTokens": 87464,
+                "afterTokens": 87464,
+                "ordinaryInputCost": 0.059953,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 1,
+                "survival": 0.979606136369314,
+                "compact": false,
+                "beforeTokens": 110029.25364483727,
+                "afterTokens": 110029.25364483727,
+                "ordinaryInputCost": 0.06262330728967455,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 2,
+                "survival": 0.9596989227373789,
+                "compact": false,
+                "beforeTokens": 132594.50728967454,
+                "afterTokens": 132594.50728967454,
+                "ordinaryInputCost": 0.067136358018642,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 3,
+                "survival": 0.9402528715589924,
+                "compact": false,
+                "beforeTokens": 155159.7609345118,
+                "afterTokens": 155159.7609345118,
+                "ordinaryInputCost": 0.07164940874760944,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 4,
+                "survival": 0.9212461559489015,
+                "compact": true,
+                "beforeTokens": 177725.01457934908,
+                "afterTokens": 25856.19218927211,
+                "ordinaryInputCost": 0.06464048047318029,
+                "summaryCost": 0.3866942334585727,
+                "prewarmCost": 0
+              },
+              {
+                "call": 5,
+                "survival": 0.9026599062867944,
+                "compact": false,
+                "beforeTokens": 48421.445834109385,
+                "afterTokens": 48421.445834109385,
+                "ordinaryInputCost": 0.05030174572752897,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 6,
+                "survival": 0.8844776469265553,
+                "compact": false,
+                "beforeTokens": 70986.69947894666,
+                "afterTokens": 70986.69947894666,
+                "ordinaryInputCost": 0.05481479645649642,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 7,
+                "survival": 0.8666848450004218,
+                "compact": false,
+                "beforeTokens": 93551.95312378393,
+                "afterTokens": 93551.95312378393,
+                "ordinaryInputCost": 0.059327847185463876,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 8,
+                "survival": 0.8492685489103311,
+                "compact": true,
+                "beforeTokens": 116117.2067686212,
+                "afterTokens": 21711.30198763544,
+                "ordinaryInputCost": 0.054278254969088606,
+                "summaryCost": 0.25264791435813994,
+                "prewarmCost": 0
+              },
+              {
+                "call": 9,
+                "survival": 0.832217098580059,
+                "compact": false,
+                "beforeTokens": 44276.55563247271,
+                "afterTokens": 44276.55563247271,
+                "ordinaryInputCost": 0.04947276768720162,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 10,
+                "survival": 0.8155198931268053,
+                "compact": false,
+                "beforeTokens": 66841.80927730998,
+                "afterTokens": 66841.80927730998,
+                "ordinaryInputCost": 0.05398581841616908,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 11,
+                "survival": 0.7991672044789471,
+                "compact": false,
+                "beforeTokens": 89407.06292214725,
+                "afterTokens": 89407.06292214725,
+                "ordinaryInputCost": 0.05849886914513654,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 12,
+                "survival": 0.7831500277611106,
+                "compact": false,
+                "beforeTokens": 111972.31656698452,
+                "afterTokens": 111972.31656698452,
+                "ordinaryInputCost": 0.063011919874104,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              }
+            ]
+          }
+        },
+        "chosenComparison": {
+          "matchedCalls": 203,
+          "weightedForecast": {
+            "ordinaryInputCost": 2.8116651367058396,
+            "ordinaryOutputCost": 0,
+            "summaryCost": 2.8786381168085495,
+            "prewarmCost": 0,
+            "summaryCalls": 9.585311455973157,
+            "prewarmCalls": 0
+          },
+          "weightedActual": {
+            "ordinaryInputCost": 2.677351443800952,
+            "ordinaryOutputCost": 0.14722699030959305,
+            "summaryCost": 2.7420507276207315,
+            "prewarmCost": 0,
+            "summaryCalls": 9.398865641305424,
+            "prewarmCalls": 0
+          },
+          "rawForecast": {
+            "ordinaryInputCost": 11.547405926183599,
+            "ordinaryOutputCost": 0,
+            "summaryCost": 11.869723628691162,
+            "prewarmCost": 0,
+            "summaryCalls": 40,
+            "prewarmCalls": 0
+          },
+          "rawActual": {
+            "ordinaryInputCost": 11.477236800000002,
+            "ordinaryOutputCost": 0.6090000000000004,
+            "summaryCost": 11.152604000000002,
+            "prewarmCost": 0,
+            "summaryCalls": 34,
+            "prewarmCalls": 0
+          },
+          "weightedInputFeeGap": -0.27090108209270536,
+          "rawInputFeeGap": -0.7872887548747585,
+          "scheduleMismatchCalls": [
+            3, 4, 11, 13, 15, 18, 22, 23, 26, 28, 31, 33, 36, 38, 41, 43, 46, 48, 50, 53, 55, 58,
+            60, 63, 65, 68, 70, 73, 77, 78, 88, 90, 93, 97, 98, 103, 104, 108, 111, 113, 123, 126,
+            128, 133, 134, 138, 141, 143, 153, 155, 158, 162, 163, 168, 170, 173, 175, 178, 182,
+            183, 188, 189, 193, 196, 198, 202
+          ],
+          "ordinaryOutputExcluded": true
+        },
+        "actualFirst12": [
+          {
+            "step": 37,
+            "action": "KEEP",
+            "context": 87464,
+            "model": {
+              "after": {
+                "slope": 0.06727865101726462,
+                "intercept": 13899.09295634982,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01758008256396844,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 3,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05995299999999999,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 38,
+            "action": "KEEP",
+            "context": 106239,
+            "model": {
+              "after": {
+                "slope": 0.06727865101726462,
+                "intercept": 13899.09295634982,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01758008256396844,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 3,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.0550428,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 39,
+            "action": "KEEP",
+            "context": 129912,
+            "model": {
+              "after": {
+                "slope": 0.06727865101726462,
+                "intercept": 13899.09295634982,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01758008256396844,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 3,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.0685938,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 40,
+            "action": "COMPACT",
+            "context": 154895,
+            "model": {
+              "after": {
+                "slope": 0.06727865101726462,
+                "intercept": 13899.09295634982,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01758008256396844,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 3,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.32979,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 41,
+            "action": "KEEP",
+            "context": 42919,
+            "model": {
+              "after": {
+                "slope": 0.06265561388772665,
+                "intercept": 12247.238022802987,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016413055079630836,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.04983799999999999,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 42,
+            "action": "KEEP",
+            "context": 64170,
+            "model": {
+              "after": {
+                "slope": 0.06265561388772665,
+                "intercept": 12247.238022802987,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016413055079630836,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.0510858,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 43,
+            "action": "KEEP",
+            "context": 85120,
+            "model": {
+              "after": {
+                "slope": 0.06265561388772665,
+                "intercept": 12247.238022802987,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016413055079630836,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.054734000000000005,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 44,
+            "action": "KEEP",
+            "context": 104329,
+            "model": {
+              "after": {
+                "slope": 0.06265561388772665,
+                "intercept": 12247.238022802987,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016413055079630836,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.055442000000000005,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 45,
+            "action": "COMPACT",
+            "context": 130566,
+            "model": {
+              "after": {
+                "slope": 0.06265561388772665,
+                "intercept": 12247.238022802987,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016413055079630836,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.281132,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 46,
+            "action": "KEEP",
+            "context": 41621,
+            "model": {
+              "after": {
+                "slope": 0.06282697043718946,
+                "intercept": 11966.100115691559,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016139272185295636,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.04724199999999999,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 47,
+            "action": "KEEP",
+            "context": 59267,
+            "model": {
+              "after": {
+                "slope": 0.06282697043718946,
+                "intercept": 11966.100115691559,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016139272185295636,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.043616199999999994,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 48,
+            "action": "COMPACT",
+            "context": 85700,
+            "model": {
+              "after": {
+                "slope": 0.06282697043718946,
+                "intercept": 11966.100115691559,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.016139272185295636,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.1914,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          }
+        ]
+      },
+      "candidate": {
+        "action": "COMPACT",
+        "shouldCompact": true,
+        "eligible": true,
+        "expectedSaving": 0.10665279059603616,
+        "stressedSaving": 0.07691605708875038,
+        "requiredSaving": 0.010905049751120582,
+        "compactNowCost": 7.422126261447609,
+        "bestWaitCost": 7.528779052043645,
+        "qualification": {
+          "maxChecksPerPath": 2,
+          "now": {
+            "checks": [
+              {
+                "call": 5,
+                "context": 132609.8211131102,
+                "completedCalls": 42,
+                "allowed": false,
+                "expectedSaving": 0.004131810067765862,
+                "stressedSaving": 0.0024047372361053476,
+                "requiredSaving": 0.011623691829453492
+              },
+              {
+                "call": 6,
+                "context": 155175.07475794747,
+                "completedCalls": 43,
+                "allowed": false,
+                "expectedSaving": 0.006090794252584963,
+                "stressedSaving": 0.0051017840224352184,
+                "requiredSaving": 0.012074996902350244
+              }
+            ],
+            "unassessedAttempts": 222
+          },
+          "wait": {
+            "checks": [
+              {
+                "call": 2,
+                "context": 132594.50728967454,
+                "completedCalls": 39,
+                "allowed": false,
+                "expectedSaving": 0.004105945300831415,
+                "stressedSaving": 0.0023750928388475145,
+                "requiredSaving": 0.011623385552984785
+              },
+              {
+                "call": 3,
+                "context": 155159.7609345118,
+                "completedCalls": 40,
+                "allowed": false,
+                "expectedSaving": 0.006069562731050304,
+                "stressedSaving": 0.005071751163887583,
+                "requiredSaving": 0.01207469062588153
+              }
+            ],
+            "unassessedAttempts": 225
+          },
+          "incumbentNowCost": 5.742194103567131,
+          "incumbentWaitCost": 5.74381161224877,
+          "qualifiedNowCost": 7.422126261447609,
+          "qualifiedWaitCost": 7.528779052043645,
+          "safetyNowCost": 7.422126261447609,
+          "safetyWaitCost": 7.528779052043645,
+          "nowSafetyFallback": false,
+          "waitSafetyFallback": false
+        },
+        "pathBills": {
+          "now": {
+            "ordinaryInputCost": 5.330026352280512,
+            "summaryCost": 2.0920999091670995,
+            "prewarmCost": 0,
+            "expectedOrdinaryCalls": 49.61846396055774,
+            "expectedSummaryCalls": 2.2776696104171164,
+            "expectedPrewarmCalls": 0,
+            "steps": [
+              {
+                "call": 0,
+                "survival": 0.9999999999999999,
+                "compact": true,
+                "beforeTokens": 87464,
+                "afterTokens": 19783.552888923852,
+                "ordinaryInputCost": 0.04945888222230963,
+                "summaryCost": 0.19030424341374935,
+                "prewarmCost": 0
+              },
+              {
+                "call": 1,
+                "survival": 0.979606136369314,
+                "compact": false,
+                "beforeTokens": 42348.80653376112,
+                "afterTokens": 42348.80653376112,
+                "ordinaryInputCost": 0.04908721786745931,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 2,
+                "survival": 0.9596989227373789,
+                "compact": false,
+                "beforeTokens": 64914.06017859839,
+                "afterTokens": 64914.06017859839,
+                "ordinaryInputCost": 0.05360026859642677,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 3,
+                "survival": 0.9402528715589924,
+                "compact": false,
+                "beforeTokens": 87479.31382343566,
+                "afterTokens": 87479.31382343566,
+                "ordinaryInputCost": 0.05811331932539422,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 4,
+                "survival": 0.9212461559489015,
+                "compact": false,
+                "beforeTokens": 110044.56746827293,
+                "afterTokens": 110044.56746827293,
+                "ordinaryInputCost": 0.06262637005436167,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 5,
+                "survival": 0.9026599062867944,
+                "compact": false,
+                "beforeTokens": 132609.8211131102,
+                "afterTokens": 132609.8211131102,
+                "ordinaryInputCost": 0.06713942078332913,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 6,
+                "survival": 0.8844776469265553,
+                "compact": false,
+                "beforeTokens": 155175.07475794747,
+                "afterTokens": 155175.07475794747,
+                "ordinaryInputCost": 0.07165247151229659,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 7,
+                "survival": 0.8666848450004218,
+                "compact": false,
+                "beforeTokens": 177740.32840278474,
+                "afterTokens": 177740.32840278474,
+                "ordinaryInputCost": 0.07616552224126404,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 8,
+                "survival": 0.8492685489103311,
+                "compact": false,
+                "beforeTokens": 200305.582047622,
+                "afterTokens": 200305.582047622,
+                "ordinaryInputCost": 0.08067857297023148,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 9,
+                "survival": 0.832217098580059,
+                "compact": false,
+                "beforeTokens": 222870.83569245928,
+                "afterTokens": 222870.83569245928,
+                "ordinaryInputCost": 0.08519162369919894,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 10,
+                "survival": 0.8155198931268053,
+                "compact": false,
+                "beforeTokens": 245436.08933729655,
+                "afterTokens": 245436.08933729655,
+                "ordinaryInputCost": 0.0897046744281664,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 11,
+                "survival": 0.7991672044789471,
+                "compact": false,
+                "beforeTokens": 268001.34298213385,
+                "afterTokens": 268001.34298213385,
+                "ordinaryInputCost": 0.09421772515713392,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 12,
+                "survival": 0.7831500277611106,
+                "compact": false,
+                "beforeTokens": 290566.59662697115,
+                "afterTokens": 290566.59662697115,
+                "ordinaryInputCost": 0.09873077588610138,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              }
+            ]
+          },
+          "wait": {
+            "ordinaryInputCost": 5.508170508557628,
+            "summaryCost": 2.020608543486016,
+            "prewarmCost": 0,
+            "expectedOrdinaryCalls": 49.61846396055774,
+            "expectedSummaryCalls": 1.3575045838250412,
+            "expectedPrewarmCalls": 0,
+            "steps": [
+              {
+                "call": 0,
+                "survival": 0.9999999999999999,
+                "compact": false,
+                "beforeTokens": 87464,
+                "afterTokens": 87464,
+                "ordinaryInputCost": 0.059953,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 1,
+                "survival": 0.979606136369314,
+                "compact": false,
+                "beforeTokens": 110029.25364483727,
+                "afterTokens": 110029.25364483727,
+                "ordinaryInputCost": 0.06262330728967455,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 2,
+                "survival": 0.9596989227373789,
+                "compact": false,
+                "beforeTokens": 132594.50728967454,
+                "afterTokens": 132594.50728967454,
+                "ordinaryInputCost": 0.067136358018642,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 3,
+                "survival": 0.9402528715589924,
+                "compact": false,
+                "beforeTokens": 155159.7609345118,
+                "afterTokens": 155159.7609345118,
+                "ordinaryInputCost": 0.07164940874760944,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 4,
+                "survival": 0.9212461559489015,
+                "compact": false,
+                "beforeTokens": 177725.01457934908,
+                "afterTokens": 177725.01457934908,
+                "ordinaryInputCost": 0.0761624594765769,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 5,
+                "survival": 0.9026599062867944,
+                "compact": false,
+                "beforeTokens": 200290.26822418635,
+                "afterTokens": 200290.26822418635,
+                "ordinaryInputCost": 0.08067551020554437,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 6,
+                "survival": 0.8844776469265553,
+                "compact": false,
+                "beforeTokens": 222855.52186902362,
+                "afterTokens": 222855.52186902362,
+                "ordinaryInputCost": 0.08518856093451183,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 7,
+                "survival": 0.8666848450004218,
+                "compact": false,
+                "beforeTokens": 245420.7755138609,
+                "afterTokens": 245420.7755138609,
+                "ordinaryInputCost": 0.08970161166347927,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 8,
+                "survival": 0.8492685489103311,
+                "compact": false,
+                "beforeTokens": 267986.02915869816,
+                "afterTokens": 267986.02915869816,
+                "ordinaryInputCost": 0.09421466239244672,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 9,
+                "survival": 0.832217098580059,
+                "compact": false,
+                "beforeTokens": 290551.28280353546,
+                "afterTokens": 290551.28280353546,
+                "ordinaryInputCost": 0.09872771312141423,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 10,
+                "survival": 0.8155198931268053,
+                "compact": false,
+                "beforeTokens": 313116.53644837276,
+                "afterTokens": 313116.53644837276,
+                "ordinaryInputCost": 0.1032407638503817,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 11,
+                "survival": 0.7991672044789471,
+                "compact": false,
+                "beforeTokens": 335681.79009321006,
+                "afterTokens": 335681.79009321006,
+                "ordinaryInputCost": 0.10775381457934916,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              },
+              {
+                "call": 12,
+                "survival": 0.7831500277611106,
+                "compact": false,
+                "beforeTokens": 358247.04373804736,
+                "afterTokens": 358247.04373804736,
+                "ordinaryInputCost": 0.11226686530831662,
+                "summaryCost": 0,
+                "prewarmCost": 0
+              }
+            ]
+          }
+        },
+        "chosenComparison": {
+          "matchedCalls": 203,
+          "weightedForecast": {
+            "ordinaryInputCost": 5.266132114183893,
+            "ordinaryOutputCost": 0,
+            "summaryCost": 2.067086621349821,
+            "prewarmCost": 0,
+            "summaryCalls": 2.2610639881019265,
+            "prewarmCalls": 0
+          },
+          "weightedActual": {
+            "ordinaryInputCost": 2.4767609358823464,
+            "ordinaryOutputCost": 0.14722699030959305,
+            "summaryCost": 3.233308759165892,
+            "prewarmCost": 0,
+            "summaryCalls": 16.65879557946951,
+            "prewarmCalls": 0
+          },
+          "rawForecast": {
+            "ordinaryInputCost": 23.284159852663137,
+            "ordinaryOutputCost": 0,
+            "summaryCost": 10.692218066737961,
+            "prewarmCost": 0,
+            "summaryCalls": 8,
+            "prewarmCalls": 0
+          },
+          "rawActual": {
+            "ordinaryInputCost": 10.237833600000004,
+            "ordinaryOutputCost": 0.6090000000000004,
+            "summaryCost": 13.192604,
+            "prewarmCost": 0,
+            "summaryCalls": 68,
+            "prewarmCalls": 0
+          },
+          "weightedInputFeeGap": -1.623149040485476,
+          "rawInputFeeGap": -10.545940319401097,
+          "scheduleMismatchCalls": [
+            3, 6, 9, 12, 15, 18, 21, 24, 27, 29, 30, 33, 36, 39, 42, 45, 48, 51, 54, 60, 63, 66, 69,
+            72, 75, 78, 81, 84, 85, 87, 90, 93, 96, 99, 103, 106, 109, 112, 113, 115, 118, 121, 124,
+            127, 130, 133, 136, 139, 141, 142, 145, 148, 151, 154, 157, 160, 163, 166, 172, 175,
+            178, 181, 184, 187, 190, 193, 196, 197, 199, 202
+          ],
+          "ordinaryOutputExcluded": true
+        },
+        "actualFirst12": [
+          {
+            "step": 37,
+            "action": "COMPACT",
+            "context": 87464,
+            "model": {
+              "after": {
+                "slope": 0.06727865101726462,
+                "intercept": 13899.09295634982,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01758008256396844,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 3,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.194928,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 38,
+            "action": "KEEP",
+            "context": 38775,
+            "model": {
+              "after": {
+                "slope": 0.06759832331865756,
+                "intercept": 13701.727187411107,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.018901699625345304,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.041550000000000004,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 39,
+            "action": "KEEP",
+            "context": 62448,
+            "model": {
+              "after": {
+                "slope": 0.06759832331865756,
+                "intercept": 13701.727187411107,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.018901699625345304,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.055101,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 40,
+            "action": "COMPACT",
+            "context": 87431,
+            "model": {
+              "after": {
+                "slope": 0.06759832331865756,
+                "intercept": 13701.727187411107,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.018901699625345304,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 4,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.19486199999999998,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 41,
+            "action": "KEEP",
+            "context": 42919,
+            "model": {
+              "after": {
+                "slope": 0.06750382434039191,
+                "intercept": 13759.980342443301,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01989507011194741,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.04983799999999999,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 42,
+            "action": "KEEP",
+            "context": 64170,
+            "model": {
+              "after": {
+                "slope": 0.06750382434039191,
+                "intercept": 13759.980342443301,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01989507011194741,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.0510858,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 43,
+            "action": "COMPACT",
+            "context": 85120,
+            "model": {
+              "after": {
+                "slope": 0.06750382434039191,
+                "intercept": 13759.980342443301,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.01989507011194741,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 5,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.19024,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 44,
+            "action": "KEEP",
+            "context": 39209,
+            "model": {
+              "after": {
+                "slope": 0.06709200066791632,
+                "intercept": 13976.824513806749,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.0207953627343365,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 6,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.042418,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 45,
+            "action": "KEEP",
+            "context": 65446,
+            "model": {
+              "after": {
+                "slope": 0.06709200066791632,
+                "intercept": 13976.824513806749,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.0207953627343365,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 6,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.0603158,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 46,
+            "action": "COMPACT",
+            "context": 87067,
+            "model": {
+              "after": {
+                "slope": 0.06709200066791632,
+                "intercept": 13976.824513806749,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.0207953627343365,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 6,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.05,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0.19413399999999997,
+              "prewarmCost": 0,
+              "summaryCalls": 1,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 47,
+            "action": "KEEP",
+            "context": 37646,
+            "model": {
+              "after": {
+                "slope": 0.06680261807096499,
+                "intercept": 14163.95429366147,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.021339225945454156,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 7,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.039291999999999994,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          },
+          {
+            "step": 48,
+            "action": "KEEP",
+            "context": 64079,
+            "model": {
+              "after": {
+                "slope": 0.06680261807096499,
+                "intercept": 14163.95429366147,
+                "residual": 0
+              },
+              "output": {
+                "slope": 0.021339225945454156,
+                "intercept": 0,
+                "residual": 0
+              },
+              "samples": 7,
+              "minBefore": 22182,
+              "maxBefore": 689310,
+              "summaryInputCostPerToken": 0.000002
+            },
+            "bill": {
+              "ordinaryInputCost": 0.060395199999999996,
+              "ordinaryOutputCost": 0.003,
+              "summaryCost": 0,
+              "prewarmCost": 0,
+              "summaryCalls": 0,
+              "prewarmCalls": 0
+            }
+          }
+        ]
+      },
+      "accounting": {
+        "now": {
+          "ordinaryInputCost": 2.5087342562372266,
+          "summaryCost": -0.8377884334500387,
+          "prewarmCost": 0,
+          "total": 1.6709458227871874,
+          "expectedSummaryCalls": -7.846210101207116
+        },
+        "wait": {
+          "ordinaryInputCost": 2.6658071590418064,
+          "summaryCost": -0.8921213035926154,
+          "prewarmCost": 0,
+          "total": 1.773685855449191,
+          "expectedSummaryCalls": -8.34313049740582
+        },
+        "savingChange": 0.10274003266200626,
+        "requiredSavingChange": 0
+      },
+      "projectedRechecks": [
+        {
+          "call": 1,
+          "context": 42348.80653376112,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": 0,
+          "candidateStressedSaving": 0,
+          "requiredSaving": 0.00921425682210127,
+          "completedCalls": 38
+        },
+        {
+          "call": 2,
+          "context": 64914.06017859839,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": 0,
+          "candidateStressedSaving": 0,
+          "requiredSaving": 0.01026977661076326,
+          "completedCalls": 39
+        },
+        {
+          "call": 3,
+          "context": 87479.31382343566,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": true,
+          "candidateEligible": true,
+          "candidateSaving": 0.10508604419232892,
+          "candidateStressedSaving": 0.07532760094294133,
+          "requiredSaving": 0.010721081683660007,
+          "completedCalls": 40
+        },
+        {
+          "call": 4,
+          "context": 110044.56746827293,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": true,
+          "candidateEligible": true,
+          "candidateSaving": 0.13854562835595097,
+          "candidateStressedSaving": 0.10212576461903744,
+          "requiredSaving": 0.011172386756556749,
+          "completedCalls": 41
+        },
+        {
+          "call": 5,
+          "context": 132609.8211131102,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": true,
+          "candidateEligible": true,
+          "candidateSaving": 0.16938282289293038,
+          "candidateStressedSaving": 0.12656862377282607,
+          "requiredSaving": 0.011623691829453492,
+          "completedCalls": 42
+        },
+        {
+          "call": 6,
+          "context": 155175.07475794747,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": true,
+          "candidateEligible": true,
+          "candidateSaving": 0.19753799830218455,
+          "candidateStressedSaving": 0.148604605170493,
+          "requiredSaving": 0.012074996902350244,
+          "completedCalls": 43
+        },
+        {
+          "call": 7,
+          "context": 177740.32840278474,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": true,
+          "candidateAllowed": true,
+          "candidateEligible": true,
+          "candidateSaving": 0.2229520706975192,
+          "candidateStressedSaving": 0.16818332571518813,
+          "requiredSaving": 0.012526301975246991,
+          "completedCalls": 44
+        },
+        {
+          "call": 8,
+          "context": 200305.582047622,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": true,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": -0.024871125130915495,
+          "candidateStressedSaving": -0.051621159980202336,
+          "requiredSaving": 0.012977607048143734,
+          "completedCalls": 45
+        },
+        {
+          "call": 9,
+          "context": 222870.83569245928,
+          "forecastCompact": false,
+          "innerAllowed": false,
+          "incumbentAllowed": false,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": -0.010918662541492985,
+          "candidateStressedSaving": -0.03942290800729342,
+          "requiredSaving": 0.013428912121040474,
+          "completedCalls": 46
+        },
+        {
+          "call": 10,
+          "context": 245436.08933729655,
+          "forecastCompact": false,
+          "innerAllowed": true,
+          "incumbentAllowed": false,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": -0.0076390627862359395,
+          "candidateStressedSaving": -0.007860001706324837,
+          "requiredSaving": 0.013880217193937236,
+          "completedCalls": 47
+        },
+        {
+          "call": 11,
+          "context": 268001.34298213385,
+          "forecastCompact": false,
+          "innerAllowed": true,
+          "incumbentAllowed": false,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": -0.004358775617417265,
+          "candidateStressedSaving": -0.005280860442527846,
+          "requiredSaving": 0.014331522266833978,
+          "completedCalls": 48
+        },
+        {
+          "call": 12,
+          "context": 290566.59662697115,
+          "forecastCompact": false,
+          "innerAllowed": true,
+          "incumbentAllowed": true,
+          "candidateAllowed": false,
+          "candidateEligible": true,
+          "candidateSaving": -0.001078020414650993,
+          "candidateStressedSaving": -0.0027012959893601973,
+          "requiredSaving": 0.014782827339730735,
+          "completedCalls": 49
+        }
+      ],
+      "actualTotalCostChange": 0.8005968000000507,
+      "actualComponentChanges": {
+        "ordinary": -1.239403199999984,
+        "summary": 2.0399999999999956,
+        "prewarm": 0
+      }
+    }
+  },
+  "control": {
+    "selection": {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 120,
+      "reason": "Previously unchanged action stream"
+    },
+    "baselineMatches": true,
+    "incumbentBill": {
+      "cost": 3.3322254420000013,
+      "overWindowSummaryCalls": 0,
+      "overWindowOrdinaryCalls": 0,
+      "overWindowPrewarmCalls": 0,
+      "inputWithinWindow": true,
+      "ordinary": 1.798905041999999,
+      "summary": 1.5333204,
+      "prewarm": 0,
+      "ordinaryCalls": 120,
+      "summaryCalls": 8,
+      "prewarmCalls": 0,
+      "totalCalls": 128,
+      "failed": 0,
+      "overflow": 0,
+      "fingerprint": "8ffdff26",
+      "compactions": [
+        {
+          "step": 16,
+          "before": 683944,
+          "after": 68394,
+          "success": true,
+          "cost": 0.2075832
+        },
+        {
+          "step": 22,
+          "before": 311874,
+          "after": 50000,
+          "success": true,
+          "cost": 0.0959622
+        },
+        {
+          "step": 37,
+          "before": 676925,
+          "after": 67693,
+          "success": true,
+          "cost": 0.2054775
+        },
+        {
+          "step": 52,
+          "before": 684762,
+          "after": 68476,
+          "success": true,
+          "cost": 0.2078286
+        },
+        {
+          "step": 67,
+          "before": 679265,
+          "after": 67927,
+          "success": true,
+          "cost": 0.20617950000000002
+        },
+        {
+          "step": 81,
+          "before": 663404,
+          "after": 66340,
+          "success": true,
+          "cost": 0.2014212
+        },
+        {
+          "step": 96,
+          "before": 690113,
+          "after": 69011,
+          "success": true,
+          "cost": 0.2094339
+        },
+        {
+          "step": 110,
+          "before": 656781,
+          "after": 65678,
+          "success": true,
+          "cost": 0.1994343
+        }
+      ]
+    },
+    "candidateBill": {
+      "cost": 3.3322254420000013,
+      "overWindowSummaryCalls": 0,
+      "overWindowOrdinaryCalls": 0,
+      "overWindowPrewarmCalls": 0,
+      "inputWithinWindow": true,
+      "ordinary": 1.798905041999999,
+      "summary": 1.5333204,
+      "prewarm": 0,
+      "ordinaryCalls": 120,
+      "summaryCalls": 8,
+      "prewarmCalls": 0,
+      "totalCalls": 128,
+      "failed": 0,
+      "overflow": 0,
+      "fingerprint": "8ffdff26",
+      "compactions": [
+        {
+          "step": 16,
+          "before": 683944,
+          "after": 68394,
+          "success": true,
+          "cost": 0.2075832
+        },
+        {
+          "step": 22,
+          "before": 311874,
+          "after": 50000,
+          "success": true,
+          "cost": 0.0959622
+        },
+        {
+          "step": 37,
+          "before": 676925,
+          "after": 67693,
+          "success": true,
+          "cost": 0.2054775
+        },
+        {
+          "step": 52,
+          "before": 684762,
+          "after": 68476,
+          "success": true,
+          "cost": 0.2078286
+        },
+        {
+          "step": 67,
+          "before": 679265,
+          "after": 67927,
+          "success": true,
+          "cost": 0.20617950000000002
+        },
+        {
+          "step": 81,
+          "before": 663404,
+          "after": 66340,
+          "success": true,
+          "cost": 0.2014212
+        },
+        {
+          "step": 96,
+          "before": 690113,
+          "after": 69011,
+          "success": true,
+          "cost": 0.2094339
+        },
+        {
+          "step": 110,
+          "before": 656781,
+          "after": 65678,
+          "success": true,
+          "cost": 0.1994343
+        }
+      ]
+    },
+    "status": "UNCHANGED",
+    "checkpoint": null
+  }
+}
