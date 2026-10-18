@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "candidateCommit": "86bde86",
+  "seeds": [196613, 262147],
+  "mainLengths": [144, 288],
+  "shortLength": 4,
+  "sensitivityLength": 288,
+  "families": [
+    {"id": "small-floor", "growth": 16000, "jitter": 3000, "retention": 0.12, "afterFloor": 12000, "outputRatio": 0.0015, "outputFloor": 1500},
+    {"id": "large-floor", "growth": 47000, "jitter": 7500, "retention": 0.26, "afterFloor": 72000, "outputRatio": 0.0035, "outputFloor": 4500}
+  ],
+  "profiles": ["deepseek-flash-peak", "claude-sonnet-5.5-5m-price", "claude-opus-5.5-5m-price"],
+  "matrix": "24 main = profiles x families x seeds x lengths; 6 short + 6 failure + 6 prewarm = profiles x families x first seed; total 42",
+  "failureSuccessRate": 0.85,
+  "prewarm": {"summarySharedPrefixRatio": 0.8, "prewarmOutputTokens": 1},
+  "arms": ["fixed60", "incumbent", "steadyRatio", "steadyOutput"],
+  "primaryCandidate": "steadyOutput",
+  "freeze": "all learners, priors, controller gates and billing unchanged from 86bde86; no fitted winner threshold or per-price policy switching",
+  "feedback": "frozen hostFeedback rule including its existing 104729 noise seed; only growth/outcome seeds and declared scenario truths are new",
+  "controls": "source hashes must match frozen steady report and its frozen dependencies; replay one old 240-step Flash canary and match all four complete ledger identities",
+  "pilotGate": "all ledgers valid/in-window/no-overflow; for every price, primary main mean vs fixed60 and incumbent both < 0 and main wins vs fixed60 > losses; sensitivities and worst losses disclosed separately; no default promotion even if passed",
+  "limits": "prospective synthetic combination check, not independent real-world/model-quality validation; shared simulator and error recipe, two seeds, not a statistical superiority proof",
+  "paidCalls": 0
+}
