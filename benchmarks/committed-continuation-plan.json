@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "baselineCommit": "4afeb14",
+  "cells": "all 24 frozen affineCostCases",
+  "arms": ["fixed60", "incumbent", "sharedReplan", "sharedCommit"],
+  "isolation": "sharedReplan uses existing shared-wait-continuation without futureQualification; sharedCommit differs only by one-renewal execution commitment",
+  "commitment": "After a successful economic COMPACT, retain its selected repeat boundary until the next successful summary; then release. KEEP does not commit. Failed attempts keep a pending commitment and existing cooldown, safety, reclaim and permission gates apply.",
+  "models": "unchanged uncertain-affine after model, legacy output-ratio EMA, runtime-duration prior, prices and feedback",
+  "budget": "no new predictor, thresholds or lookahead knobs; reuse existing 16-boundary family and 256-call cap",
+  "billing": "ordinary input/output, summary including failures, new-prefix rebuilding and explicit prewarm",
+  "controls": "exactly reproduce frozen incumbent and fixed60 complete bills; same offered growth across arms",
+  "report": "all cells and losses, per-profile main means; report commitment overrides and gate blocks",
+  "limits": "one-renewal partial commitment, not an indefinitely consistent recursive policy; learned model and actual growth may differ from projection; stale plans are a known risk",
+  "promotion": "research-only; no SDK or Pi default changes regardless of this seen-data result",
+  "paidCalls": 0
+}
