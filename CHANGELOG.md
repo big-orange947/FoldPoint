@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Actual Pi serialized-request boundary audit
+
+- Add a loopback-only SDK probe using the real OpenAI-compatible serializer, without replacing
+  its transport. Audit seven constructed cases at the received HTTP body boundary, including
+  five late payload mutations and native compaction prefix invalidation/rebuilding.
+- Detect tool/model changes through non-message request fields as well as message prefixes.
+  Report compiled serializer identity separately from the local source revision; retain failed
+  cases without leaking bodies, headers or message hashes.
+- Reconcile every ordinary and summary HTTP request with traced aggregate usage and the full
+  synthetic bill. The tested Pi split emits two summary calls for one compaction event; do not
+  assume a one-event/one-call mapping or silently omit the extra cost.
+- Bound requests/bytes, prohibit remote origins/redirects/alternative HTTP transports, and refuse
+  unknown/live flags or overwrite. No default control, frozen algorithm, paid API, real-cache,
+  task-quality or savings claims are changed.
+
 ### Controlled Pi economic shadow probe
 
 - Add an offline-only model probe requiring an explicit approximate-error assumption. Use the

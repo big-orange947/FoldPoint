@@ -188,6 +188,51 @@ and `policyChanged` all remain false. It cannot authorize a general Pi prefix as
 promotion into active timing. A final serialized-request / provider-boundary verification is
 still required before a real-provider comparison can rely on the same cache contract.
 
+#### Actual serialized-request boundary audit (loopback only)
+
+```powershell
+node --import tsx tools/pi-wire-prefix-probe.mjs --pi D:/pi --out traces/pi-wire-new
+```
+
+This complementary probe does **not** replace the SDK transport. It loads Pi's actual built
+OpenAI-compatible serializer and sends real HTTP requests to an ephemeral `127.0.0.1` server.
+Only that exact origin is allowed, redirects are refused, alternative HTTP transports are
+blocked, and request count/bytes are bounded. No live option exists; unknown flags and existing
+output directories are refused before opening the server. Settings/auth are isolated, history
+is synthetic and in-memory, and only a synthetic local credential is used.
+
+The server compares parsed request-message prefixes and all other request fields using
+canonical structural equality. It never persists bodies, headers, message hashes or content.
+The report includes the local Pi revision, tracked-dirty flag, probe source hash and the actual
+built serializer hash; source HEAD alone is not asserted to identify a compiled provider build.
+
+Seven constructed scenarios are checked: ordinary append; late payload changes to conversation,
+system, tools, model or truncation; and native compaction followed by continuation. In each of
+the five late-payload counterexamples, early `context` still appears append-only while the
+actual received HTTP request fails continuity. Tool/model changes are detected even if the
+messages themselves still share a prefix. This is not an observed five-in-seven production
+failure rate. The native-compaction path expects continuity before the summary, a reset after
+it, and continuity again on the next ordinary request.
+
+On Pi revision `d201760ff`, the verified run received 18 loopback requests: 16 ordinary calls
+and **two summary requests for one native compaction event**. The test checks their aggregated
+input/output usage against the trace's single compaction event, then reconciles the entire
+simulated bill against every server request. Do not equate a compaction-event count with an
+LLM-call count or assume one input pass in a future cost forecast. The count can depend on
+Pi's retained-message split; it is not a universal two-call rule.
+
+The probe is an observation/audit tool, not an automatic advance prefix proof for the adapter.
+`providerSerializationExercised` is true for this serializer and boundary; real cache hits,
+token/byte-prefix equivalence, remote pricing, task quality and policy savings remain unmeasured.
+No `getReusablePrefixTokens` hint is synthesized from a previous request length, no shadow
+approval is fabricated, and no timing-control/default changes are made. Raw cost values are
+synthetic fixture bills. Failed scenarios remain in the report with a nonzero exit.
+
+The remaining integration step is to feed compatible **aggregate** compactor usage into the
+experimental forecast, rather than treating a native compaction as one ordinary-priced input
+pass, and verify the same no-network lifecycle. A remote timing/quality comparison still needs
+its own bounded plan; this audit alone is not a release or savings gate.
+
 Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
 synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,
 prefixId }`, and returns an unchanged, previously sent prefix length **in Pi's context estimate
