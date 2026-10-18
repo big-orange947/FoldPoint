@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "baselineCommit": "47144e1",
+  "cells": "all 24 frozen affineCostCases",
+  "arms": ["fixed60", "incumbent", "steadyRatio", "steadyOutput"],
+  "objective": "minimize existing stableCycleCandidates costPerOrdinaryCall, using current estimated growth, retained-size model, prices and billing; no endpoint, grid winner or fixture truth",
+  "candidates": "existing integer stable cycles up to 256 calls and guardedForceBoundary; minimum calls = execution cooldown + 1; retain soft/reclaim gates",
+  "steadyRatio": "unchanged uncertain-affine after learner and legacy output ratio EMA; only timing objective changes",
+  "steadyOutput": "same timing rule plus existing SummaryOutputLearner affine output; its existing cold-start/low-span fallbacks unchanged",
+  "dispatch": "at selected before-token boundary; preserve host FORCE, existing eligible/runtime-risk/ending-loss/tail guards, but do not require incumbent expectedSaving; if no supported stable cycle KEEP",
+  "scope": "assumed fully warm future cache only; when no discount or predicted later survival is not one, retain incumbent decision",
+  "billing": "full ordinary input/output, success and failure summaries, prefix rebuild and explicit prewarm; ordinary output cancels only in candidate ranking",
+  "controls": "reexecute and exactly reproduce frozen incumbent and fixed60 complete bills; all arms use identical offered growth",
+  "report": "all cells, main/short/prewarm/failure means versus incumbent and fixed60; candidate boundary ranges and gate blocks; hindsight grid reference after execution only",
+  "limits": "deterministic successful stable-cycle approximation, not task horizon or quality guarantee; actual jitter, failed summaries, stale predictions and finite sessions can regress",
+  "promotion": "research-only; no default SDK/Pi changes regardless of seen-data outcome",
+  "paidCalls": 0
+}
