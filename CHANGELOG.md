@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen forecast/execution consistency audit
+
+- Preregister first-divergence inspection of the worst, best and unchanged existing output
+  ablation cells. Capture through existing hooks and reproduce both complete branch bills.
+- Explain matched forecast windows without changing decisions; separate survival-weighted
+  input fees, unweighted actual fees and ordinary outputs. Do not invent an unchanged checkpoint.
+- Reconstruct and validate all 16 original screening records, then locally recheck the first
+  two retained future economic actions under a fixed model and projected state. Preserve the
+  observed fail-open budget limitation without claiming full recursive or causal correctness.
+- Add six checks covering selection, hand arithmetic, read-only capture, bill reproduction,
+  projected-state isolation, source identity and report rendering. No algorithm or default changes,
+  no extra cold-cache scenarios and no paid calls.
+
 ### Independent summary-output nominal ablation
 
 - Freeze the output-only experiment in 8960876, reusing the same 24 cells, controller,

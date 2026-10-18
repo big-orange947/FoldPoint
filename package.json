@@ -86,6 +86,7 @@
     "simulate:affine-cost": "tsx tools/affine-cost.ts",
     "audit:affine-cost": "tsx tools/affine-cost-audit.ts",
     "simulate:summary-output": "tsx tools/summary-output-cost.ts",
+    "audit:forecast-execution": "tsx tools/forecast-execution-audit.ts && biome format --write benchmarks/reports/forecast-execution-audit.json",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
