@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Controlled Pi economic shadow probe
+
+- Add an offline-only model probe requiring an explicit approximate-error assumption. Use the
+  immediate native compaction result and separately reported summary output with frozen research
+  learners, retaining zero exact samples and uncalibrated/policy-ineligible provenance.
+- Run six ordinary SDK requests plus one native summary. Require evaluated cycle-boundary
+  predictions without weakening execution/risk gates or requiring economic approvals; preserve
+  ordinary tracing/accounting and the default observer/control behavior.
+- Check controlled early conversation projections at the fake transport, bind declared reuse
+  to prior host-estimate units and normalized system/tool state, reset after compaction, and
+  reject late conversation/system rewrite counterexamples with a failed overall report.
+- Keep provider serialization, payload-transform coverage, real cache calibration, quality,
+  savings and active timing explicitly unmeasured. No source changes to frozen candidates,
+  defaults or learners, no API-key access or paid calls in the new path.
+
 ### Pi steady shadow lifecycle verification
 
 - Feed the opt-in shadow bounded counters from actual adapter events: reset ordinary age at

@@ -141,6 +141,53 @@ request was **one**, not eight. Warm count is timing-dependent and is checked ag
 requests rather than fixed at seven. These are synthetic token prices/provider responses, not
 FoldPoint savings or real provider cache measurements. No Pi source/user settings are changed.
 
+#### Controlled economic prediction probe (still offline / shadow-only)
+
+```powershell
+node --import tsx tools/pi-feedback-capture.mjs --pi D:/pi --out traces/pi-steady-model-new --steady-model-probe --approx-error-fraction 0.12
+```
+
+This separate opt-in path adds three synthetic continuation prompts: six ordinary requests
+and one native Pi summary, seven logical calls total. It requires an explicit host-estimate
+error assumption and refuses `--live` before credential access/output creation. Neither the
+assumption nor this fixture becomes a new SDK/Pi default.
+
+The probe reads `estimatedTokensAfter` immediately from the successful `session.compact()`
+result, before any continuation, and passes it to the frozen approximate retention learner.
+The separate output learner receives only the fake transport's reported summary output count.
+It does not substitute summary output for retained context, fit on a delayed estimate, or feed
+approximate data into exact calibration. The observed one-sample model is a last-observation
+fallback, **not an identified affine fit**; `exactSamples: 0`, `canDrivePolicy: false` and
+uncalibrated error flags remain in the report. Compatible profile, source revision and fixed
+compactor settings are local to this controlled fixture, not an automatic stock-Pi binding.
+
+In-memory role/content hashes check the ordinary conversation after Pi's conversion. The
+controlled fixture has no tools and no arbitrary user extensions. A declared prefix uses the
+previous host context estimate units, never the provider's unrelated prompt count. Every
+ordinary fake transport entry checks the early conversation projection; declared prefix reuse
+also requires unchanged normalized system/tool state relative to the previous transport entry.
+Compaction resets the proof. If the previous context size is unknown, no prefix is declared.
+No fixture message text, request payload or hash is persisted.
+
+The verified run produces five shadow rows: two blocked, three evaluated with selected cycle
+boundaries. All three still KEEP under the execution/risk gates; no requirement to manufacture
+an economic approval is added. The original timing policy remains untouched. Checks reconcile
+six ordinary calls plus one priced summary, with zero network attempts and zero exact retention
+calibration samples. This is wiring evidence, not a long-context cost or task-quality result.
+
+For counterexamples, append `--fake-prefix-rewrite` or `--fake-system-rewrite`: a real Pi
+`context_with_system` handler rewrites the conversation or system after the early observer.
+The final-context check rejects the run with exit 1 and `completed: false`. An already-written
+shadow row is only provisional: **never treat the sidecar alone as a validated result**; check
+the complete report and all contract checks. Both negative cases are regression tests.
+
+This transport replacement happens before actual provider serialization. It does not exercise
+`before_provider_request` payload replacements or measure actual cache hits. Therefore
+`providerSerializationExercised`, `usableForProviderCalibration`, `timingControlExercised`
+and `policyChanged` all remain false. It cannot authorize a general Pi prefix assertion or
+promotion into active timing. A final serialized-request / provider-boundary verification is
+still required before a real-provider comparison can rely on the same cache contract.
+
 Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
 synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,
 prefixId }`, and returns an unchanged, previously sent prefix length **in Pi's context estimate

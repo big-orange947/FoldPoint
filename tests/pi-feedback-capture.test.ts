@@ -17,6 +17,105 @@ const cleanEnv = () => ({
 
 describe("native Pi SDK feedback capture", () => {
   it.skipIf(!available)(
+    "evaluates frozen steady cycles from explicitly approximate host feedback with controlled final-context checks",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-model-")), "result");
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          script,
+          "--pi",
+          piRoot,
+          "--out",
+          out,
+          "--steady-model-probe",
+          "--approx-error-fraction",
+          "0.12",
+        ],
+        { encoding: "utf8", timeout: 30_000, env: { ...cleanEnv(), DEEPSEEK_API_KEY: sentinel } },
+      );
+      const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+      expect(r.completed).toBe(true);
+      expect(Object.values(r.checks).every(Boolean)).toBe(true);
+      expect(r.usage).toMatchObject({ logicalCalls: 7, httpCalls: 0, networkAttempts: 0 });
+      expect(r.steadyLifecycle).toMatchObject({
+        predictions: 5,
+        blockedPredictions: 2,
+        evaluatedPredictions: 3,
+        selectedCyclePredictions: 3,
+        economicApprovals: 0,
+        applied: false,
+      });
+      expect(r.modelProbe).toMatchObject({
+        retention: { acceptedApproximate: 1, exactSamples: 0, model: null, canDrivePolicy: false },
+        output: { samples: 1, source: "ratio-ema", canDrivePolicy: false },
+        providerSerializationExercised: false,
+        policyChanged: false,
+        timingControlExercised: false,
+        usableForProviderCalibration: false,
+      });
+      expect(r.modelProbe.prefixChecks).toHaveLength(6);
+      expect(
+        r.modelProbe.prefixChecks.every((c: { projectionMatches: boolean }) => c.projectionMatches),
+      ).toBe(true);
+      expect(
+        r.modelProbe.prefixChecks.filter(
+          (c: { declaredPrefixTokens: number | null }) => c.declaredPrefixTokens !== null,
+        ),
+      ).toHaveLength(3);
+      expect(r.analysis.overall.retention.count).toBe(0);
+      expect(r.analysis.sessionCosts[0]).toMatchObject({
+        calls: 6,
+        compactions: 1,
+        unpricedCompactions: 0,
+      });
+      for (const file of ["trace.jsonl", "steady-shadow.jsonl", "report.json"]) {
+        const text = readFileSync(join(out, file), "utf8");
+        expect(text).not.toContain(sentinel);
+        expect(text).not.toContain("Owner instructions:");
+      }
+    },
+    40_000,
+  );
+
+  it.skipIf(!available).each(["--fake-prefix-rewrite", "--fake-system-rewrite"])(
+    "invalidates the whole provisional run on a late transform: %s",
+    (flag) => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-rewrite-")), "result");
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          script,
+          "--pi",
+          piRoot,
+          "--out",
+          out,
+          "--steady-model-probe",
+          "--approx-error-fraction",
+          "0.12",
+          flag,
+        ],
+        { encoding: "utf8", timeout: 30_000, env: cleanEnv() },
+      );
+      expect(result.status).toBe(1);
+      const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+      expect(r.completed).toBe(false);
+      expect(r.failure).toBe("incomplete-third-post");
+      expect(r.modelProbe.prefixChecks.at(-1)).toMatchObject({
+        stage: "third-post",
+        projectionMatches: false,
+      });
+      expect(r.modelProbe.usableForProviderCalibration).toBe(false);
+      expect(r.modelProbe.policyChanged).toBe(false);
+      expect(r.usage).toMatchObject({ httpCalls: 0, networkAttempts: 0 });
+    },
+    40_000,
+  );
+  it.skipIf(!available)(
     "runs steady shadow lifecycle through real Pi without network or economic approval",
     () => {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-steady-")), "result");
@@ -198,6 +297,9 @@ describe("native Pi SDK feedback capture", () => {
       ["--live"],
       ["--live", "--fake-summary-cap"],
       ["--live", "--steady-shadow"],
+      ["--live", "--steady-model-probe", "--approx-error-fraction", "0.12"],
+      ["--steady-model-probe"],
+      ["--fake-prefix-rewrite"],
       ["--approx-error-fraction", "2"],
       ["--approx-error-fraction", "NaN"],
     ]) {
