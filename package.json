@@ -91,6 +91,7 @@
     "audit:qualification-divergence": "tsx tools/qualification-divergence.ts && biome format --write benchmarks/reports/qualification-divergence.json",
     "simulate:committed-continuation": "tsx tools/committed-continuation.ts && biome format --write benchmarks/reports/committed-continuation.json",
     "reference:threshold-grid": "tsx tools/threshold-reference.ts && biome format --write benchmarks/reports/threshold-reference.json",
+    "simulate:steady-policy": "tsx tools/steady-policy.ts && biome format --write benchmarks/reports/steady-policy.json",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",

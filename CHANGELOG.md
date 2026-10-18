@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Online steady-cycle timing experiment (not promoted)
+
+- Preregister 09f25a2 and reuse existing stableCycleCandidates/cycleBill to minimize average
+  fee per ordinary call from current growth, predicted retained size, prices and summary/output/
+  rebuild/prewarm billing. No fixture truth, endpoint or hindsight threshold enters selection.
+- Isolate steadyRatio (unchanged legacy output EMA) from steadyOutput (existing output learner).
+  Preserve host FORCE and incumbent eligibility, ending-risk and tail gates; outside assumed
+  fully warm support retain the same-model incumbent decision. No new model-name rules.
+- Reexecute all 24 cells and exactly reproduce both frozen controls. Main steadyOutput means
+  versus incumbent are Flash -0.83%, Sonnet -4.76%, Opus -4.52%; full matrix has 18 wins,
+  four losses and two ties. Disclose Flash's one-win/three-loss main split and Opus failure regression.
+- Add ten tests for ranking, price scaling, full charges, guards, unsupported cycles,
+  exact control bills, endpoint-independent execution, denominators and source/report identity.
+- This is a successful stable-cycle approximation, not a finite-session payback or quality
+  guarantee. No SDK/Pi/default changes or paid calls; require fresh validation before promotion.
+
 ### Evaluator-only fixed-threshold opportunity reference
 
 - Preregister 929b413: execute 14 raw thresholds (5% through 70% by five percentage points)

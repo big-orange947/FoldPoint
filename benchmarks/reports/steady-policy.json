@@ -1,0 +1,3520 @@
+{
+  "runner": "foldpoint.steady-policy.v1",
+  "planCommit": "09f25a2",
+  "baselineCommit": "47144e1",
+  "paidCalls": 0,
+  "planHash": "91a0063b903da477cc5c72cfd55f4865fec10074d0862c32f776dfc214071d48",
+  "referenceHash": "605157881559ef310db914c34b6c4e52a9cd335abe8662679a3b0ecb1e6d9693",
+  "sourceHashes": {
+    "tools/steady-choice.ts": "c0c4bed779657c6c64311e7343fca83786a2be82728a079488468dfb6ccced6a",
+    "tools/steady-policy.ts": "6029bab4ca2ae0c6884f7cd237f3e51dc350f167d6e4e2e2d848173082d1de1a"
+  },
+  "rows": [
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 1.8503869079999997,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.104723708,
+          "summary": 0.7456632000000001,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 4,
+          "prewarmCalls": 0,
+          "totalCalls": 124,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "7e17197ded58663cb121e3d54cac78cdf269a4bd114f7642b3cf12ae72dcfcc6"
+        },
+        "incumbent": {
+          "cost": 1.8132496559999995,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.112812956,
+          "summary": 0.7004366999999999,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 5,
+          "prewarmCalls": 0,
+          "totalCalls": 125,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "8e08ac773b4b37a5b21a11b02a55020c8a1ce02906d21752f6ad57bd164afe59"
+        },
+        "steadyRatio": {
+          "cost": 1.8168609479999998,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.8921220480000001,
+          "summary": 0.9247389,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 17,
+          "prewarmCalls": 0,
+          "totalCalls": 137,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "d40d85ff1da9f0c9e243eeaaf8e80245a74e9213642fa50094a7dc9b9c426f9d"
+        },
+        "steadyOutput": {
+          "cost": 1.8588222480000005,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.9137583479999999,
+          "summary": 0.9450639,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 16,
+          "prewarmCalls": 0,
+          "totalCalls": 136,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "9765c490eefd45ca50f5482b2c22d8d76e9409d159b4dc4bec4286b497cfd184"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 17,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 67,
+            "cycle-boundary": 17,
+            "execution-or-risk-gate": 34
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 226720.9498109346,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 17,
+            "retainedSamples": 17,
+            "legacyRatio": 0.0102338856285498,
+            "minBefore": 92566,
+            "maxBefore": 245616,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 16,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 72,
+            "cycle-boundary": 16,
+            "execution-or-risk-gate": 30
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 259645.73916755745,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 16,
+            "retainedSamples": 16,
+            "legacyRatio": 0.008896236401537793,
+            "minBefore": 92566,
+            "maxBefore": 260900,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 25,
+        "bestCost": 1.8183573900000005,
+        "outputVsGrid": 0.02225352299967831
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 3.8832343320000007,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 2.2086070320000015,
+          "summary": 1.6746273,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 0,
+          "totalCalls": 249,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "1d2e7a368e055b90c9f908930840b9f41954b2625cdb7a32a1ddfcc7e5049c14"
+        },
+        "incumbent": {
+          "cost": 4.000945907999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 2.257771908000001,
+          "summary": 1.7431739999999998,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 10,
+          "prewarmCalls": 0,
+          "totalCalls": 250,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "07239bf50caf73192e5e2f113862864001e0af43689a073e9291f7c0f0809662"
+        },
+        "steadyRatio": {
+          "cost": 3.5953302,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7702987999999982,
+          "summary": 1.8250314000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 32,
+          "prewarmCalls": 0,
+          "totalCalls": 272,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "d374dc6c08fa8dfae15330e27edaa9382a4102f3b7ad4b0ccc62d7fda46313a4"
+        },
+        "steadyOutput": {
+          "cost": 3.622945926000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.786234626,
+          "summary": 1.8367112999999997,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 31,
+          "prewarmCalls": 0,
+          "totalCalls": 271,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "3153c5227ecbab011b98a22c81f5d3dbfbb99bb844e039d9e78fb7793ccacb4a"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 32,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 142,
+            "cycle-boundary": 32,
+            "execution-or-risk-gate": 64
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 226720.9498109346,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 32,
+            "retainedSamples": 32,
+            "legacyRatio": 0.01090957109283013,
+            "minBefore": 92566,
+            "maxBefore": 245616,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 31,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 145,
+            "cycle-boundary": 31,
+            "execution-or-risk-gate": 62
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 259645.73916755745,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 31,
+            "retainedSamples": 31,
+            "legacyRatio": 0.010562257703693075,
+            "minBefore": 92566,
+            "maxBefore": 260900,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 3.570147737999997,
+        "outputVsGrid": 0.014788796395742931
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.029053992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.029053992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.029053992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.029053992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyRatio": {
+          "cost": 0.029053992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.029053992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.029053992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.029053992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 10,
+        "bestCost": 0.029053992,
+        "outputVsGrid": 0
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "prewarm",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 2.639044276800003,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 2.0466100920000017,
+          "summary": 0.4271203847999999,
+          "prewarm": 0.16531379999999998,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 9,
+          "totalCalls": 258,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "4bd8c10e3b11a7cd5c4117a7a89e7704966bd9d3db31f142dd6f6a338c8ffd08"
+        },
+        "incumbent": {
+          "cost": 2.4454491456000014,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7623755240000005,
+          "summary": 0.5117853215999999,
+          "prewarm": 0.1712883,
+          "ordinaryCalls": 240,
+          "summaryCalls": 19,
+          "prewarmCalls": 19,
+          "totalCalls": 278,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "3e2a4643fd9fc0664a32638de30fb1513055d090c0d11c6b899eae69ec2a44dc"
+        },
+        "steadyRatio": {
+          "cost": 2.4005868384,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.5958854360000003,
+          "summary": 0.6091893023999998,
+          "prewarm": 0.19551210000000008,
+          "ordinaryCalls": 240,
+          "summaryCalls": 31,
+          "prewarmCalls": 31,
+          "totalCalls": 302,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "088af92b164d00d57156d830bc8f2ed74d0a2e0031c4c7c246d0ce828619e997"
+        },
+        "steadyOutput": {
+          "cost": 2.4230863547999992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.632654714,
+          "summary": 0.5956419407999999,
+          "prewarm": 0.19478969999999998,
+          "ordinaryCalls": 240,
+          "summaryCalls": 28,
+          "prewarmCalls": 28,
+          "totalCalls": 296,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "4ab0239067d1fbde82e33c4c7e17a520096182415fd83607acfeb34018d732cd"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 31,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 145,
+            "cycle-boundary": 31,
+            "execution-or-risk-gate": 62
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 244983.75179711683,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 31,
+            "retainedSamples": 31,
+            "legacyRatio": 0.010207587237557238,
+            "minBefore": 92566,
+            "maxBefore": 251365,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 28,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 154,
+            "cycle-boundary": 28,
+            "execution-or-risk-gate": 56
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 277287.2198371165,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 28,
+            "retainedSamples": 28,
+            "legacyRatio": 0.009239258873498218,
+            "minBefore": 92566,
+            "maxBefore": 289491,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 2.3732710715999996,
+        "outputVsGrid": 0.020990136270617965
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "failure",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 4.085523318000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 2.2128498180000014,
+          "summary": 1.8726735,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 10,
+          "prewarmCalls": 0,
+          "totalCalls": 250,
+          "failed": 1,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "c6c69319a31f06a83ecf3c5365349312f59082861b5450dddd21ee20c3489585"
+        },
+        "incumbent": {
+          "cost": 4.441560743999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 2.265590844,
+          "summary": 2.1759698999999997,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 12,
+          "prewarmCalls": 0,
+          "totalCalls": 252,
+          "failed": 2,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "f49cdd54bcb0b0f8d32bf5f95a8b6b020ccacb3f4c3e587f996e4beba437c77e"
+        },
+        "steadyRatio": {
+          "cost": 3.8332811819999963,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7683916819999996,
+          "summary": 2.0648895,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 37,
+          "prewarmCalls": 0,
+          "totalCalls": 277,
+          "failed": 3,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "d0a51f1bf93a8c6d3fc251f0ac584122e15d34a75e7d6926a8cc7fec58e1b4a6"
+        },
+        "steadyOutput": {
+          "cost": 3.8762245380000016,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7867095379999995,
+          "summary": 2.089515,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 35,
+          "prewarmCalls": 0,
+          "totalCalls": 275,
+          "failed": 3,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "7bcbe8ebac14f4dde33bf35f7179b52c1901200fc7330d168f0eff717c94e381"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 37,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 129,
+            "cycle-boundary": 37,
+            "execution-or-risk-gate": 72
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 226720.9498109346,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 34,
+            "retainedSamples": 32,
+            "legacyRatio": 0.010178873260373705,
+            "minBefore": 92566,
+            "maxBefore": 270023,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 35,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 135,
+            "cycle-boundary": 35,
+            "execution-or-risk-gate": 68
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 259645.73916755745,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 32,
+            "retainedSamples": 32,
+            "legacyRatio": 0.009821263266484899,
+            "minBefore": 92566,
+            "maxBefore": 313075,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 3.7725723959999957,
+        "outputVsGrid": 0.02747518963715767
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 3.2781797699999986,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.77623427,
+          "summary": 1.5019455000000002,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 8,
+          "prewarmCalls": 0,
+          "totalCalls": 128,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "4507e39c216b85d142aa60c4153b66cc0f9abf02692f3cbcc3e19b33cee91728"
+        },
+        "incumbent": {
+          "cost": 3.3322254420000013,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.798905041999999,
+          "summary": 1.5333204,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 8,
+          "prewarmCalls": 0,
+          "totalCalls": 128,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "33add5109f66e46e99413278875b984fe6fe1c81f5fa44650e5ea3005a1a7a15"
+        },
+        "steadyRatio": {
+          "cost": 3.4926819840000003,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7105730839999989,
+          "summary": 1.7821088999999999,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 18,
+          "prewarmCalls": 0,
+          "totalCalls": 138,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "54fffa115098b97b54af55d4b6e27ebc09281fd958232f2205fb2121fbfb8a5c"
+        },
+        "steadyOutput": {
+          "cost": 3.384206069999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 1.7188880700000007,
+          "summary": 1.6653179999999996,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 17,
+          "prewarmCalls": 0,
+          "totalCalls": 137,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "3f1dc89f94aaa6e2d4eeb1e22484e7f4d871d30e9c6911a4c6e0699101c35e3d"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 18,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 65,
+            "cycle-boundary": 18,
+            "execution-or-risk-gate": 35
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 557077.7064736238,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 18,
+            "retainedSamples": 18,
+            "legacyRatio": 0.004657989683891067,
+            "minBefore": 179861,
+            "maxBefore": 574833,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 17,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 67,
+            "cycle-boundary": 17,
+            "execution-or-risk-gate": 34
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 580850.8400648547,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 17,
+            "retainedSamples": 17,
+            "legacyRatio": 0.004737013076595171,
+            "minBefore": 179861,
+            "maxBefore": 599683,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 45,
+        "bestCost": 3.266331222000001,
+        "outputVsGrid": 0.03608784290033573
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 6.736232046000004,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 3.545220845999998,
+          "summary": 3.1910112,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 17,
+          "prewarmCalls": 0,
+          "totalCalls": 257,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "ee55c5946fc9a6fc6cae7e26d613fc483fd078c674ba18d3029fc57e4ea64a02"
+        },
+        "incumbent": {
+          "cost": 6.764458872000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 3.6008076719999997,
+          "summary": 3.1636512000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 16,
+          "prewarmCalls": 0,
+          "totalCalls": 256,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "ca76fee49913f24c3728b9941116ddfdc26620089acf067762e539dc1455123c"
+        },
+        "steadyRatio": {
+          "cost": 6.766318944000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 3.414961643999995,
+          "summary": 3.3513573000000005,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 28,
+          "prewarmCalls": 0,
+          "totalCalls": 268,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "89343b7049109f4341a53fc6af0853dd867cc94815780710b6f4e845b2712577"
+        },
+        "steadyOutput": {
+          "cost": 6.904268849999996,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 3.4455760500000014,
+          "summary": 3.4586928,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 28,
+          "prewarmCalls": 0,
+          "totalCalls": 268,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "2f35e028d16a5f0a6888f24db53e5489aff99cd7f82ac9532cbf5f6f1802ade9"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 28,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 154,
+            "cycle-boundary": 28,
+            "execution-or-risk-gate": 56
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 557077.7064736238,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 28,
+            "retainedSamples": 28,
+            "legacyRatio": 0.004009457808682245,
+            "minBefore": 179861,
+            "maxBefore": 574833,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 28,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 156,
+            "cycle-boundary": 28,
+            "execution-or-risk-gate": 54
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 580850.8400648547,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 28,
+            "retainedSamples": 28,
+            "legacyRatio": 0.003860468318939707,
+            "minBefore": 179861,
+            "maxBefore": 599683,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 45,
+        "bestCost": 6.659518734000007,
+        "outputVsGrid": 0.036751922440044105
+      }
+    },
+    {
+      "profile": "deepseek-flash-peak",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.052537992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.052537992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.052537992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.052537992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyRatio": {
+          "cost": 0.052537992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.052537992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.052537992,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.052537992,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 0.052537992,
+        "outputVsGrid": 0
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 18.117499599999988,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.130411599999993,
+          "summary": 4.987088,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 4,
+          "prewarmCalls": 0,
+          "totalCalls": 124,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "74f3eda826e4a1ed515d00157c0db62f6aec2ab08fd345a19f7e4a92131b5eb0"
+        },
+        "incumbent": {
+          "cost": 15.009622300000013,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 8.680296300000002,
+          "summary": 6.329326,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 19,
+          "prewarmCalls": 0,
+          "totalCalls": 139,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "dfe0172a52a3ac5b96cfb2fbe3dd53ab12ecc26a8e70f5fcfb7f1fe8ffb6d71c"
+        },
+        "steadyRatio": {
+          "cost": 13.569246400000006,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 6.771896399999997,
+          "summary": 6.797350000000001,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 26,
+          "prewarmCalls": 0,
+          "totalCalls": 146,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "ceb421776ba99426b8d2dca7c16d4c349aa895c01450b7142ba692498fb1a465"
+        },
+        "steadyOutput": {
+          "cost": 13.445507400000004,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 6.989821399999998,
+          "summary": 6.455686000000001,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 22,
+          "prewarmCalls": 0,
+          "totalCalls": 142,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "1f52d112fc060fa44152b527cae849529554c3fdb3fbe7b824ee47ec6de4fcd2"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 26,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 40,
+            "cycle-boundary": 26,
+            "execution-or-risk-gate": 52
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 131702.97602436124,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 26,
+            "retainedSamples": 26,
+            "legacyRatio": 0.0161123549118206,
+            "minBefore": 92566,
+            "maxBefore": 137936,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 22,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 52,
+            "cycle-boundary": 22,
+            "execution-or-risk-gate": 44
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 149099.70125838663,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 22,
+            "retainedSamples": 22,
+            "legacyRatio": 0.014010297714808533,
+            "minBefore": 92566,
+            "maxBefore": 169294,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 15,
+        "bestCost": 13.541336600000005,
+        "outputVsGrid": -0.0070767903369303164
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 37.617956400000004,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.4177744,
+          "summary": 11.200182,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 0,
+          "totalCalls": 249,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "d0a466d557c62ec116aed4b940c43457db5fe7d62e49cce7b0007477ec1abc7c"
+        },
+        "incumbent": {
+          "cost": 28.8913997,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 15.97116370000002,
+          "summary": 12.920236000000004,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 37,
+          "prewarmCalls": 0,
+          "totalCalls": 277,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "370497f7048ab9187059aceed72fbfcaa39974042f088ad17be390336361c380"
+        },
+        "steadyRatio": {
+          "cost": 27.090831400000024,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.632093400000015,
+          "summary": 13.458738000000004,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 49,
+          "prewarmCalls": 0,
+          "totalCalls": 289,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "ecae0e22078f8416db3f4b6ef6919abb5649cda705a8304b3be88ea917fbc755"
+        },
+        "steadyOutput": {
+          "cost": 26.93976340000003,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.934709400000008,
+          "summary": 13.005054000000001,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 43,
+          "prewarmCalls": 0,
+          "totalCalls": 283,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "012f7aa210fc761e999c4f4215df2218801fd0b773844d5e68c3cdfa74936a3b"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 49,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 91,
+            "cycle-boundary": 49,
+            "execution-or-risk-gate": 98
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 137041.76159172232,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 49,
+            "retainedSamples": 32,
+            "legacyRatio": 0.014515260793326795,
+            "minBefore": 110070,
+            "maxBefore": 160451,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 43,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 109,
+            "cycle-boundary": 43,
+            "execution-or-risk-gate": 86
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 150348.85672056937,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 43,
+            "retainedSamples": 32,
+            "legacyRatio": 0.013892656856190538,
+            "minBefore": 122835,
+            "maxBefore": 169294,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 15,
+        "bestCost": 27.179519600000024,
+        "outputVsGrid": -0.008821208157041682
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.22886140000000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.22886140000000002,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.28646119999999997,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.22209720000000002,
+          "summary": 0.064364,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 1,
+          "prewarmCalls": 0,
+          "totalCalls": 5,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "b7f30e8ad460b7e4f6bfd1dd5d423089f6c0e14650bfea35128026073efc1f76"
+        },
+        "steadyRatio": {
+          "cost": 0.22886140000000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.22886140000000002,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.22886140000000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.22886140000000002,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 10,
+        "bestCost": 0.22886140000000002,
+        "outputVsGrid": 0
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "prewarm",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 30.090450960000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 25.1504514,
+          "summary": 3.562384559999999,
+          "prewarm": 1.3776150000000003,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 9,
+          "totalCalls": 258,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "28f7dc4a493cec5cd5d7f1ddb7979e15b50555b2abbbad7d3fb43c8349bdda11"
+        },
+        "incumbent": {
+          "cost": 21.756985899999997,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 15.351202400000007,
+          "summary": 4.802060999999998,
+          "prewarm": 1.6037225000000008,
+          "ordinaryCalls": 240,
+          "summaryCalls": 29,
+          "prewarmCalls": 29,
+          "totalCalls": 298,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "606bc1367cdfbb60330d94afbe90371167ef87772fe4c5907bdca85add31b7c7"
+        },
+        "steadyRatio": {
+          "cost": 19.832931960000014,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 11.566673399999996,
+          "summary": 5.91578856,
+          "prewarm": 2.3504700000000014,
+          "ordinaryCalls": 240,
+          "summaryCalls": 47,
+          "prewarmCalls": 47,
+          "totalCalls": 334,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "7e460c8c63b98cb9f0118b17bd686c08059646dc1a1f687605bf7fa5a4347e4c"
+        },
+        "steadyOutput": {
+          "cost": 19.794201480000027,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 12.374852999999993,
+          "summary": 5.418948479999999,
+          "prewarm": 2.000400000000002,
+          "ordinaryCalls": 240,
+          "summaryCalls": 40,
+          "prewarmCalls": 40,
+          "totalCalls": 320,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "13153ff58a5d66055e61aebaead5ef792b89ea33119aad7c34e9a5cab02aefaa"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 47,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 97,
+            "cycle-boundary": 47,
+            "execution-or-risk-gate": 94
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 141688.34835839082,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 47,
+            "retainedSamples": 32,
+            "legacyRatio": 0.014434248160519428,
+            "minBefore": 103279,
+            "maxBefore": 155535,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 40,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 118,
+            "cycle-boundary": 40,
+            "execution-or-risk-gate": 80
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 162092.1333325488,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 40,
+            "retainedSamples": 32,
+            "legacyRatio": 0.012527973936783702,
+            "minBefore": 137903,
+            "maxBefore": 182247,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 15,
+        "bestCost": 19.824400560000026,
+        "outputVsGrid": -0.0015233287840709098
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "failure",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 39.0349926,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.5105026,
+          "summary": 12.52449,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 10,
+          "prewarmCalls": 0,
+          "totalCalls": 250,
+          "failed": 1,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "5e12927776fd86cb0e94986d3226c48eda31c977729f8052b9c339781523db67"
+        },
+        "incumbent": {
+          "cost": 30.72352450000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 16.220598500000023,
+          "summary": 14.502925999999999,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 40,
+          "prewarmCalls": 0,
+          "totalCalls": 280,
+          "failed": 5,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "6bb39633d88d248f5712bce4bfb075812fd9a56b638dc5d2263fa92c01259e76"
+        },
+        "steadyRatio": {
+          "cost": 28.94020050000005,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.885938500000018,
+          "summary": 15.054262000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 53,
+          "prewarmCalls": 0,
+          "totalCalls": 293,
+          "failed": 5,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "4b94952511a2f8eedc56cc16240b615a78b16b5ab17786d0dccf4f32766cfaba"
+        },
+        "steadyOutput": {
+          "cost": 28.806955200000015,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 14.250979200000009,
+          "summary": 14.555976,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 46,
+          "prewarmCalls": 0,
+          "totalCalls": 286,
+          "failed": 5,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "b111a16ecfb5965564653c6ce162de19fed49412da1da00f925b56217496db7c"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 53,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 80,
+            "cycle-boundary": 53,
+            "execution-or-risk-gate": 105
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 137417.84896731592,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 48,
+            "retainedSamples": 32,
+            "legacyRatio": 0.017921908118713827,
+            "minBefore": 100641,
+            "maxBefore": 273767,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 46,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 100,
+            "cycle-boundary": 46,
+            "execution-or-risk-gate": 92
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 153162.7878491704,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 41,
+            "retainedSamples": 32,
+            "legacyRatio": 0.014648196440527745,
+            "minBefore": 115005,
+            "maxBefore": 272527,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 10,
+        "bestCost": 28.788660000000068,
+        "outputVsGrid": 0.0006355002282130151
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 27.426190500000008,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 17.381220499999998,
+          "summary": 10.04497,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 8,
+          "prewarmCalls": 0,
+          "totalCalls": 128,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "0984d55a23cabe085a2921439c7956cfa41c877c9d4b5568b9f5a5efa7528ca3"
+        },
+        "incumbent": {
+          "cost": 26.18496239999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 14.762124399999998,
+          "summary": 11.422838000000002,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 16,
+          "prewarmCalls": 0,
+          "totalCalls": 136,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "429f14099a33f9f88a0f932e49a787b1197aff40c644ba66b5ac74606a0d9945"
+        },
+        "steadyRatio": {
+          "cost": 25.81287240000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.569186399999998,
+          "summary": 12.243685999999999,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 23,
+          "prewarmCalls": 0,
+          "totalCalls": 143,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "154d16e4c8c3e92a7fb211d7a4d15a685ba498efafcb78cc5189a4314735a581"
+        },
+        "steadyOutput": {
+          "cost": 25.9706016,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.549251600000002,
+          "summary": 12.421350000000002,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 23,
+          "prewarmCalls": 0,
+          "totalCalls": 143,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "9a16047420c815c11c044b192b6ec9bd21eadb6857da280ac43c2889ada76e58"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 23,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 49,
+            "cycle-boundary": 23,
+            "execution-or-risk-gate": 46
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 304609.72178357356,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 23,
+            "retainedSamples": 23,
+            "legacyRatio": 0.006692802387935539,
+            "minBefore": 179861,
+            "maxBefore": 345357,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 23,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 49,
+            "cycle-boundary": 23,
+            "execution-or-risk-gate": 46
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 318266.1132123094,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999995,
+            "source": "affine",
+            "samples": 23,
+            "retainedSamples": 23,
+            "legacyRatio": 0.006671495480906148,
+            "minBefore": 179861,
+            "maxBefore": 344457,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 35,
+        "bestCost": 25.4426838,
+        "outputVsGrid": 0.02074929689610805
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 56.109311200000036,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 34.7679032,
+          "summary": 21.341407999999998,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 17,
+          "prewarmCalls": 0,
+          "totalCalls": 257,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "b319cb212265dd26d460ab86483f401614070787b5efc2101f4d43acd2b774ee"
+        },
+        "incumbent": {
+          "cost": 52.41656880000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 29.464362800000007,
+          "summary": 22.952206000000004,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 30,
+          "prewarmCalls": 0,
+          "totalCalls": 270,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "1ab0232077f6e42b8815c278cae83836c323dbc59d2ca67e286d9cadef4bdde3"
+        },
+        "steadyRatio": {
+          "cost": 52.179614400000006,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 27.357240400000002,
+          "summary": 24.822373999999996,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 43,
+          "prewarmCalls": 0,
+          "totalCalls": 283,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "330f23f0f3efb33333ce4821c61da79e797b0b1e4285a9eab8799c98a84a6a9c"
+        },
+        "steadyOutput": {
+          "cost": 51.859113999999984,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 27.316375999999998,
+          "summary": 24.542738000000007,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 42,
+          "prewarmCalls": 0,
+          "totalCalls": 282,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "f70ad10a5c249db2d8d6197e1d4f0abd1738402596ebd365d3e9b592c3fa424b"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 43,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 111,
+            "cycle-boundary": 43,
+            "execution-or-risk-gate": 84
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 310381.93222381436,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 43,
+            "retainedSamples": 32,
+            "legacyRatio": 0.00638584089563196,
+            "minBefore": 256146,
+            "maxBefore": 345357,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 42,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 112,
+            "cycle-boundary": 42,
+            "execution-or-risk-gate": 84
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 324651.54095435824,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 42,
+            "retainedSamples": 32,
+            "legacyRatio": 0.006603240286256521,
+            "minBefore": 216103,
+            "maxBefore": 344457,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 30,
+        "bestCost": 51.349364800000004,
+        "outputVsGrid": 0.009927078981120774
+      }
+    },
+    {
+      "profile": "claude-sonnet-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.4131614,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4131614,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.5155254,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4131614,
+          "summary": 0.102364,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 1,
+          "prewarmCalls": 0,
+          "totalCalls": 5,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "ab1978d08ba55bc5693a42b2d5b9557f2ccd6254b2d264304911cbec948c728a"
+        },
+        "steadyRatio": {
+          "cost": 0.4131614,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4131614,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.4131614,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4131614,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 0.4131614,
+        "outputVsGrid": 0
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 29.285225599999993,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 19.311049600000004,
+          "summary": 9.974176,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 4,
+          "prewarmCalls": 0,
+          "totalCalls": 124,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "cd61e03c4aef08218f57a45b1bd6ede714ec863fca6f6e149c2b9741c2f568fc"
+        },
+        "incumbent": {
+          "cost": 27.590093999999983,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 15.974274000000001,
+          "summary": 11.61582,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 11,
+          "prewarmCalls": 0,
+          "totalCalls": 131,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "c1c04b1a6add04b7a7b56c29348ffee7a9f1cb90d611276b58ce0ac6eb4d7917"
+        },
+        "steadyRatio": {
+          "cost": 26.06552420000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.095548199999996,
+          "summary": 12.969976000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 20,
+          "prewarmCalls": 0,
+          "totalCalls": 140,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "29fe8186f4a1eb722d881e5cd6fe43e55a3db725535d21e2f5696b2b6555c38d"
+        },
+        "steadyOutput": {
+          "cost": 25.786758600000013,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 13.141498599999998,
+          "summary": 12.64526,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 18,
+          "prewarmCalls": 0,
+          "totalCalls": 138,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "88ee97d3",
+          "compactionFingerprint": "e170fb33c2e1ee411fcf716c232507a73f5c2d90b13ed7a862778111c63f67bf"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 20,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 59,
+            "cycle-boundary": 20,
+            "execution-or-risk-gate": 39
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 177621.30510068085,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 20,
+            "retainedSamples": 20,
+            "legacyRatio": 0.011742528506428599,
+            "minBefore": 92566,
+            "maxBefore": 181729,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 18,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 64,
+            "cycle-boundary": 18,
+            "execution-or-risk-gate": 36
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 200894.34481721272,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 18,
+            "retainedSamples": 18,
+            "legacyRatio": 0.010558794579597706,
+            "minBefore": 92566,
+            "maxBefore": 216931,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 15,
+        "bestCost": 25.763839600000004,
+        "outputVsGrid": 0.0008895801385135904
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 61.15699840000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 38.756634400000024,
+          "summary": 22.400364,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 0,
+          "totalCalls": 249,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "91656d998fcdf3bf2681f78ec8129200d97cf94db7bcdb620c93e954349457ed"
+        },
+        "incumbent": {
+          "cost": 54.568969999999965,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 30.22998600000002,
+          "summary": 24.338984,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 24,
+          "prewarmCalls": 0,
+          "totalCalls": 264,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "32a0f6e04baad7983ebf1aede84c8124e2aa7624c38ffef0ec2610df24be0906"
+        },
+        "steadyRatio": {
+          "cost": 51.225030400000016,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.0267824,
+          "summary": 25.198248,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 37,
+          "prewarmCalls": 0,
+          "totalCalls": 277,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "bdf14b1d57fdaf4be06aa1e30b167fd4f00ce759d4bf7fc4df290306277f9a8f"
+        },
+        "steadyOutput": {
+          "cost": 51.69801060000003,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.39566260000002,
+          "summary": 25.302348000000006,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 34,
+          "prewarmCalls": 0,
+          "totalCalls": 274,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "6ed7d72b936af45bcae98084bf67b21bdf43e6bcba4bdb3de71940968ff2e288"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 37,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 127,
+            "cycle-boundary": 37,
+            "execution-or-risk-gate": 74
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 177621.30510068085,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 37,
+            "retainedSamples": 32,
+            "legacyRatio": 0.012009729849165499,
+            "minBefore": 92566,
+            "maxBefore": 197797,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 34,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 138,
+            "cycle-boundary": 34,
+            "execution-or-risk-gate": 66
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 200894.34481721272,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 34,
+            "retainedSamples": 32,
+            "legacyRatio": 0.01035463072708559,
+            "minBefore": 92566,
+            "maxBefore": 217812,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 51.09983260000003,
+        "outputVsGrid": 0.011706065745507033
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.4306264,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4306264,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.5471352,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.41840720000000003,
+          "summary": 0.128728,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 1,
+          "prewarmCalls": 0,
+          "totalCalls": 5,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "33e80aa68c18cbc3bd0e2072ade2b1250b42729d166278bad16443bfb3836011"
+        },
+        "steadyRatio": {
+          "cost": 0.4306264,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4306264,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.4306264,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.4306264,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "b12a76e9",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 104144.44444444444,
+          "boundaryMax": 110195.55555555555,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 10,
+        "bestCost": 0.4306264,
+        "outputVsGrid": 0
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "prewarm",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 45.14314136,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 36.111786399999986,
+          "summary": 6.276124959999999,
+          "prewarm": 2.7552300000000005,
+          "ordinaryCalls": 240,
+          "summaryCalls": 9,
+          "prewarmCalls": 9,
+          "totalCalls": 258,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "eb7f59f68a47a1cc222fb608b0cfbdcd364c46277afc0cf876286d43d7bd26f3"
+        },
+        "incumbent": {
+          "cost": 37.41397512000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 25.1535052,
+          "summary": 8.984819919999998,
+          "prewarm": 3.2756500000000024,
+          "ordinaryCalls": 240,
+          "summaryCalls": 30,
+          "prewarmCalls": 30,
+          "totalCalls": 300,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "c64bd6565896381bbab07e7e5df07cbf77717356a18c34b58fafc8bd1635d79b"
+        },
+        "steadyRatio": {
+          "cost": 35.77540296000004,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 22.876394800000007,
+          "summary": 9.39006816,
+          "prewarm": 3.5089400000000035,
+          "ordinaryCalls": 240,
+          "summaryCalls": 35,
+          "prewarmCalls": 35,
+          "totalCalls": 310,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "25ecc6dd96fff3881e684600ae09022fc67336767ab3596e3c1143c45e51a0c1"
+        },
+        "steadyOutput": {
+          "cost": 35.779597320000036,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 23.207881799999992,
+          "summary": 9.222755519999998,
+          "prewarm": 3.3489600000000026,
+          "ordinaryCalls": 240,
+          "summaryCalls": 33,
+          "prewarmCalls": 33,
+          "totalCalls": 306,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "ddf46090d7b668b84db65f24dc956cf52a75da3f364a99942c6cfc70401cd586"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 35,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 133,
+            "cycle-boundary": 35,
+            "execution-or-risk-gate": 70
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 189925.87531574292,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999995,
+            "source": "affine",
+            "samples": 35,
+            "retainedSamples": 32,
+            "legacyRatio": 0.011172172821712796,
+            "minBefore": 92566,
+            "maxBefore": 206570,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 33,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 139,
+            "cycle-boundary": 33,
+            "execution-or-risk-gate": 66
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 208057.88574245703,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 33,
+            "retainedSamples": 32,
+            "legacyRatio": 0.010558555969888377,
+            "minBefore": 92566,
+            "maxBefore": 226306,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 35.700141320000014,
+        "outputVsGrid": 0.0022256494529759863
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-22000-20000",
+      "suite": "failure",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 63.91219460000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 38.86321460000001,
+          "summary": 25.04898,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 10,
+          "prewarmCalls": 0,
+          "totalCalls": 250,
+          "failed": 1,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "50bbbcdc9259f8113573d6a9366df9f865b3e33b5136d04ffd2a82df27961480"
+        },
+        "incumbent": {
+          "cost": 56.52740560000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 30.602213600000024,
+          "summary": 25.925192000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 26,
+          "prewarmCalls": 0,
+          "totalCalls": 266,
+          "failed": 3,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "7ec910afa98fc270c42ba03ac0d6ccce752e4d132aa76154d5b984f38ef8dc0e"
+        },
+        "steadyRatio": {
+          "cost": 55.307182600000075,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.120670600000008,
+          "summary": 29.186512000000008,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 43,
+          "prewarmCalls": 0,
+          "totalCalls": 283,
+          "failed": 5,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "f31fa4f6b3bbddfef96a28f93bfa1069612a8664caff499d7aebb48640a40c48"
+        },
+        "steadyOutput": {
+          "cost": 56.625034600000035,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 26.641686600000014,
+          "summary": 29.983348000000003,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 41,
+          "prewarmCalls": 0,
+          "totalCalls": 281,
+          "failed": 5,
+          "overflow": 0,
+          "fingerprint": "4937e067",
+          "compactionFingerprint": "0db2c3ea5aa943aa32e308574271b63132aafc0270a7529290427d9a4816d76b"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 43,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 109,
+            "cycle-boundary": 43,
+            "execution-or-risk-gate": 86
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 179151.43993952175,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 38,
+            "retainedSamples": 32,
+            "legacyRatio": 0.014237164427175536,
+            "minBefore": 99135,
+            "maxBefore": 295903,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 41,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 117,
+            "cycle-boundary": 41,
+            "execution-or-risk-gate": 80
+          },
+          "boundaryMin": 67884.94598255772,
+          "boundaryMax": 200117.41827560565,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 36,
+            "retainedSamples": 32,
+            "legacyRatio": 0.01224677146843201,
+            "minBefore": 92566,
+            "maxBefore": 323019,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 53.823979199999954,
+        "outputVsGrid": 0.0520410315556914
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 120,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 48.35245199999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 28.262512,
+          "summary": 20.08994,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 8,
+          "prewarmCalls": 0,
+          "totalCalls": 128,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "dc721e0c0fc7a4275518f4509906ee18e6ab4904269d0f1a09d68509f5e6f53f"
+        },
+        "incumbent": {
+          "cost": 49.192125000000004,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 28.991597000000002,
+          "summary": 20.200528,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 9,
+          "prewarmCalls": 0,
+          "totalCalls": 129,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "76011331c70cf3a26d62aab2589ba4dbe93bb59eeaa5005d157a842c9cf88aee"
+        },
+        "steadyRatio": {
+          "cost": 49.63996060000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 25.345984600000005,
+          "summary": 24.293976000000004,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 20,
+          "prewarmCalls": 0,
+          "totalCalls": 140,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "b44e041f941b5e9592c610ef49e7d2972616e639dc0d60ca19b558b416905dd9"
+        },
+        "steadyOutput": {
+          "cost": 48.86931640000002,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 25.5063884,
+          "summary": 23.362928,
+          "prewarm": 0,
+          "ordinaryCalls": 120,
+          "summaryCalls": 19,
+          "prewarmCalls": 0,
+          "totalCalls": 139,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "8ffdff26",
+          "compactionFingerprint": "e9ac337c2dde640d12d547bb09c4cd96603f5f667b81873ef85f972de21862df"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 120,
+          "economic": 20,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 59,
+            "cycle-boundary": 20,
+            "execution-or-risk-gate": 39
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 413079.0731839519,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000,
+            "source": "affine",
+            "samples": 20,
+            "retainedSamples": 20,
+            "legacyRatio": 0.005226023235191,
+            "minBefore": 179861,
+            "maxBefore": 431892,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 120,
+          "economic": 19,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 61,
+            "cycle-boundary": 19,
+            "execution-or-risk-gate": 38
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 434407.4545776256,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 2000.0000000000002,
+            "source": "affine",
+            "samples": 19,
+            "retainedSamples": 19,
+            "legacyRatio": 0.005071380789341884,
+            "minBefore": 179861,
+            "maxBefore": 473007,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 45,
+        "bestCost": 47.16191739999998,
+        "outputVsGrid": 0.03620291739877479
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "main",
+      "steps": 240,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 99.16428419999995,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 56.48146819999998,
+          "summary": 42.682815999999995,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 17,
+          "prewarmCalls": 0,
+          "totalCalls": 257,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "88bc2933370d2e1f540eeefd323f5bd3e876f97cf1c868525d00b097bc66d99e"
+        },
+        "incumbent": {
+          "cost": 102.91053639999996,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 58.259228400000005,
+          "summary": 44.65130800000001,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 18,
+          "prewarmCalls": 0,
+          "totalCalls": 258,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "887abf278f405c78ec12d63d60e3a436e44428566d0299bf9bf2f096f89ff1f5"
+        },
+        "steadyRatio": {
+          "cost": 98.15341839999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 50.83766240000001,
+          "summary": 47.31575600000001,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 34,
+          "prewarmCalls": 0,
+          "totalCalls": 274,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "c0d1f514abe3e28f492d8980577a9d750042701cf0c3656da7c951a82ab0b880"
+        },
+        "steadyOutput": {
+          "cost": 97.10619319999998,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 51.246169200000004,
+          "summary": 45.860024,
+          "prewarm": 0,
+          "ordinaryCalls": 240,
+          "summaryCalls": 32,
+          "prewarmCalls": 0,
+          "totalCalls": 272,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "f3b249ba",
+          "compactionFingerprint": "a1636d012f8b932e382cf7884b711b97c88102cfe27b74c1d207e6c3f25d3064"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 240,
+          "economic": 34,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 137,
+            "cycle-boundary": 34,
+            "execution-or-risk-gate": 67
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 414992.55953790667,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 34,
+            "retainedSamples": 32,
+            "legacyRatio": 0.005206600369983447,
+            "minBefore": 179861,
+            "maxBefore": 445231,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 240,
+          "economic": 32,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 142,
+            "cycle-boundary": 32,
+            "execution-or-risk-gate": 64
+          },
+          "boundaryMin": 138453.38021321627,
+          "boundaryMax": 435333.1730227678,
+          "outputModel": {
+            "slope": 0,
+            "intercept": 1999.9999999999998,
+            "source": "affine",
+            "samples": 32,
+            "retainedSamples": 32,
+            "legacyRatio": 0.004707334551152613,
+            "minBefore": 179861,
+            "maxBefore": 473007,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 45,
+        "bestCost": 96.03019980000002,
+        "outputVsGrid": 0.01120473978228631
+      }
+    },
+    {
+      "profile": "claude-opus-5.5-5m-price",
+      "fixture": "heldout-floor-180-41000-50000",
+      "suite": "short",
+      "steps": 4,
+      "baselineMatches": true,
+      "arms": {
+        "fixed60": {
+          "cost": 0.7764264000000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.7764264000000001,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "incumbent": {
+          "cost": 0.9811543999999999,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.7764264000000001,
+          "summary": 0.204728,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 1,
+          "prewarmCalls": 0,
+          "totalCalls": 5,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "646c6f430629f72a1def6998b6808e4835e9ef471d5ce96fc09c70f2d4b41136"
+        },
+        "steadyRatio": {
+          "cost": 0.7764264000000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.7764264000000001,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "steadyOutput": {
+          "cost": 0.7764264000000001,
+          "overWindowSummaryCalls": 0,
+          "overWindowOrdinaryCalls": 0,
+          "overWindowPrewarmCalls": 0,
+          "inputWithinWindow": true,
+          "ordinary": 0.7764264000000001,
+          "summary": 0,
+          "prewarm": 0,
+          "ordinaryCalls": 4,
+          "summaryCalls": 0,
+          "prewarmCalls": 0,
+          "totalCalls": 4,
+          "failed": 0,
+          "overflow": 0,
+          "fingerprint": "a5b0e191",
+          "compactionFingerprint": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      },
+      "diagnostics": {
+        "ratio": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        },
+        "output": {
+          "decisions": 4,
+          "economic": 0,
+          "force": 0,
+          "reasons": {
+            "cycle-unsupported": 2,
+            "below-cycle": 2
+          },
+          "boundaryMin": 188588.88888888888,
+          "boundaryMax": 194640,
+          "outputModel": {
+            "slope": 0.002,
+            "intercept": 0,
+            "source": "ratio-prior",
+            "samples": 0,
+            "retainedSamples": 0,
+            "legacyRatio": 0.002,
+            "minBefore": null,
+            "maxBefore": null,
+            "hostInputEstimated": true,
+            "outputReported": true,
+            "calibratedConfidenceInterval": false,
+            "canDrivePolicy": false
+          }
+        }
+      },
+      "reference": {
+        "bestPercentage": 20,
+        "bestCost": 0.7764264000000001,
+        "outputVsGrid": 0
+      }
+    }
+  ],
+  "groups": [
+    {
+      "key": "deepseek-flash-peak/main",
+      "cases": 4,
+      "ratioVsIncumbent": -0.012740098865701321,
+      "outputVsIncumbent": -0.00826921500632341,
+      "outputVsFixed60": -0.0012954535308230541,
+      "outputVsRatio": 0.0050265422055991715,
+      "wins": 1,
+      "losses": 3
+    },
+    {
+      "key": "deepseek-flash-peak/short",
+      "cases": 2,
+      "ratioVsIncumbent": 0,
+      "outputVsIncumbent": 0,
+      "outputVsFixed60": 0,
+      "outputVsRatio": 0,
+      "wins": 0,
+      "losses": 0
+    },
+    {
+      "key": "deepseek-flash-peak/prewarm",
+      "cases": 1,
+      "ratioVsIncumbent": -0.018345221891332364,
+      "outputVsIncumbent": -0.009144655835611526,
+      "outputVsFixed60": -0.08183186765697825,
+      "outputVsRatio": 0.009372506772133748,
+      "wins": 1,
+      "losses": 0
+    },
+    {
+      "key": "deepseek-flash-peak/failure",
+      "cases": 1,
+      "ratioVsIncumbent": -0.13695176021665667,
+      "outputVsIncumbent": -0.1272832318602638,
+      "outputVsFixed60": -0.05122936860447502,
+      "outputVsRatio": 0.011202767018932747,
+      "wins": 1,
+      "losses": 0
+    },
+    {
+      "key": "claude-sonnet-5.5-5m-price/main",
+      "cases": 4,
+      "ratioVsIncumbent": -0.044254028451631705,
+      "outputVsIncumbent": -0.047644936305834135,
+      "outputVsFixed60": -0.16763805072982602,
+      "outputVsRatio": -0.003681798828592653,
+      "wins": 4,
+      "losses": 0
+    },
+    {
+      "key": "claude-sonnet-5.5-5m-price/short",
+      "cases": 2,
+      "ratioVsIncumbent": -0.19981806475887015,
+      "outputVsIncumbent": -0.19981806475887015,
+      "outputVsFixed60": 0,
+      "outputVsRatio": 0,
+      "wins": 2,
+      "losses": 0
+    },
+    {
+      "key": "claude-sonnet-5.5-5m-price/prewarm",
+      "cases": 1,
+      "ratioVsIncumbent": -0.08843384597679882,
+      "outputVsIncumbent": -0.09021398593635022,
+      "outputVsFixed60": -0.3421766424732896,
+      "outputVsRatio": -0.0019528368310898214,
+      "wins": 1,
+      "losses": 0
+    },
+    {
+      "key": "claude-sonnet-5.5-5m-price/failure",
+      "cases": 1,
+      "ratioVsIncumbent": -0.05804425205187547,
+      "outputVsIncumbent": -0.06238116658783743,
+      "outputVsFixed60": -0.26202227075611095,
+      "outputVsRatio": -0.004604159532344387,
+      "wins": 1,
+      "losses": 0
+    },
+    {
+      "key": "claude-opus-5.5-5m-price/main",
+      "cases": 4,
+      "ratioVsIncumbent": -0.03841474136971068,
+      "outputVsIncumbent": -0.04523432725688886,
+      "outputVsFixed60": -0.07104849537089719,
+      "outputVsRatio": -0.006913840824052192,
+      "wins": 4,
+      "losses": 0
+    },
+    {
+      "key": "claude-opus-5.5-5m-price/short",
+      "cases": 2,
+      "ratioVsIncumbent": -0.2108018373640806,
+      "outputVsIncumbent": -0.2108018373640806,
+      "outputVsFixed60": 0,
+      "outputVsRatio": 0,
+      "wins": 2,
+      "losses": 0
+    },
+    {
+      "key": "claude-opus-5.5-5m-price/prewarm",
+      "cases": 1,
+      "ratioVsIncumbent": -0.04379572485266503,
+      "outputVsIncumbent": -0.04368361808008747,
+      "outputVsFixed60": -0.20741897346773308,
+      "outputVsRatio": 0.00011724144671942938,
+      "wins": 1,
+      "losses": 0
+    },
+    {
+      "key": "claude-opus-5.5-5m-price/failure",
+      "cases": 1,
+      "ratioVsIncumbent": -0.021586396669864727,
+      "outputVsIncumbent": 0.0017271091599511124,
+      "outputVsFixed60": -0.114018303480381,
+      "outputVsRatio": 0.023827863544073624,
+      "wins": 0,
+      "losses": 1
+    }
+  ]
+}
