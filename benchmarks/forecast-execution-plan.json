@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "baselineCommit": "2f8bac6",
+  "selection": "Existing main table: worst and best relative affineOutput/legacyOutputRatio cost, plus first unchanged Flash main row at 240 calls. No new prices, scenarios or tuning.",
+  "checkpoint": "First actual action divergence within a selected pair, after verifying equal common-prefix actions, charges and state. Unchanged control has no checkpoint and must not invent one.",
+  "capture": "Independent metadata-only replica of frozen output-cost strategy with existing simulator snapshot hooks. Both complete bills must exactly reproduce the frozen artifact before interpreting forecasts.",
+  "comparison": "Explain NOW/WAIT at the checkpoint without changing its decision; clip forecasts to observed suffix for matched comparisons, use the same survival weights, and report unweighted actual suffix separately. Ordinary output costs are excluded symmetrically.",
+  "frozenStateRechecks": "First two future economic attempts on each explained path, excluding call 0 and safety FORCE. Reconstruct the inner screening state under the fixed checkpoint model and projected growth, then compare qualification-disabled incumbent with the deployed two-check rule. Validate against stored inner screen when context matches; report all unassessed attempts.",
+  "limits": "Local time-consistency diagnostic, not complete recursive optimization or causal proof of total cost differences. No model/default changes, paid requests or cold-cache optimization. Task endpoint is evaluator-only."
+}
