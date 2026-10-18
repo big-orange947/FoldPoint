@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Budget-exhaustion safety-continuation ablation (not promoted)
+
+- Preregister plan 179542d before running all 24 existing warm-cache cells. Change only
+  unchecked economic attempts after the two-check budget: reject on both NOW and WAIT,
+  preserving assessed approvals, safety compactions and existing safety alternatives.
+- Keep frozen core and old reports unchanged. A research-only derivative is mechanically
+  checked against the original; it is neither exported nor bundled in the SDK. The harness
+  preserves the same models and feedback, reproduces all frozen control ledgers and includes
+  ordinary calls, failed summaries, prefix rebuilding and explicit prewarm in total bills.
+- Do not promote: main-cell mean changes versus incumbent are Flash +1.91%, Sonnet +2.65%,
+  Opus -0.34%. Sonnet's first 240-step fixture increases summaries from 37 to 71; conservative
+  forecast tails do not guarantee conservative online execution or lower costs.
+- Add six tests for exact derivation, disabled-mode equivalence, bounded approvals and safety,
+  unchanged execution gates, baseline wrapper equivalence, frozen full bills and report identity.
+  No paid calls, no cold-cache expansion and no SDK or Pi default changes.
+
 ### Frozen forecast/execution consistency audit
 
 - Preregister first-divergence inspection of the worst, best and unchanged existing output
