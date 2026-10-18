@@ -45,10 +45,68 @@ or use Node ≥ 22.18 and plain `npm run build`. The result is
 
 The adapter imports FoldPoint through a relative path (`../../src/index`), so running Pi with
 `--extension <repo>/adapters/pi/foldpoint-observe.ts` works without publishing anything. If you
-copy the file into `~/.pi/agent/extensions/` instead, change that one import to the installed
-package (or to an absolute path) — nothing else.
+copy the file into `~/.pi/agent/extensions/` instead, preserve its sibling `steady-shadow.ts`
+and the bridge's source imports as well. Prefer the repository path or a small wrapper that
+imports it; copying one file and changing only its SDK import is no longer sufficient.
 
 ### 1.0 Verified reusable-prefix metadata (custom hosts only)
+
+#### Experimental steady-cycle shadow (default off; repository-local)
+
+The frozen steady-cycle candidate now has a **shadow-only** adapter bridge. This is not an
+`act` policy and is not enabled by an environment variable or by the offline gate passing.
+Opt in through a custom extension wrapper:
+
+```typescript
+import { createFoldPointObserver } from "D:/project/FoldPoint/adapters/pi/foldpoint-observe";
+
+export default createFoldPointObserver({
+  mode: "observe",
+  compaction: "off",
+  tracePath: "D:/project/FoldPoint/traces/pi-observe.jsonl",
+  experimentalSteadyShadow: {
+    path: "D:/project/FoldPoint/traces/pi-steady-shadow.jsonl",
+    // No compatible host evidence yet: writes an explicit blocked record, not a fake result.
+    getMetadata: () => undefined,
+  },
+});
+```
+
+The sidecar is a separate format (`foldpoint.pi-steady-shadow.v1`), not input to
+`trace:analyze`. Each row pairs with an ordinary decision's `callId`, records `applied: false`,
+and has status `blocked`, `safety`, or `evaluated`. It preserves FORCE, reuses the frozen
+`chooseSteadyCycle` and runtime risk function, and reports evaluation latency separately.
+Errors in the callback, calculation or sidecar writer give a generic warning without changing
+the original decision, initiating a summary, reading a provider payload or making an API call.
+It still adds synchronous CPU/I/O overhead when enabled; no production latency claim is made.
+
+To obtain an evaluated prediction, a custom host must supply `PiSteadyMetadata` from
+`adapters/pi/steady-shadow.ts`: a matching `profileKey(input.profile)`, compatible past
+`compactorTokenModel`, current runtime's ordinary-call `durationModel`, actual host
+`executionConstraints`, and explicit `cycleBilling`. It must also provide verified
+`getReusablePrefixTokens` as described below. A price change, compactor/model/system change
+requires a compatible model or a reset; missing evidence blocks evaluation. These are host
+assertions, not facts verified by the bridge. The bridge has no automatic learner or lifecycle
+counter and does not invent those assertions for stock Pi.
+
+Do not feed the delayed Pi context estimate into an exact compactor learner: it may include
+ordinary output and tools after the summary. Summary output usage is not retained context size.
+Do not count summaries, failures, or paid prewarm requests as completed ordinary runtime calls.
+Declare summary prefix sharing and `prewarmOutputTokens` only if the host actually uses that
+contract; an explicit prewarm is an additional paid call, not a free cache write. Actual costs
+continue to belong to the ordinary trace's request/compaction/cache_warm events, never the shadow
+prediction. The shadow does not modify or infer those observations.
+
+The frozen candidate's risk settings are copied literally; host duration components and
+compatible token estimates remain explicit, not calibrated Pi defaults. Approximate feedback
+does not become exact or policy-approved merely because it is supplied here. The existing
+simulator, synthetic host noise and task endpoints are not imported at runtime.
+
+**Next gate:** implement and verify the real host's compatible feedback/prefix contract, then
+exercise lifecycle and full fee accounting with a no-network Pi process. Only after that should
+a bounded paid timing/quality comparison be started. This bridge alone does not establish
+provider savings, task quality, or readiness to activate the candidate. Remove
+`experimentalSteadyShadow` to return to the unchanged ordinary adapter.
 
 Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
 synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,

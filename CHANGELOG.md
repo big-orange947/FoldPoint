@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi steady-cycle shadow bridge (not activated)
+
+- Add an explicit, default-off observer factory option for a separate shadow JSONL sidecar;
+  no new environment switch or control-policy promotion. Reuse the frozen selector and risk
+  calculation without modifying their source or any benchmark report.
+- Require compatible host token/duration/execution/billing metadata and prefix continuity;
+  unknown evidence is blocked, never synthetic training data. Keep safety FORCE and original
+  Pi decisions untouched. No automatic feedback learner is wired to delayed Pi context sizes.
+- Isolate callback/write failures, copy inputs, whitelist metadata fields, separate trace paths
+  and record evaluation latency. No paid or network calls; real Pi lifecycle and quality/cost
+  verification remain follow-up gates.
+
 ### Frozen steady-policy prospective combination validation
 
 - Preregister f14e82d before executing 42 new cells: 24 main plus six each short, failed-summary

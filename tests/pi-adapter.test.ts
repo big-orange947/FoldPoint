@@ -158,6 +158,115 @@ function newPrefixStorePath(name: string): string {
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 
 describe("Pi authoritative prefix metadata bridge", () => {
+  it("leaves ordinary traces and Pi controls identical with a disabled or blocked shadow", () => {
+    const run = (shadow: boolean) => {
+      const path = newTracePath("steady-identical"),
+        fake = fakePi();
+      createFoldPointObserver({
+        tracePath: path,
+        prefixStorePath: newPrefixStorePath("steady-identical"),
+        mode: "observe",
+        compaction: "off",
+        now: () => 1_000_000,
+        log: () => undefined,
+        ...(shadow ? { experimentalSteadyShadow: { path: newTracePath("steady-only") } } : {}),
+      })(fake.pi);
+      fake.emit("session_start", { type: "session_start", reason: "startup" });
+      fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+      fake.emit("message_end", {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          usage: { input: 10_000, cacheRead: 40_000, cacheWrite: 0, output: 100 },
+        },
+      });
+      const manual = fake.emit("session_before_compact", {
+        type: "session_before_compact",
+        reason: "manual",
+        preparation: { tokensBefore: 50_000 },
+      });
+      const overflow = fake.emit("session_before_compact", {
+        type: "session_before_compact",
+        reason: "overflow",
+        preparation: { tokensBefore: 180_000 },
+      });
+      return {
+        events: readTrace(path),
+        manual,
+        overflow,
+        compactions: fake.compactions,
+        subscriptions: fake.registered,
+      };
+    };
+    expect(run(true)).toEqual(run(false));
+  });
+
+  it("writes only a separate blocked shadow when host metadata is unavailable", () => {
+    const path = newTracePath("steady-base"),
+      shadow = newTracePath("steady-shadow");
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("steady"),
+      mode: "observe",
+      compaction: "off",
+      log: () => undefined,
+      experimentalSteadyShadow: { path: shadow },
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(50_000));
+    const prediction = JSON.parse(readFileSync(shadow, "utf8"));
+    expect(prediction).toMatchObject({
+      status: "blocked",
+      reason: "missing-host-metadata",
+      applied: false,
+    });
+    const decisions = readTrace(path).filter((e) => e.type === "decision");
+    expect(decisions).toHaveLength(1);
+    expect(prediction.callId).toBe(decisions[0]?.callId);
+    expect(fake.compactions).toHaveLength(0);
+    expect(fake.registered).not.toContain("before_provider_request");
+  });
+
+  it("isolates shadow callback failures and mutation from the live input and error log", () => {
+    const path = newTracePath("steady-errors"),
+      logs: string[] = [];
+    const fake = fakePi();
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("steady-errors"),
+      mode: "observe",
+      compaction: "off",
+      log: (s) => logs.push(s),
+      experimentalSteadyShadow: {
+        path: newTracePath("steady-errors-sidecar"),
+        getMetadata: (input) => {
+          input.profile.model = "tampered";
+          throw new Error("private-host-error");
+        },
+      },
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    expect(() => fake.emit("context", { type: "context" }, fake.ctxWith(50_000))).not.toThrow();
+    const decision = readTrace(path).find((e) => e.type === "decision");
+    expect(decision?.profile.model).toBe(MODEL.id);
+    expect(logs.join("\n")).toContain("steady shadow failed");
+    expect(logs.join("\n")).not.toContain("private-host-error");
+    expect(fake.compactions).toHaveLength(0);
+  });
+
+  it("refuses a shadow file that would corrupt the ordinary JSONL trace", () => {
+    const fake = fakePi(),
+      path = newTracePath("steady-collision");
+    expect(() =>
+      createFoldPointObserver({
+        tracePath: path,
+        experimentalSteadyShadow: { path },
+      })(fake.pi),
+    ).toThrow("separate trace path");
+  });
+
   it("prices verified continuity after a cold miss without inventing provider usage", () => {
     const path = newTracePath("verified-continuity");
     const fake = fakePi();

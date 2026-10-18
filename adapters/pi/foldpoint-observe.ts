@@ -1,11 +1,11 @@
 /**
  * FoldPoint adapter for Pi — payload-free, observe-only by default.
  *
- * Copy this file into `~/.pi/agent/extensions/foldpoint-observe.ts` (Pi loads TypeScript
- * directly through jiti) and point it at a trace file:
+ * Load this repository-local extension (Pi loads TypeScript directly through jiti)
+ * and point it at a trace file. A standalone copy also needs its sibling bridge/imports:
  *
  * ```bash
- * FOLDPOINT_TRACE=~/.foldpoint/traces/pi.jsonl pi
+ * FOLDPOINT_TRACE=~/.foldpoint/traces/pi.jsonl pi --extension <repo>/adapters/pi/foldpoint-observe.ts
  * ```
  *
  * **Two independent switches.**
@@ -52,7 +52,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   FoldPoint,
   type FoldPointDefaults,
@@ -62,6 +62,7 @@ import {
   type TraceOutcome,
   TraceRecorder,
 } from "../../src/index";
+import { evaluatePiSteadyShadow, type PiSteadyShadowOptions } from "./steady-shadow";
 
 /**
  * Bumped to 0.2.0 when the prompt accounting changed: 0.1.0 recorded Pi's uncached input as the
@@ -224,6 +225,8 @@ export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
 // ============================================================================
 
 export interface FoldPointObserverOptions {
+  /** Default off. Writes a separate research prediction; never controls Pi or replaces decide(). */
+  experimentalSteadyShadow?: PiSteadyShadowOptions;
   /**
    * Optional authoritative host proof of an unchanged, previously sent request prefix.
    * Return tokens in Pi's context estimate units, zero for a verified rewrite, or undefined
@@ -694,6 +697,12 @@ export function createFoldPointObserver(
 
   return function foldPointObserver(pi: PiExtensionAPI): void {
     const tracePath = options.tracePath ?? defaultTracePath(now);
+    const steadyShadow = options.experimentalSteadyShadow;
+    const normalizePath = (path: string) =>
+      process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
+    if (steadyShadow && normalizePath(steadyShadow.path) === normalizePath(tracePath)) {
+      throw new RangeError("steady shadow must use a separate trace path");
+    }
     const prefixStorePath = options.prefixStorePath ?? defaultPrefixStorePath();
     const mode = options.mode ?? modeFromEnv();
     const compactionModeFromOptions = options.compaction ?? compactionFromEnv();
@@ -1228,6 +1237,31 @@ export function createFoldPointObserver(
       state.checksSinceDecision = { count: 0, vetoed: 0, totalLatencyMs: 0, maxLatencyMs: 0 };
       state.decisions.push({ callId: event.callId, at: timestamp, contextTokens: usage.tokens });
       write(event);
+
+      if (steadyShadow) {
+        try {
+          const startedAt = performance.now();
+          // Detached copies: a host callback cannot mutate the live decision or its input.
+          const metadata = steadyShadow.getMetadata?.(structuredClone(input));
+          const result = evaluatePiSteadyShadow(input, decision, metadata);
+          mkdirSync(dirname(steadyShadow.path), { recursive: true });
+          appendFileSync(
+            steadyShadow.path,
+            `${JSON.stringify({
+              ...result,
+              callId: event.callId,
+              evaluationLatencyMs: performance.now() - startedAt,
+            })}\n`,
+            "utf8",
+          );
+        } catch {
+          // A shadow failure is not an agent failure. Never print arbitrary host errors.
+          warnOnce(
+            "steady-shadow-failed",
+            "experimental steady shadow failed; Pi policy unchanged",
+          );
+        }
+      }
 
       if (decision.action !== "KEEP") {
         log(
