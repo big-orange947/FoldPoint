@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "baselineCommit": "5ca25a0",
+  "cells": "all 24 existing affineCostCases, unchanged seed, fixtures, prices and billing",
+  "thresholdPercentages": [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70],
+  "strategy": "existing createRawFixedThresholdStrategy; each run sees only its current request",
+  "controls": "rerun fixed60 and incumbent; reproduce complete frozen ledgers exactly",
+  "selection": "after executing all policies, choose lowest-cost eligible threshold per cell; break exact ties toward smaller threshold",
+  "eligibility": "no overflow, no out-of-window ordinary/summary/prewarm input; invalid runs retained with reason, never selected",
+  "billing": "ordinary input/output, all successful/failed summaries, prefix rebuilding and explicit prewarm",
+  "metrics": "per-cell full fee components, grid minimum, incumbent and fixed60 gaps; per-profile main means; boundary optima flagged",
+  "transfer": "for main cells only, take threshold selected at the other length for same price/fixture and apply its already executed bill; dependent same-seed prefix diagnostic, not an independent heldout result",
+  "limits": "best fixed threshold in this discrete raw-policy grid only, not a global optimum or lower bound; hindsight selectors are evaluator-only and never feed the online algorithm; raw baselines have no cooldown/reclaim/quality guards",
+  "promotion": "no SDK, Pi, learner, default or paid test changes",
+  "paidCalls": 0
+}
