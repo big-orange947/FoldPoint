@@ -73,8 +73,9 @@ export default createFoldPointObserver({
 ```
 
 The sidecar is a separate format (`foldpoint.pi-steady-shadow.v1`), not input to
-`trace:analyze`. Each row pairs with an ordinary decision's `callId`, records `applied: false`,
-and has status `blocked`, `safety`, or `evaluated`. It preserves FORCE, reuses the frozen
+`trace:analyze`. A `prediction` row pairs with an ordinary decision's `callId`, records
+`applied: false`, and has status `blocked`, `safety`, or `evaluated`. A `session_end` row
+contains final lifecycle counters (not another decision). It preserves FORCE, reuses the frozen
 `chooseSteadyCycle` and runtime risk function, and reports evaluation latency separately.
 Errors in the callback, calculation or sidecar writer give a generic warning without changing
 the original decision, initiating a summary, reading a provider payload or making an API call.
@@ -86,8 +87,15 @@ To obtain an evaluated prediction, a custom host must supply `PiSteadyMetadata` 
 `executionConstraints`, and explicit `cycleBilling`. It must also provide verified
 `getReusablePrefixTokens` as described below. A price change, compactor/model/system change
 requires a compatible model or a reset; missing evidence blocks evaluation. These are host
-assertions, not facts verified by the bridge. The bridge has no automatic learner or lifecycle
-counter and does not invent those assertions for stock Pi.
+assertions, not facts verified by the bridge. The bridge has no automatic compactor learner
+and does not invent those assertions for stock Pi. Its second callback argument is now
+an isolated lifecycle snapshot: ordinary-call age for the **current runtime**, session-wide
+ordinary/summary/failure/veto/warm counts, and reported warm costs. Use
+`lifecycle.completedOrdinaryCalls` for the duration model's age. The adapter checks that age
+against its own counters and blocks mismatches, inactive runtimes and unknown runtime outcomes.
+`agent_start` resets age; successful ordinary requests advance it, including requests whose
+decision was skipped for an unknown context size. Summaries, failures and warm-ups do not.
+Session changes reset all counters; provider/model/compactor compatibility is still host-owned.
 
 Do not feed the delayed Pi context estimate into an exact compactor learner: it may include
 ordinary output and tools after the summary. Summary output usage is not retained context size.
@@ -103,10 +111,35 @@ does not become exact or policy-approved merely because it is supplied here. The
 simulator, synthetic host noise and task endpoints are not imported at runtime.
 
 **Next gate:** implement and verify the real host's compatible feedback/prefix contract, then
-exercise lifecycle and full fee accounting with a no-network Pi process. Only after that should
+exercise evaluated economic predictions with a no-network Pi process. The lifecycle and
+separate warm billing checks below are already in place. Only after that should
 a bounded paid timing/quality comparison be started. This bridge alone does not establish
 provider savings, task quality, or readiness to activate the candidate. Remove
 `experimentalSteadyShadow` to return to the unchanged ordinary adapter.
+
+#### Zero-paid lifecycle verification
+
+```powershell
+node --import tsx tools/pi-feedback-capture.mjs --pi D:/pi --out traces/pi-steady-new --steady-shadow
+$env:PI_CLI = 'D:/pi/packages/coding-agent/dist/bundle/cli.js'
+node --import tsx tools/pi-cache-warming-smoke.ts
+```
+
+Use a fresh capture directory. `--steady-shadow` is refused together with `--live` before
+credential access or output creation. The first command blocks fetch/HTTP/HTTPS, runs the real
+Pi SDK with a fake in-memory transport, and verifies three ordinary requests plus one native
+summary. The delayed size remains labelled estimated with zero exact retention samples; the
+two shadow predictions are explicitly blocked because no compatible economic model/prefix
+evidence was injected. Three separate agent runtimes reset ordinary age to zero at decisions,
+and each ends with one completed ordinary call.
+
+The second command runs the real Pi CLI against a loopback-only fake provider, once with cache
+warming off and once streaming. In the verified run, the 14-second tool wait caused seven
+extra one-token warm requests. All seven appeared as paid-usage metadata and their reported
+costs reconciled with the ordinary trace analyzer. Ordinary age before the second real task
+request was **one**, not eight. Warm count is timing-dependent and is checked against observed
+requests rather than fixed at seven. These are synthetic token prices/provider responses, not
+FoldPoint savings or real provider cache measurements. No Pi source/user settings are changed.
 
 Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
 synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,

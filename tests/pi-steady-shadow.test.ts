@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { PiSteadyLifecycle } from "../adapters/pi/steady-lifecycle";
 import { evaluatePiSteadyShadow, type PiSteadyMetadata } from "../adapters/pi/steady-shadow";
 import { estimateRuntimeSurvival, FoldPoint, type FoldPointInput, profileKey } from "../src/index";
 import { chooseSteadyCycle } from "../tools/steady-choice";
@@ -65,6 +66,25 @@ function fixture() {
 }
 
 describe("Pi steady shadow bridge", () => {
+  it("rejects stale runtime ages and unknown runtime outcomes instead of trusting host estimates", () => {
+    const f = fixture(),
+      life = new PiSteadyLifecycle();
+    life.startSession(f.input.sessionId);
+    life.startRuntime("r1");
+    expect(evaluatePiSteadyShadow(f.input, f.baseline, f.metadata, life.snapshot())).toMatchObject({
+      status: "blocked",
+      reason: "runtime-lifecycle-mismatch",
+    });
+    f.metadata.durationModel.completedCalls = 0;
+    expect(evaluatePiSteadyShadow(f.input, f.baseline, f.metadata, life.snapshot()).status).toBe(
+      "evaluated",
+    );
+    life.unknownRequest();
+    expect(evaluatePiSteadyShadow(f.input, f.baseline, f.metadata, life.snapshot())).toMatchObject({
+      status: "blocked",
+      reason: "runtime-lifecycle-mismatch",
+    });
+  });
   it("reuses the frozen selector and risk calculation without changing caller state", () => {
     const f = fixture(),
       before = structuredClone(f);

@@ -17,6 +17,42 @@ const cleanEnv = () => ({
 
 describe("native Pi SDK feedback capture", () => {
   it.skipIf(!available)(
+    "runs steady shadow lifecycle through real Pi without network or economic approval",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-steady-")), "result");
+      execFileSync(
+        process.execPath,
+        ["--import", "tsx", script, "--pi", piRoot, "--out", out, "--steady-shadow"],
+        { encoding: "utf8", timeout: 30_000, env: cleanEnv() },
+      );
+      const r = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+      expect(r.completed).toBe(true);
+      expect(r.usage).toMatchObject({ logicalCalls: 4, httpCalls: 0, networkAttempts: 0 });
+      expect(r.steadyLifecycle).toMatchObject({
+        predictions: 2,
+        blockedPredictions: 2,
+        applied: false,
+        runtimeAgesAtDecisions: [0, 0],
+        final: {
+          ordinaryRequests: 3,
+          successfulOrdinaryRequests: 3,
+          successfulSummaries: 1,
+          completedOrdinaryCalls: 1,
+          estimatedAfterSizes: 1,
+          cacheWarmCalls: 0,
+          exactRetentionSamples: 0,
+          canDrivePolicy: false,
+        },
+      });
+      expect(r.analysis.sessionCosts[0]).toMatchObject({
+        calls: 3,
+        compactions: 1,
+        unpricedCompactions: 0,
+      });
+    },
+    40_000,
+  );
+  it.skipIf(!available)(
     "records real SDK lifecycle offline, including unknown and delayed context sizes",
     () => {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-capture-test-")), "result");
@@ -161,6 +197,7 @@ describe("native Pi SDK feedback capture", () => {
       ["--unknown"],
       ["--live"],
       ["--live", "--fake-summary-cap"],
+      ["--live", "--steady-shadow"],
       ["--approx-error-fraction", "2"],
       ["--approx-error-fraction", "NaN"],
     ]) {

@@ -62,6 +62,7 @@ import {
   type TraceOutcome,
   TraceRecorder,
 } from "../../src/index";
+import { PiSteadyLifecycle } from "./steady-lifecycle";
 import { evaluatePiSteadyShadow, type PiSteadyShadowOptions } from "./steady-shadow";
 
 /**
@@ -718,6 +719,7 @@ export function createFoldPointObserver(
       now,
     });
     const foldPoint = new FoldPoint({ defaults });
+    const steadyLifecycle = steadyShadow ? new PiSteadyLifecycle() : undefined;
     const runtimeStartSeconds = Math.floor(now() / 1_000);
     let sessionCount = 0;
     let runtimeCount = 0;
@@ -768,6 +770,29 @@ export function createFoldPointObserver(
     const write = (event: TraceEvent): void => {
       mkdirSync(dirname(tracePath), { recursive: true });
       appendFileSync(tracePath, `${JSON.stringify(event)}\n`, "utf8");
+      steadyLifecycle?.observe(event);
+      if (steadyShadow && event.type === "session_end") {
+        try {
+          mkdirSync(dirname(steadyShadow.path), { recursive: true });
+          appendFileSync(
+            steadyShadow.path,
+            `${JSON.stringify({
+              runner: "foldpoint.pi-steady-shadow.v1",
+              type: "session_end",
+              sessionId: event.sessionId,
+              timestamp: event.timestamp,
+              applied: false,
+              lifecycle: steadyLifecycle?.snapshot(),
+            })}\n`,
+            "utf8",
+          );
+        } catch {
+          warnOnce(
+            "steady-shadow-failed",
+            "experimental steady shadow failed; Pi policy unchanged",
+          );
+        }
+      }
     };
 
     write(trace.header());
@@ -1053,6 +1078,7 @@ export function createFoldPointObserver(
       runtimeCount += 1;
       runtimeId = `run-${runtimeStartSeconds}-${runtimeCount}`;
       runtimeStatus = "active";
+      steadyLifecycle?.startRuntime(runtimeId);
     });
     pi.on("agent_end", (_event, ctx) => {
       if (state.sessionKey !== null && runtimeId !== undefined) {
@@ -1069,6 +1095,7 @@ export function createFoldPointObserver(
       // A runtime-scoped key: unique per session of this Pi process, and not Pi's own session
       // id or file path, so the trace cannot be joined back to a conversation.
       state.sessionKey = `pi-${runtimeStartSeconds}-${sessionCount}`;
+      steadyLifecycle?.startSession(state.sessionKey);
       state.decisions = [];
       state.unpairedRequests = 0;
       state.unpairedDecisions = 0;
@@ -1242,14 +1269,19 @@ export function createFoldPointObserver(
         try {
           const startedAt = performance.now();
           // Detached copies: a host callback cannot mutate the live decision or its input.
-          const metadata = steadyShadow.getMetadata?.(structuredClone(input));
-          const result = evaluatePiSteadyShadow(input, decision, metadata);
+          const lifecycle = steadyLifecycle?.snapshot();
+          const metadata = lifecycle
+            ? steadyShadow.getMetadata?.(structuredClone(input), { ...lifecycle })
+            : undefined;
+          const result = evaluatePiSteadyShadow(input, decision, metadata, lifecycle);
           mkdirSync(dirname(steadyShadow.path), { recursive: true });
           appendFileSync(
             steadyShadow.path,
             `${JSON.stringify({
               ...result,
+              type: "prediction",
               callId: event.callId,
+              lifecycle,
               evaluationLatencyMs: performance.now() - startedAt,
             })}\n`,
             "utf8",
@@ -1289,6 +1321,7 @@ export function createFoldPointObserver(
         return;
       }
       if (usage === undefined) {
+        steadyLifecycle?.unknownRequest();
         warnOnce(
           "no-usage",
           "an assistant message carried no usage, so its cost and cache read cannot be recorded",

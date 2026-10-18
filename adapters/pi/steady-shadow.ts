@@ -7,6 +7,7 @@ import {
   type RuntimeSurvivalOptions,
 } from "../../src/index";
 import { chooseSteadyCycle } from "../../tools/steady-choice";
+import type { PiSteadyLifecycleSnapshot } from "./steady-lifecycle";
 
 /** The host must supply compatible past observations, not fixture truth or a known endpoint. */
 export interface PiSteadyMetadata {
@@ -22,13 +23,17 @@ export interface PiSteadyShadowOptions {
   /** Separate JSONL file. Must not be the ordinary FoldPoint trace. */
   path: string;
   /** Omit/return undefined when compatible observations or billing semantics are unknown. */
-  getMetadata?: (input: Readonly<FoldPointInput>) => PiSteadyMetadata | undefined;
+  getMetadata?: (
+    input: Readonly<FoldPointInput>,
+    lifecycle: Readonly<PiSteadyLifecycleSnapshot>,
+  ) => PiSteadyMetadata | undefined;
 }
 
 export function evaluatePiSteadyShadow(
   input: FoldPointInput,
   baseline: FoldPointDecision,
   metadata: PiSteadyMetadata | undefined,
+  lifecycle?: PiSteadyLifecycleSnapshot,
 ) {
   const common = {
     runner: "foldpoint.pi-steady-shadow.v1" as const,
@@ -44,6 +49,14 @@ export function evaluatePiSteadyShadow(
     return { ...common, status: "safety" as const, action: "FORCE" as const };
   if (!metadata)
     return { ...common, status: "blocked" as const, reason: "missing-host-metadata" as const };
+  if (
+    lifecycle &&
+    (lifecycle.sessionId !== input.sessionId ||
+      !lifecycle.runtimeActive ||
+      lifecycle.runtimeUnknownOutcomeRequests > 0 ||
+      metadata.durationModel.completedCalls !== lifecycle.completedOrdinaryCalls)
+  )
+    return { ...common, status: "blocked" as const, reason: "runtime-lifecycle-mismatch" as const };
   if (metadata.profileKey !== profileKey(input.profile))
     return { ...common, status: "blocked" as const, reason: "incompatible-profile" as const };
   if (input.reusablePrefixTokens === undefined)

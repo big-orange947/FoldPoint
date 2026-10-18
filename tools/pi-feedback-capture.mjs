@@ -17,7 +17,8 @@ import { analyzeTraceEvents } from "./trace-analyze.ts";
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
-  if (["--live", "--fake-summary-cap", "--fake-summary-error"].includes(args[i])) continue;
+  if (["--live", "--fake-summary-cap", "--fake-summary-error", "--steady-shadow"].includes(args[i]))
+    continue;
   if (
     ["--pi", "--out", "--approx-error-fraction"].includes(args[i]) &&
     args[i + 1] &&
@@ -30,6 +31,8 @@ for (let i = 0; i < args.length; i++) {
 }
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const live = args.includes("--live");
+const steadyShadow = args.includes("--steady-shadow");
+if (live && steadyShadow) throw new Error("Steady shadow lifecycle probe is offline only");
 const errorAssumptionArg = value("--approx-error-fraction", undefined);
 const errorAssumption = errorAssumptionArg === undefined ? undefined : Number(errorAssumptionArg);
 if (
@@ -221,6 +224,7 @@ const observer = createFoldPointObserver({
   mode: "observe",
   compaction: "off",
   log: () => {},
+  ...(steadyShadow ? { experimentalSteadyShadow: { path: join(out, "steady-shadow.jsonl") } } : {}),
 });
 const boundaries = [];
 const extensionResult = await utilities.createTestExtensionsResult(
@@ -315,6 +319,32 @@ try {
   const compactions = parsed.events.filter((e) => e.type === "compaction" && e.success);
   const captured = compactions[0];
   report.analysis = analyzeTraceEvents(parsed.events);
+  if (steadyShadow) {
+    const rows = readFileSync(join(out, "steady-shadow.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map(JSON.parse);
+    const predictions = rows.filter((r) => r.type === "prediction");
+    const end = rows.find((r) => r.type === "session_end");
+    report.steadyLifecycle = {
+      predictions: predictions.length,
+      blockedPredictions: predictions.filter((r) => r.status === "blocked").length,
+      safetyPredictions: predictions.filter((r) => r.status === "safety").length,
+      applied: rows.some((r) => r.applied !== false),
+      final: end?.lifecycle ?? null,
+      runtimeAgesAtDecisions: predictions.map((r) => r.lifecycle.completedOrdinaryCalls),
+      limitations:
+        "No compatible compactor model or verified final-request prefix injected; no economic approval expected.",
+    };
+    assert.equal(predictions.length, parsed.events.filter((e) => e.type === "decision").length);
+    assert.equal(report.steadyLifecycle.applied, false);
+    assert.equal(end?.lifecycle.ordinaryRequests, 3);
+    assert.equal(end?.lifecycle.successfulOrdinaryRequests, 3);
+    assert.equal(end?.lifecycle.successfulSummaries, 1);
+    assert.equal(end?.lifecycle.cacheWarmCalls, 0);
+    assert.equal(end?.lifecycle.exactRetentionSamples, 0);
+    assert.equal(end?.lifecycle.completedOrdinaryCalls, 1);
+  }
   // No safe same-basis after-size is available: abstain, don't train on host estimates.
   const learner = new ExperimentalCompactorLearner();
   const admissions = compactions.map((event) => admitMeasuredFeedback(learner, event));

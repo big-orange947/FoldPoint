@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi steady shadow lifecycle verification
+
+- Feed the opt-in shadow bounded counters from actual adapter events: reset ordinary age at
+  agent start, count successful ordinary requests even without a paired decision, and keep
+  summaries, failed requests, vetoes and paid warm-ups separate. Missing outcomes remain unknown.
+- Add isolated lifecycle callback snapshots and a final sidecar session record; reject stale
+  host duration ages, inactive runtimes and unknown current-runtime outcomes. Do not train an
+  exact compactor model or alter active timing policy.
+- Extend real Pi SDK capture with an offline-only steady shadow probe; retain delayed-size
+  uncertainty and blocked economic predictions. Extend the loopback CLI warm smoke to verify
+  every reported warm bill without advancing ordinary age. No Pi source/default/user-settings
+  edits, paid provider calls or new savings claims.
+
 ### Pi steady-cycle shadow bridge (not activated)
 
 - Add an explicit, default-off observer factory option for a separate shadow JSONL sidecar;

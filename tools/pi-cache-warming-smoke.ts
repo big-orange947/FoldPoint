@@ -32,6 +32,7 @@ interface SmokeResult {
   callCost: number;
   cacheWarmCost: number;
   totalCost: number;
+  steady: { ordinaryAgeBeforeSecondCall: number; observedWarmsBeforeSecondCall: number };
 }
 
 async function runMode(mode: WarmingMode, piCli: string, piNode: string): Promise<SmokeResult> {
@@ -164,11 +165,20 @@ async function runMode(mode: WarmingMode, piCli: string, piNode: string): Promis
       FOLDPOINT_TRACE: tracePath,
       FOLDPOINT_PREFIX_STORE: join(work, "prefix.json"),
       FOLDPOINT_MODE: "observe",
+      FOLDPOINT_COMPACTION: "off",
     });
     delete env.PI_CACHE_RETENTION;
     delete env.FOLDPOINT_DEFAULTS;
-    const extension = fileURLToPath(
+    const observerPath = fileURLToPath(
       new URL("../adapters/pi/foldpoint-observe.ts", import.meta.url),
+    );
+    const shadowPath = join(work, "steady-shadow.jsonl");
+    const extension = join(work, "observer.ts");
+    writeFileSync(
+      extension,
+      `import { createFoldPointObserver } from ${JSON.stringify(observerPath)};
+export default createFoldPointObserver({mode:"observe",compaction:"off",
+experimentalSteadyShadow:{path:${JSON.stringify(shadowPath)}}});\n`,
     );
     const child = spawn(
       piNode,
@@ -209,6 +219,24 @@ async function runMode(mode: WarmingMode, piCli: string, piNode: string): Promis
     assert.equal(normalHttpRequests, 2);
     assert.equal(requests.length, 2);
     assert.equal(analysis.unpairedDecisions, 0);
+    const shadow = readFileSync(shadowPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const predictions = shadow.filter((r) => r.type === "prediction");
+    const end = shadow.find((r) => r.type === "session_end");
+    assert.equal(predictions.length, 2);
+    assert.equal(predictions[1].lifecycle.completedOrdinaryCalls, 1);
+    assert.equal(predictions[1].lifecycle.cacheWarmCalls, oneTokenHttpRequests);
+    assert.equal(end.lifecycle.ordinaryRequests, 2);
+    assert.equal(end.lifecycle.completedOrdinaryCalls, 2);
+    assert.equal(end.lifecycle.cacheWarmCalls, oneTokenHttpRequests);
+    assert.equal(end.lifecycle.reportedCacheWarmCost, cost.cacheWarmCost);
+    assert.equal(end.lifecycle.summaryAttempts, 0);
+    assert.equal(
+      shadow.some((r) => r.applied !== false),
+      false,
+    );
     return {
       mode,
       work,
@@ -221,6 +249,10 @@ async function runMode(mode: WarmingMode, piCli: string, piNode: string): Promis
       callCost: cost.callCost,
       cacheWarmCost: cost.cacheWarmCost,
       totalCost: cost.totalCost,
+      steady: {
+        ordinaryAgeBeforeSecondCall: predictions[1].lifecycle.completedOrdinaryCalls,
+        observedWarmsBeforeSecondCall: predictions[1].lifecycle.cacheWarmCalls,
+      },
     };
   } finally {
     server.close();
