@@ -17,6 +17,12 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
+  "overrides": [
+    {
+      "includes": ["benchmarks/steady-validation-plan.json"],
+      "formatter": { "enabled": false }
+    }
+  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

@@ -6,6 +6,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Frozen steady-policy prospective combination validation
+
+- Preregister f14e82d before executing 42 new cells: 24 main plus six each short, failed-summary
+  and prewarm sensitivities. Cross two new growth/retained/output families, two new growth/outcome
+  seeds, two longer endpoints and the three unchanged price profiles.
+- Freeze candidate 86bde86 and check dependency identities; exactly replay the old four-arm
+  240-step Flash canary. Keep the existing host-feedback noise recipe explicit rather than
+  claiming a new independent error distribution.
+- Predeclare steadyOutput as primary. Require each price's main mean to beat both fixed60 and
+  incumbent, with more wins than losses versus fixed60, plus valid in-window/non-overflow bills.
+  Report sensitivities and worst regressions separately; no default promotion even on a pass.
+- Retain invalid arms and suppress partial-group means. Add a strict pilot-gate CLI variant;
+  unknown flags fail before execution or report replacement. Preserve the original preregistration
+  bytes with a formatter-only override for that single JSON file; parsing and hash checks remain.
+- No candidate, prior, pricing, learner, SDK or Pi default modifications, no hindsight threshold
+  selection, no paid calls. This is a prospective synthetic combination check, not task-quality
+  validation or statistical superiority evidence.
+- The preregistered fee gate passes: primary main means versus fixed60 are Flash -7.59%,
+  Sonnet -26.41%, Opus -15.51%, with all 24 main cells winning. Across all 42 cells versus
+  fixed60 there are 35 wins, one loss and six ties; retain the Flash failure-case +2.19% regression
+  and all previous seen-data losses. All bills are valid/in-window with zero overflow.
+- Add nine checks for exact matrix crossing, source/canary preservation, endpoint independence,
+  invalid handling, per-price mean/majority gates, group arithmetic, provenance and CLI refusal.
+
 ### Online steady-cycle timing experiment (not promoted)
 
 - Preregister 09f25a2 and reuse existing stableCycleCandidates/cycleBill to minimize average

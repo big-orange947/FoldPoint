@@ -92,6 +92,8 @@
     "simulate:committed-continuation": "tsx tools/committed-continuation.ts && biome format --write benchmarks/reports/committed-continuation.json",
     "reference:threshold-grid": "tsx tools/threshold-reference.ts && biome format --write benchmarks/reports/threshold-reference.json",
     "simulate:steady-policy": "tsx tools/steady-policy.ts && biome format --write benchmarks/reports/steady-policy.json",
+    "validate:steady-fresh": "tsx tools/steady-validation.ts && biome format --write benchmarks/reports/steady-validation.json",
+    "validate:steady-fresh:gate": "tsx tools/steady-validation.ts --require-pilot-ready",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
