@@ -6,6 +6,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Evaluator-only fixed-threshold opportunity reference
+
+- Preregister 929b413: execute 14 raw thresholds (5% through 70% by five percentage points)
+  on all 24 existing cells, plus exact full-ledger reproductions of incumbent and fixed60.
+  Preserve all 336 runs, fee components, failure/prewarm counts and compaction fingerprints.
+- Select the lowest eligible fee only after execution; retain invalid runs with reasons.
+  Exact ties prefer smaller thresholds. No hindsight choice reaches the online controller.
+- Report finite-grid gaps, boundary selections and dependent cross-length transfer diagnostics.
+  Main mean incumbent-over-grid gaps are Flash 3.84%, Sonnet 5.53%, Opus 6.34%; these are
+  not achieved online savings or global-optimality claims. The incumbent beats the grid in one cell.
+- Add eight checks for selector isolation, tie/invalid handling, exact control identities,
+  fee reconciliation, denominators, transfer direction, endpoint-independent prefix execution,
+  overflow rejection and source/report identities.
+- Raw policies lack full cooldown/reclaim/quality guards; shared-seed length transfer is not
+  independent heldout validation. No SDK, Pi, default, learner or paid-call changes.
+
 ### One-renewal execution commitment experiment (not promoted)
 
 - Preregister b15dec4 with four arms in all 24 frozen warm-cache cells: fixed60, incumbent,
