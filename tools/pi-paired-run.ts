@@ -207,7 +207,10 @@ function safeVerificationEnv(extra: Record<string, string> = {}): NodeJS.Process
 }
 
 function npmInScratch(scratch: string, command: string, timeout: number): boolean {
-  const result = spawnSync("npm.cmd", ["run", command], {
+  // Nested verification must not launch a second unbounded worker pool while the parent
+  // suite is already running. Keep the same assertions/deadline, bound CPU contention.
+  const args = command === "test" ? ["run", command, "--", "--maxWorkers=4"] : ["run", command];
+  const result = spawnSync("npm.cmd", args, {
     cwd: scratch,
     shell: process.platform === "win32",
     env: safeVerificationEnv({
