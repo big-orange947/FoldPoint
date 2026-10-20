@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Dedicated historical-feedback steady trial
+
+- Add dynamic-only `--steady-history` wiring with isolated settings, unchanged summarizer cap,
+  historical aggregate input bills and explicitly approximate retained-budget forecasts.
+- Verify live trial request-prefix continuity in memory; unexpected rewrites abort rather than
+  silently accept invalid cache assumptions. Keep summary requests and immediate cooldown apart
+  from ordinary runtime age and delayed post-summary token estimates.
+- Identify controller/source hashes and actual gate counts in reports. Preserve old comparator
+  traces; do not treat a failed/unpriced native run or cross-batch costs as a paired savings proof.
+
 ### Explicit experimental Pi threshold execution gate
 
 - Add opt-in, test-only steady candidate control at native threshold checks. Legacy auto must

@@ -122,6 +122,27 @@ describe("Pi serialized HTTP boundary", () => {
         }
       }
       const before = readFileSync(join(out, "report.json"), "utf8");
+      const trialOut = `${out}-trial`;
+      const trial = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            script,
+            "--pi",
+            piRoot,
+            "--out",
+            trialOut,
+            "--trial-history",
+            join(out, "native-compaction", "trace.jsonl"),
+          ],
+          { encoding: "utf8", timeout: 45_000, env: env() },
+        ),
+      );
+      expect(trial).toMatchObject({ completed: true, paidCalls: 0, policyChanged: true });
+      expect(trial.rows[0]).toMatchObject({ ordinaryRequests: 2, summaryRequests: 0 });
+      expect(trial.rows[0].controlChecks.some((c: { applied: boolean }) => c.applied)).toBe(true);
       const retry = spawnSync(process.execPath, ["--import", "tsx", script, "--out", out], {
         encoding: "utf8",
         timeout: 10_000,

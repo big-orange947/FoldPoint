@@ -11,6 +11,8 @@ import type { PiSteadyLifecycleSnapshot } from "./steady-lifecycle";
 
 /** The host must supply compatible past observations, not fixture truth or a known endpoint. */
 export interface PiSteadyMetadata {
+  /** Control-only host counter when trace-sized summary feedback is delayed. */
+  ordinaryCallsSinceLastAttempt?: number;
   profileKey: string;
   compactorTokenModel: NonNullable<RuntimeSurvivalOptions["compactorTokenModel"]>;
   durationModel: NonNullable<RuntimeSurvivalOptions["durationModel"]>;

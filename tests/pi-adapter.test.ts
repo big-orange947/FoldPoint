@@ -156,7 +156,7 @@ function newPrefixStorePath(name: string): string {
 }
 
 describe("explicit experimental steady threshold control", () => {
-  function setup(known = true, brokenAudit = false) {
+  function setup(known = true, brokenAudit = false, attemptAge?: number) {
     const fake = fakePi(),
       path = newTracePath("control"),
       audit = newTracePath("control-audit");
@@ -170,6 +170,7 @@ describe("explicit experimental steady threshold control", () => {
       experimentalSteadyControl: {
         path: brokenAudit ? `${path}/cannot-write.jsonl` : audit,
         getMetadata: (input, life) => ({
+          ordinaryCallsSinceLastAttempt: attemptAge,
           profileKey: profileKey(input.profile),
           compactorTokenModel: {
             after: { slope: 0.1, intercept: 0, residual: 0 },
@@ -187,7 +188,7 @@ describe("explicit experimental steady threshold control", () => {
             ],
           },
           executionConstraints: {
-            hasAttempt: false,
+            hasAttempt: attemptAge !== undefined,
             minCallsBetweenCompactions: 3,
             minReclaimTokens: 4096,
             minReclaimRatio: 0.2,
@@ -286,6 +287,38 @@ describe("explicit experimental steady threshold control", () => {
       resolution: "allow",
       prediction: { status: "evaluated", action: "COMPACT", baselineAction: "KEEP" },
     });
+  });
+
+  it("honors actual host cooldown even when delayed summary sizing has not reset core counters", () => {
+    const { fake, audit } = setup(true, false, 0);
+    const cold = { ...MODEL, promptCache: undefined };
+    fake.emit("context", { type: "context" }, fake.ctxWith(30_000, cold));
+    fake.emit(
+      "message_end",
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          usage: { input: 30_000, output: 10, cacheRead: 0, cacheWrite: 0 },
+        },
+      },
+      fake.ctxWith(30_000, cold),
+    );
+    expect(
+      fake.emit(
+        "session_before_compact",
+        {
+          type: "session_before_compact",
+          reason: "threshold",
+          preparation: { tokensBefore: 30_000 },
+        },
+        fake.ctxWith(30_000, cold),
+      ),
+    ).toEqual({ cancel: true });
+    const control = JSON.parse(readFileSync(audit, "utf8"));
+    expect(control.prediction.snapshot.baseline.reasons).toContain("COOLDOWN_ACTIVE");
+    expect(control.prediction.snapshot.baseline.metrics.callsSinceLastAttempt).toBe(0);
   });
 
   it("does not intercept manual or overflow recovery, and requires explicit opt-in", () => {

@@ -20,7 +20,21 @@ export function evaluatePiSteadyControl(
         completedOrdinaryCalls: 0,
         runtimeUnknownOutcomeRequests: 0,
       };
-  const prediction = evaluatePiSteadyShadow(input, baseline, metadata, boundary);
+  let effectiveBaseline = baseline;
+  const age = metadata?.ordinaryCallsSinceLastAttempt;
+  if (age !== undefined) {
+    if (!Number.isSafeInteger(age) || age < 0) throw new RangeError("invalid attempt age");
+    effectiveBaseline = {
+      ...baseline,
+      metrics: { ...baseline.metrics, callsSinceLastAttempt: age },
+      reasons:
+        metadata?.executionConstraints.hasAttempt &&
+        age < metadata.executionConstraints.minCallsBetweenCompactions
+          ? [...baseline.reasons.filter((r) => r !== "COOLDOWN_ACTIVE"), "COOLDOWN_ACTIVE"]
+          : baseline.reasons.filter((r) => r !== "COOLDOWN_ACTIVE"),
+    };
+  }
+  const prediction = evaluatePiSteadyShadow(input, effectiveBaseline, metadata, boundary);
   const common = {
     runner: "foldpoint.pi-steady-control.v1" as const,
     candidateCommit: "86bde86",

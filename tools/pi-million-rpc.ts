@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTraceJsonl, type TraceEvent } from "../src/index";
 import {
+  MILLION_KEEP_RECENT_TOKENS,
   MILLION_MODEL_WINDOW_TOKENS,
   MILLION_RUN_WINDOW_TOKENS,
   type MillionArmId,
@@ -778,6 +779,7 @@ async function runArm(
   maxCostUsd: number | null,
   runWindowTokens: number,
   cacheRunId: string,
+  steadyHistory?: string,
 ): Promise<ArmResult> {
   const {
     agentDir,
@@ -786,6 +788,14 @@ async function runArm(
   } = prepareMillionAgentDir(base, arm, runWindowTokens, cacheRunId);
   const tracePath = `${out}-${arm}.jsonl`;
   if (existsSync(tracePath)) throw new Error(`Refusing to overwrite trace: ${tracePath}`);
+  if (steadyHistory) {
+    const path = join(agentDir, "settings.json"),
+      settings = JSON.parse(readFileSync(path, "utf8"));
+    // Ask at a structural retained-budget + reserve floor. Pin the SAME summary output cap
+    // in models.json, so increasing the native reserve does not enlarge the summarizer.
+    settings.compaction.reserveTokens = runWindowTokens - MILLION_KEEP_RECENT_TOKENS - 8192;
+    writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
+  }
   const rpc = new RpcSession(
     piNode,
     [
@@ -798,12 +808,21 @@ async function runArm(
       "off",
       "--no-approve",
       "--extension",
-      EXTENSION,
+      steadyHistory
+        ? fileURLToPath(new URL("../adapters/pi/steady-trial.mjs", import.meta.url))
+        : EXTENSION,
     ],
     agentDir,
     {
       ...process.env,
       ...armEnv,
+      ...(steadyHistory
+        ? {
+            FOLDPOINT_COMPACTION: "off",
+            FOLDPOINT_STEADY_HISTORY: steadyHistory,
+            FOLDPOINT_STEADY_AUDIT: `${out}-steady-control.jsonl`,
+          }
+        : {}),
       PI_CODING_AGENT_DIR: agentDir,
       PI_CODING_AGENT_SESSION_DIR: join(agentDir, "sessions"),
       FOLDPOINT_TRACE: tracePath,
@@ -1020,6 +1039,20 @@ async function main(): Promise<void> {
   )
     throw new Error("Invalid run window: use 800000 or 1000000");
   const selectedArm = value("--arm");
+  const steadyHistoryArg = value("--steady-history");
+  const steadyHistory = steadyHistoryArg === undefined ? undefined : resolve(steadyHistoryArg);
+  if (
+    steadyHistory &&
+    (selectedArm !== "dynamic" || !existsSync(steadyHistory) || maxCostUsd === null)
+  )
+    throw new Error(
+      "Steady trial requires --arm dynamic, an existing history trace and a cost limit",
+    );
+  if (
+    steadyHistory &&
+    (process.env.FOLDPOINT_DEFAULTS || process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS)
+  )
+    throw new Error("Remove legacy default/safety overrides before steady trial");
   if (selectedArm !== undefined && !ARM_IDS.includes(selectedArm as MillionArmId))
     throw new Error("Invalid arm: use default, fixed60, or dynamic");
   const selectedArms = selectedArm === undefined ? ARM_IDS : [selectedArm as MillionArmId];
@@ -1067,6 +1100,7 @@ async function main(): Promise<void> {
       maxCostUsd,
       runWindowTokens,
       cacheRunId,
+      steadyHistory,
     );
     results.push(result);
     const last = result.lastFailure;
@@ -1100,8 +1134,53 @@ async function main(): Promise<void> {
     ) &&
     results.every((result) => result.pricingFingerprint === results[0]?.pricingFingerprint) &&
     systemPromptPrefixes.size === results.length;
+  const controlAuditPath = `${output}-steady-control.jsonl`;
+  const controls: Array<{ applied?: boolean; resolution?: string; basis?: string }> =
+    steadyHistory && existsSync(controlAuditPath)
+      ? readFileSync(controlAuditPath, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
+  const steadyControlVerified =
+    !steadyHistory || controls.some((c) => c.applied && c.basis === "frozen-candidate");
   const report = {
     runner: "foldpoint.pi-million-rpc.v1",
+    controller: steadyHistory ? "frozen-steady-86bde86" : "legacy",
+    steadyControl: steadyHistory
+      ? {
+          verified: steadyControlVerified,
+          auditPath: controlAuditPath,
+          checks: controls.length,
+          candidateApplied: controls.filter((c) => c.applied && c.basis === "frozen-candidate")
+            .length,
+          vetoes: controls.filter((c) => c.applied && c.resolution === "veto").length,
+          economicAllowed: controls.filter(
+            (c) => c.applied && c.basis === "frozen-candidate" && c.resolution === "allow",
+          ).length,
+          safetyAllowed: controls.filter((c) => c.basis === "safety").length,
+          nativeFallbacks: controls.filter((c) => !c.applied).length,
+          cacheProof:
+            "controlled sole-extension trial; unexpected wire-prefix changes abort requests; not a stock Pi guarantee",
+          historyIsDevelopmentData: true,
+          rpcSourceSha256: createHash("sha256")
+            .update(readFileSync(fileURLToPath(import.meta.url)))
+            .digest("hex"),
+          extensionSha256: createHash("sha256")
+            .update(readFileSync(new URL("../adapters/pi/steady-trial.mjs", import.meta.url)))
+            .digest("hex"),
+          piCliSha256: createHash("sha256").update(readFileSync(piCli)).digest("hex"),
+        }
+      : null,
+    historicalFeedback: steadyHistory
+      ? {
+          path: steadyHistory,
+          sha256: createHash("sha256").update(readFileSync(steadyHistory)).digest("hex"),
+          retentionBasis:
+            "delayed estimate proxy plus explicit retained-budget prior; not exact calibration",
+        }
+      : null,
     runMode: fullCorpus ? "full" : "preflight",
     stagesRun: maxStages,
     fullCorpus,
@@ -1132,6 +1211,7 @@ async function main(): Promise<void> {
     arms: results,
     comparable,
     preflightPassed:
+      steadyControlVerified &&
       !fullCorpus &&
       results.length === selectedArms.length &&
       results.every(
@@ -1139,6 +1219,7 @@ async function main(): Promise<void> {
           result.completed && result.qualityFailed === 0 && result.compactions >= minCompactions,
       ),
     singleArmDiagnosticPassed:
+      steadyControlVerified &&
       fullCorpus &&
       selectedArms.length === 1 &&
       results.length === 1 &&

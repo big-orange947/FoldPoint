@@ -9,6 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
+import { createSteadyTrial } from "../adapters/pi/steady-trial.mjs";
 import { summaryUsageBill } from "../src/experimental-cycle.ts";
 import { parseTraceJsonl, profileKey, resolveUnitPrices } from "../src/index.ts";
 import { SummaryInputCostLearner } from "./summary-input-cost.ts";
@@ -17,12 +18,17 @@ import { analyzeTraceEvents } from "./trace-analyze.ts";
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--control") continue;
-  if (!["--pi", "--out"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--"))
+  if (
+    !["--pi", "--out", "--trial-history"].includes(args[i]) ||
+    !args[i + 1] ||
+    args[i + 1].startsWith("--")
+  )
     throw new Error("usage: --pi <local Pi checkout> --out <fresh directory>");
   i++;
 }
-const controlMode = args.includes("--control");
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
+const trialHistory = value("--trial-history", undefined);
+const controlMode = args.includes("--control") || trialHistory !== undefined;
 const piRoot = resolve(value("--pi", "D:/pi"));
 const outArg = value("--out", undefined);
 if (!outArg) throw new Error("A fresh --out directory is required");
@@ -267,48 +273,55 @@ try {
     mkdirSync(directory);
     const tracePath = join(directory, "trace.jsonl");
     const controlPath = join(directory, "control.jsonl");
-    const observer = createFoldPointObserver({
-      tracePath,
-      prefixStorePath: join(directory, "prefix.json"),
-      mode: controlMode ? "act" : "observe",
-      compaction: "off",
-      log: () => {},
-      ...(controlMode
-        ? {
-            // Explicit controlled-fixture assumption, NOT a stock-Pi prefix detector.
-            getReusablePrefixTokens: () => 0,
-            experimentalSteadyControl: {
-              path: controlPath,
-              getMetadata: (input, life) => ({
-                profileKey: profileKey(input.profile),
-                compactorTokenModel: {
-                  after: { slope: 0.1, intercept: 0, residual: 0 },
-                  output: { slope: 0.002, intercept: 0, residual: 0 },
-                  samples: 0,
-                  minBefore: 0,
-                  maxBefore: 0,
-                  summaryInputCostPerToken: 3e-6,
+    const observer = trialHistory
+      ? createSteadyTrial({
+          historyPath: resolve(trialHistory),
+          tracePath,
+          auditPath: controlPath,
+          prefixStorePath: join(directory, "prefix.json"),
+        })
+      : createFoldPointObserver({
+          tracePath,
+          prefixStorePath: join(directory, "prefix.json"),
+          mode: controlMode ? "act" : "observe",
+          compaction: "off",
+          log: () => {},
+          ...(controlMode
+            ? {
+                // Explicit controlled-fixture assumption, NOT a stock-Pi prefix detector.
+                getReusablePrefixTokens: () => 0,
+                experimentalSteadyControl: {
+                  path: controlPath,
+                  getMetadata: (input, life) => ({
+                    profileKey: profileKey(input.profile),
+                    compactorTokenModel: {
+                      after: { slope: 0.1, intercept: 0, residual: 0 },
+                      output: { slope: 0.002, intercept: 0, residual: 0 },
+                      samples: 0,
+                      minBefore: 0,
+                      maxBefore: 0,
+                      summaryInputCostPerToken: 3e-6,
+                    },
+                    durationModel: {
+                      completedCalls: life.runtimeActive ? life.completedOrdinaryCalls : 0,
+                      components: [
+                        { weight: 0.8, continuationProbability: 0.8 },
+                        { weight: 0.2, continuationProbability: 0.98 },
+                      ],
+                    },
+                    executionConstraints: {
+                      hasAttempt: false,
+                      minCallsBetweenCompactions: 3,
+                      minReclaimTokens: 4096,
+                      minReclaimRatio: 0.2,
+                      softWindowTokens: 0,
+                    },
+                    cycleBilling: {},
+                  }),
                 },
-                durationModel: {
-                  completedCalls: life.runtimeActive ? life.completedOrdinaryCalls : 0,
-                  components: [
-                    { weight: 0.8, continuationProbability: 0.8 },
-                    { weight: 0.2, continuationProbability: 0.98 },
-                  ],
-                },
-                executionConstraints: {
-                  hasAttempt: false,
-                  minCallsBetweenCompactions: 3,
-                  minReclaimTokens: 4096,
-                  minReclaimRatio: 0.2,
-                  softWindowTokens: 0,
-                },
-                cycleBilling: {},
-              }),
-            },
-          }
-        : {}),
-    });
+              }
+            : {}),
+        });
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
         (pi) => {

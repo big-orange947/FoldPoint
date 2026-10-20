@@ -211,8 +211,8 @@ are in the separate control audit, so ordinary baseline predictions are not misl
 Before `agent_start`, runtime age is explicitly zero. The previous runtime's completed-call
 count is not carried forward; active-loop checks still use the real lifecycle and reject unknown
 request outcomes. Compatible compactor observations/priors and prefix proof remain host obligations.
-This is **not yet a complete live long-task adapter**, and does not automatically learn those
-parameters or establish prefix continuity for arbitrary extensions.
+The dedicated diagnostic below supplies those parameters from compatible history; this is not
+a general live adapter for arbitrary tools/extensions or an automatic stock-Pi prefix detector.
 
 ```powershell
 node --import tsx tools/pi-wire-prefix-probe.mjs --pi D:/pi --out traces/pi-control-new --control
@@ -225,11 +225,39 @@ Without `--control`, the existing seven-case observation audit remains unchanged
 tests exercise safety release, non-FORCE compact release, unknown metadata/outcomes, durable-audit
 failure, repeated checks, manual/overflow bypass and new-runtime age reset.
 
-For the next paid long-task diagnostic, retain the old fixed60 full run and native failed run.
+For the paid long-task diagnostic, retain the old fixed60 full run and native failed run.
 Only the dynamic arm needs new paid execution. Historical fixed60 is a cross-batch reference,
 not a contemporaneous paired trial; native failures with unpriced summaries are not a cheap
-completed baseline. Do not launch an old `--arm dynamic` command and label it this candidate:
-that runner still loads the legacy extension until a dedicated wiring path is supplied.
+completed baseline. An old `--arm dynamic` command without the extra flag still loads the legacy extension.
+
+```powershell
+$env:PI_CLI = 'D:\pi\packages\coding-agent\dist\bundle\cli.js'
+node --import tsx tools/pi-million-rpc.ts --manifest traces/pi-ledger-1m-v2/manifest.json --agent-base traces/pi-million-base --out traces/pi-steady-new --run-window-tokens 1000000 --arm dynamic --steady-history traces/pi-ledger-1m-paid-fixed-full-01-fixed60.jsonl --cache-run-id steady-new --min-compactions 2 --max-cost-usd 3 --max-prompt-tokens 120000000
+```
+
+`--steady-history` requires dynamic-only execution, a cost limit and an existing successful history;
+legacy default/safety overrides must be removed. It selects `steady-trial.mjs`, turns legacy auto off,
+and makes native checks frequent above the structural retained-budget + reserve floor (20000+8192).
+The model output cap stays 13107, keepRecent stays 20000 and warming stays off, matching fixed60.
+Stage-level budget checks may overshoot by one stage; the amount is estimated from configured prices.
+
+The metadata bridge uses up to eight compatible successful summaries, rejecting mismatched model,
+window or prices. It learns aggregate input billing; output ratio is at least the existing .002 prior.
+Retention is the .1 prior or larger delayed observed residual ratio, plus the configured retained
+budget. That budget is a structural forecast input, not a guaranteed exact floor/size. Delayed sizes
+are not admitted as exact observations, and no affine fit or task-specific threshold is introduced.
+The historical task is development data and cannot establish held-out quality or superiority.
+
+In this sole-extension, no-tools trial, the extension checks actual outgoing request-field and
+message-prefix continuity in memory. Unexpected changes abort requests instead of silently relying
+on a prior veto. Summary requests are excluded, completed/failed summaries reset prefix state,
+and unknown post-summary size declares zero reuse rather than a fabricated full cached prompt.
+Immediate summary events and successful ordinary calls maintain the real cooldown independently
+of delayed trace sizes. Request contents/hashes are not persisted in the control audit.
+
+Reports identify the frozen controller, seed trace hash, runner/extension/CLI hashes and actual
+candidate/veto/economic/safety/fallback counts. A completed diagnostic requires at least one
+applied non-safety candidate check; merely loading an observer is insufficient.
 
 #### Observation-only HTTP audit
 
