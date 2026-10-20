@@ -51,6 +51,7 @@ describe("native Pi SDK feedback capture", () => {
       expect(r.modelProbe).toMatchObject({
         retention: { acceptedApproximate: 1, exactSamples: 0, model: null, canDrivePolicy: false },
         output: { samples: 1, source: "ratio-ema", canDrivePolicy: false },
+        inputCost: { samples: 1, source: "observed-aggregate-input-bill", canDrivePolicy: false },
         providerSerializationExercised: false,
         policyChanged: false,
         timingControlExercised: false,

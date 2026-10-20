@@ -19,6 +19,7 @@ import {
 import { ApproximateRetentionTracker } from "./approximate-feedback.ts";
 import { admitMeasuredFeedback } from "./compactor-feedback-probe.ts";
 import { repeatedMessages } from "./repeated-summary-corpus.ts";
+import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { SummaryOutputLearner } from "./summary-output.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
 import { UncertainAffineFeedback } from "./uncertain-affine-feedback.ts";
@@ -144,6 +145,14 @@ const model = { ...base, maxTokens: summaryCap };
 const ledger = [];
 const afterModel = new UncertainAffineFeedback("pi-controlled-host/v1");
 const outputModel = new SummaryOutputLearner("pi-controlled-output/v1");
+// This controlled fixture fixes Pi/compactor settings and cache regime for its lifetime.
+const inputCostBinding = JSON.stringify({
+  model,
+  summaryCap,
+  keepRecentTokens: 512,
+  cache: "fixture-no-summary-cache",
+});
+const inputCostModel = new SummaryInputCostLearner(inputCostBinding);
 let learnedProfileKey;
 let currentProfileKey;
 let earlyRequest;
@@ -328,8 +337,10 @@ const observer = createFoldPointObserver({
                     return undefined;
                   const prediction = afterModel.predict(input.contextTokens),
                     state = afterModel.snapshot(),
-                    outModel = outputModel.snapshot();
-                  if (!prediction || outModel.samples === 0) return undefined;
+                    outModel = outputModel.snapshot(),
+                    inputRate =
+                      inputCostModel.snapshot(inputCostBinding).effectiveInputCostPerBeforeToken;
+                  if (!prediction || outModel.samples === 0 || inputRate === null) return undefined;
                   return {
                     profileKey: currentProfileKey,
                     compactorTokenModel: {
@@ -342,8 +353,7 @@ const observer = createFoldPointObserver({
                       samples: state.acceptedApproximate,
                       minBefore: state.model?.minBefore ?? input.contextTokens,
                       maxBefore: state.model?.maxBefore ?? input.contextTokens,
-                      summaryInputCostPerToken: resolveUnitPrices(input.profile.pricing)
-                        .inputPerToken,
+                      summaryInputCostPerToken: inputRate,
                     },
                     durationModel: {
                       completedCalls: lifecycle.completedOrdinaryCalls,
@@ -360,7 +370,7 @@ const observer = createFoldPointObserver({
                       softWindowTokens:
                         DEFAULTS.softWindowRatio * input.profile.contextWindowTokens,
                     },
-                    cycleBilling: {}, // Native warming off; no summary cache sharing declared.
+                    cycleBilling: {}, // Effective aggregate input rate already includes observed cache pricing.
                   };
                 },
               }
@@ -473,7 +483,37 @@ try {
     previousRequest = undefined; // A summary replaces the conversation, never reuses its old proof.
     const before = result.tokensBefore,
       after = result.estimatedTokensAfter;
-    const output = ledger.at(-1)?.usage?.output;
+    const summaryRows = ledger.filter((row) => row.stage === "summary");
+    assert(
+      summaryRows.length > 0 && summaryRows.every((row) => row.usage && row.stopReason === "stop"),
+    );
+    const aggregate = summaryRows.reduce(
+      (total, row) => ({
+        promptTokens:
+          total.promptTokens + row.usage.input + row.usage.cacheRead + row.usage.cacheWrite,
+        cachedInputTokens: total.cachedInputTokens + row.usage.cacheRead,
+        cacheWriteTokens: total.cacheWriteTokens + row.usage.cacheWrite,
+        outputTokens: total.outputTokens + row.usage.output,
+      }),
+      { promptTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
+    );
+    const output = aggregate.outputTokens;
+    assert(
+      inputCostModel.observe({
+        binding: inputCostBinding,
+        sequence: 1,
+        success: true,
+        beforeTokens: before,
+        usage: aggregate,
+        prices: resolveUnitPrices({
+          currency: "USD",
+          inputPerMillion: model.cost.input,
+          outputPerMillion: model.cost.output,
+          ...(model.cost.cacheRead > 0 ? { cacheReadPerMillion: model.cost.cacheRead } : {}),
+          ...(model.cost.cacheWrite > 0 ? { cacheWritePerMillion: model.cost.cacheWrite } : {}),
+        }),
+      }),
+    );
     assert(Number.isSafeInteger(after) && Number.isSafeInteger(output));
     const beforeError = Math.ceil(errorAssumption * before);
     assert.equal(
@@ -663,6 +703,7 @@ try {
       prefixChecks,
       retention: afterModel.snapshot(),
       output: outputModel.snapshot(),
+      inputCost: inputCostModel.snapshot(inputCostBinding),
       providerSerializationExercised: false,
       calibratedErrorBudget: false,
       policyChanged: false,

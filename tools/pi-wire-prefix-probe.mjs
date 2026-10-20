@@ -9,7 +9,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
-import { parseTraceJsonl } from "../src/index.ts";
+import { summaryUsageBill } from "../src/experimental-cycle.ts";
+import { parseTraceJsonl, resolveUnitPrices } from "../src/index.ts";
+import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
 
 const args = process.argv.slice(2);
@@ -337,10 +339,41 @@ try {
       const cost = analysis.sessionCosts[0];
       assert.equal(cost.calls, active.ordinaryRequests);
       assert.equal(cost.compactions, id === "native-compaction" ? 1 : 0);
+      let aggregateInputLearning;
       if (active.summaryRequests > 0) {
         const summary = parsed.events.find((e) => e.type === "compaction" && e.success);
         assert.equal(summary.usage.promptTokens, active.summaryRequests * 10_000);
         assert.equal(summary.usage.outputTokens, active.summaryRequests * 300);
+        const learner = new SummaryInputCostLearner("isolated-wire-fixture-v1");
+        const prices = resolveUnitPrices({
+          currency: "USD",
+          inputPerMillion: 3,
+          outputPerMillion: 15,
+          cacheReadPerMillion: 0.3,
+          cacheWritePerMillion: 3.75,
+        });
+        assert(
+          learner.observe({
+            binding: "isolated-wire-fixture-v1",
+            sequence: 1,
+            success: true,
+            beforeTokens: summary.beforeTokens,
+            usage: summary.usage,
+            prices,
+          }),
+        );
+        aggregateInputLearning = learner.snapshot("isolated-wire-fixture-v1");
+        // Reconciliation, NOT a prediction: this observation is only available after completion.
+        const reconstructed = summaryUsageBill(
+          prices,
+          summary.beforeTokens,
+          summary.usage.outputTokens,
+          0,
+          1,
+          {},
+          aggregateInputLearning.effectiveInputCostPerBeforeToken,
+        );
+        assert(Math.abs(reconstructed - active.summaryRequests * 0.0345) < 1e-12);
       }
       const expectedCost =
         active.ordinaryRequests * (10_000 * 3e-6 + 20 * 15e-6) +
@@ -365,6 +398,7 @@ try {
         unpricedSummaries: cost.unpricedCompactions,
         simulatedCost: cost.totalCost,
         expectedSimulatedCost: expectedCost,
+        aggregateInputLearning,
       });
     } finally {
       session.dispose();

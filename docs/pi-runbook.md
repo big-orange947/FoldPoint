@@ -228,10 +228,19 @@ No `getReusablePrefixTokens` hint is synthesized from a previous request length,
 approval is fabricated, and no timing-control/default changes are made. Raw cost values are
 synthetic fixture bills. Failed scenarios remain in the report with a nonzero exit.
 
-The remaining integration step is to feed compatible **aggregate** compactor usage into the
-experimental forecast, rather than treating a native compaction as one ordinary-priced input
-pass, and verify the same no-network lifecycle. A remote timing/quality comparison still needs
-its own bounded plan; this audit alone is not a release or savings gate.
+The controlled `--steady-model-probe` now feeds compatible **aggregate** compactor input usage
+into its experimental forecast. A bounded eight-observation learner divides the total input
+bill (ordinary input + cache reads + cache writes across all summary requests) by the host's
+before-size estimate. Output remains separately learned. Missing/incomplete/failed usage is
+not a free sample; model/pricing/compactor/cache-regime changes require a new binding/learner.
+This effective rate already includes observed cache discounts, so the bridge leaves
+`summarySharedPrefixRatio` undefined: applying a second discount would be incorrect.
+The first observation is unavailable until completion and can inform only later predictions.
+The loopback audit reconstructs its completed summary bill as an accounting check, not an
+out-of-sample forecast. Cache-regime shifts, nonlinear multi-pass behavior and host-size error
+can still invalidate extrapolation. Production defaults and the frozen candidate are unchanged.
+A remote timing/quality comparison still needs its own bounded plan; this audit alone is not
+a release or savings gate.
 
 Adapter 0.3.2 accepts `createFoldPointObserver({ getReusablePrefixTokens })`. This optional,
 synchronous callback receives only `{ sessionId, timestamp, contextTokens, provider, modelId,

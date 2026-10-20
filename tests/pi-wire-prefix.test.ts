@@ -71,6 +71,14 @@ describe("Pi serialized HTTP boundary", () => {
         otherFieldsSame: false,
       });
       const compact = all.find((row) => row.id === "native-compaction");
+      expect(
+        r.rows.find((row: { id: string }) => row.id === "native-compaction").aggregateInputLearning,
+      ).toMatchObject({
+        samples: 1,
+        includesObservedCachePricing: true,
+        estimatedOnly: true,
+        canDrivePolicy: false,
+      });
       expect(compact?.comparisons.map((c) => c.wirePrefixUnchanged)).toEqual([true, false, true]);
       expect(compact?.pricedSummaries).toBe(1);
       expect(compact?.summaryRequests).toBeGreaterThan(0);

@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Aggregate summary-cost forecast bridge
+
+- Experimental Pi shadow forecasts learn the aggregate summary input bill per host before-size,
+  instead of assuming a compaction event is one ordinary-priced input pass. Output costs stay
+  separate and observed cache discounts are not applied twice.
+- Bound history, reject incomplete/failed/incompatible observations, and use completed feedback
+  only for later predictions. Verify one/multiple passes and input/read/write/output accounting;
+  reconcile a real Pi loopback multi-request summary. No production-default or frozen-policy changes.
+
 ### Actual Pi serialized-request boundary audit
 
 - Add a loopback-only SDK probe using the real OpenAI-compatible serializer, without replacing
