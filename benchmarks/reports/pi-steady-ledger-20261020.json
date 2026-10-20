@@ -1,0 +1,86 @@
+{
+  "runner": "foldpoint.pi-steady-ledger-diagnostic.v1",
+  "date": "2026-10-20",
+  "measuredCodeCommit": "031edbf",
+  "candidateCommit": "86bde86",
+  "dataset": "controlled-project-ledger-1m-v2",
+  "manifestHash": "63c70f37fd5c35ebc096cc011d5f579e32b7bc054b432f7644854f983df24260",
+  "pricingFingerprint": "2f70f53535edfe9ae7cde33a00618e6f85c46787c16c0877c3d4bc8c442af33a",
+  "declaredWindowTokens": 1000000,
+  "costBasis": "USD estimate from provider usage and Pi price snapshot, not an invoice",
+  "comparison": "cross-batch development-task diagnostic, not paired or held-out",
+  "superiorityProven": false,
+  "publicationReady": false,
+  "preflightCostUsd": 0.020658864,
+  "baseline": {
+    "policy": "historical-fixed60",
+    "stagesCorrect": 140,
+    "ordinaryCalls": 140,
+    "successfulCompactions": 3,
+    "ordinaryPromptTokens": 43460306,
+    "maxObservedContextTokens": 616442,
+    "ordinaryCostUsd": 0.963861912,
+    "summaryCostUsd": 0.5361915,
+    "totalCostUsd": 1.500053412,
+    "allPromptTokens": 45242207,
+    "allCachedReadTokens": 41101952,
+    "allOutputTokens": 9471
+  },
+  "candidate": {
+    "policy": "frozen-steady-86bde86",
+    "stagesCorrect": 140,
+    "ordinaryCalls": 140,
+    "successfulCompactions": 9,
+    "failedCalls": 0,
+    "hostRetries": 0,
+    "unpricedCompactions": 0,
+    "cacheWarmCalls": 0,
+    "ordinaryPromptTokens": 19530573,
+    "maxObservedContextTokens": 255269,
+    "ordinaryCostUsd": 0.850989756,
+    "summaryCostUsd": 0.6392169,
+    "totalCostUsd": 1.490206656,
+    "allPromptTokens": 21619632,
+    "allCachedReadTokens": 17067776,
+    "allOutputTokens": 18536,
+    "controlChecks": 268,
+    "candidateApplied": 268,
+    "vetoes": 259,
+    "economicAllowed": 9,
+    "safetyAllowed": 0,
+    "nativeFallbacks": 0,
+    "compactionBeforeTokens": [
+      247290, 247991, 248222, 248455, 248687, 248920, 249150, 248010, 248240
+    ],
+    "unknownAfterSizes": 9
+  },
+  "billDecompositionUsd": {
+    "cachedReadSaving": 0.144205056,
+    "extraUncachedInput": 0.1234803,
+    "extraOutput": 0.010878,
+    "netSaving": 0.009846756
+  },
+  "priceSensitivity": {
+    "basis": "Reprice the two executed DeepSeek paths only. No policy rerun, no different-provider cache/quality claim; observed write tokens are zero.",
+    "inputPerMillion": 0.3,
+    "outputPerMillion": 1.2,
+    "cacheReadInputRatio": 0.1,
+    "baselineCostUsd": 2.48650026,
+    "candidateCostUsd": 1.89983328
+  },
+  "rawReport": {
+    "path": "traces/pi-ledger-steady-20261020-full-01-report.json",
+    "sha256": "54a31904dc2a423de08e7ef52249c7565970b400fe77aff199bc63cdf3b7eec8"
+  },
+  "rawTrace": {
+    "path": "traces/pi-ledger-steady-20261020-full-01-dynamic.jsonl",
+    "sha256": "86e0775aad5a32115397b91fc8dc318ccf79cf1c5f363a60cbc0d68b1c05c713"
+  },
+  "limitations": [
+    "A 0.66% cross-batch difference does not establish superiority or repeatability.",
+    "The seed history and task are development data. Structured answers do not establish general agent task quality.",
+    "All nine post-summary sizes are unknown in this trace. Billing is complete; retention remains based on historical approximate feedback and declared priors.",
+    "The native historical run failed and has unpriced summaries; it is not a cheap completed comparator.",
+    "The adapter is an isolated no-tools sole-extension diagnostic, not a general installed plugin."
+  ]
+}

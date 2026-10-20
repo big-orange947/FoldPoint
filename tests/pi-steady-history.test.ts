@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { FoldPoint, type FoldPointProfile, TraceRecorder } from "../src/index";
 import { buildSteadyHistory } from "../tools/pi-steady-history";
@@ -66,4 +70,44 @@ it("does not require the same cache-namespace prefix but does require compatible
   expect(
     buildSteadyHistory(events, { ...profile, prefixId: "new-isolated-namespace" }, 20_000)?.samples,
   ).toBe(1);
+});
+
+it("refuses an invalid paid seed before loading a Pi process or task manifest", () => {
+  const dir = mkdtempSync(join(tmpdir(), "steady-bad-seed-")),
+    seed = join(dir, "seed.jsonl"),
+    out = join(dir, "result");
+  writeFileSync(seed, "not-json\n");
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "tools/pi-million-rpc.ts",
+      "--manifest",
+      "does-not-exist",
+      "--agent-base",
+      dir,
+      "--out",
+      out,
+      "--arm",
+      "dynamic",
+      "--steady-history",
+      seed,
+      "--max-cost-usd",
+      "1",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 15_000,
+      env: {
+        ...process.env,
+        PI_CLI: process.execPath,
+        DEEPSEEK_API_KEY: "sentinel-must-not-persist",
+      },
+    },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain("Steady history is invalid");
+  expect(result.stderr).not.toContain("sentinel-must-not-persist");
+  expect(existsSync(`${out}-report.json`)).toBe(false);
 });

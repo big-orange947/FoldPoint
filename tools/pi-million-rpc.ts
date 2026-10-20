@@ -842,7 +842,30 @@ async function runArm(
   let rpcLoss: RpcLossKind | null = null;
   try {
     await rpc.command("get_state");
+    if (
+      steadyHistory &&
+      (!existsSync(tracePath) ||
+        parseTraceJsonl(readFileSync(tracePath, "utf8")).events[0]?.type !== "header")
+    )
+      throw new Error("Steady extension did not initialize; no task requests sent");
     for (let index = 0; index < prompts.length; index += 1) {
+      if (steadyHistory && index === 3) {
+        const auditPath = `${out}-steady-control.jsonl`;
+        const applied =
+          existsSync(auditPath) &&
+          readFileSync(auditPath, "utf8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .some((line) => {
+              const c = JSON.parse(line);
+              return c.applied && c.basis === "frozen-candidate";
+            });
+        if (!applied) {
+          reason = "steady-controller-not-applied-in-preflight";
+          break;
+        }
+      }
       const from = rpc.events.length;
       stageStarts.push(from);
       // The prompt response is emitted only *after* preflight, and preflight can run a threshold
@@ -1048,6 +1071,14 @@ async function main(): Promise<void> {
     throw new Error(
       "Steady trial requires --arm dynamic, an existing history trace and a cost limit",
     );
+  if (steadyHistory) {
+    const seed = parseTraceJsonl(readFileSync(steadyHistory, "utf8"));
+    if (
+      seed.errors.length ||
+      !seed.events.some((e) => e.type === "compaction" && e.success && e.usage)
+    )
+      throw new Error("Steady history is invalid or has no successful priced summary");
+  }
   if (
     steadyHistory &&
     (process.env.FOLDPOINT_DEFAULTS || process.env.FOLDPOINT_COMPACTOR_SAFE_INPUT_TOKENS)

@@ -6,6 +6,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Real DeepSeek steady long-task diagnostic
+
+- Complete the 140-stage 1M declared-window dynamic-only trial with the frozen candidate:
+  140 correct, nine economic compactions, no failures/unpriced summaries, USD 1.490206656 estimated.
+- Retain historical fixed60 USD 1.500053412 without paid reruns. The 0.66% cross-batch difference
+  is not superiority evidence; ordinary prompt reductions are largely offset by extra summaries.
+- Publish numeric bill decomposition and explicitly conditional repricing, without claiming a
+  different provider was tested. Retain unknown post-summary sizes as unknown.
+- Subsequently add startup/early-application refusal for future paid trials; this guard was not
+  part of measured code 031edbf and does not alter the recorded policy or bills.
+
 ### Dedicated historical-feedback steady trial
 
 - Add dynamic-only `--steady-history` wiring with isolated settings, unchanged summarizer cap,
