@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Explicit experimental Pi threshold execution gate
+
+- Add opt-in, test-only steady candidate control at native threshold checks. Legacy auto must
+  stay off; manual/overflow recovery bypasses it. Missing proof/metadata, unknown runtime usage
+  and audit failures allow native handling; safety FORCE is never vetoed.
+- Treat pre-agent checks as a new runtime with age zero without mutating lifecycle counters.
+  Record candidate decisions separately before any veto; keep default/shadow behavior unchanged.
+- Verify actual veto execution through the real Pi SDK/HTTP serializer with a loopback-only
+  fixture. This does not establish live long-task economics or authorize a savings claim.
+
 ### Aggregate summary-cost forecast bridge
 
 - Experimental Pi shadow forecasts learn the aggregate summary input bill per host before-size,

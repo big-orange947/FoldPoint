@@ -9,7 +9,7 @@ import {
   type PiExtensionContext,
   type PiModel,
 } from "../adapters/pi/foldpoint-observe";
-import { parseTraceJsonl, type TraceEvent } from "../src/index";
+import { parseTraceJsonl, profileKey, type TraceEvent } from "../src/index";
 import { analyzeTraceEvents } from "../tools/trace-analyze";
 
 const MODEL: PiModel = {
@@ -154,6 +154,190 @@ function newTracePath(name: string): string {
 function newPrefixStorePath(name: string): string {
   return join(mkdtempSync(join(tmpdir(), "foldpoint-prefix-")), `${name}.json`);
 }
+
+describe("explicit experimental steady threshold control", () => {
+  function setup(known = true, brokenAudit = false) {
+    const fake = fakePi(),
+      path = newTracePath("control"),
+      audit = newTracePath("control-audit");
+    createFoldPointObserver({
+      tracePath: path,
+      prefixStorePath: newPrefixStorePath("control"),
+      mode: "act",
+      compaction: "off",
+      log: () => {},
+      getReusablePrefixTokens: () => (known ? 0 : undefined),
+      experimentalSteadyControl: {
+        path: brokenAudit ? `${path}/cannot-write.jsonl` : audit,
+        getMetadata: (input, life) => ({
+          profileKey: profileKey(input.profile),
+          compactorTokenModel: {
+            after: { slope: 0.1, intercept: 0, residual: 0 },
+            output: { slope: 0.002, intercept: 0, residual: 0 },
+            samples: 1,
+            minBefore: 10_000,
+            maxBefore: 100_000,
+            summaryInputCostPerToken: 3e-6,
+          },
+          durationModel: {
+            completedCalls: life.runtimeActive ? life.completedOrdinaryCalls : 0,
+            components: [
+              { weight: 0.8, continuationProbability: 0.8 },
+              { weight: 0.2, continuationProbability: 0.98 },
+            ],
+          },
+          executionConstraints: {
+            hasAttempt: false,
+            minCallsBetweenCompactions: 3,
+            minReclaimTokens: 4096,
+            minReclaimRatio: 0.2,
+            softWindowTokens: 0,
+          },
+          cycleBilling: {},
+        }),
+      },
+    })(fake.pi);
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    return { fake, path, audit };
+  }
+  const check = (
+    fake: FakePi,
+    tokens: number,
+    reason: "threshold" | "manual" | "overflow" = "threshold",
+  ) => {
+    const result = fake.emit(
+      "session_before_compact",
+      { type: "session_before_compact", reason, preparation: { tokensBefore: tokens } },
+      fake.ctxWith(tokens),
+    );
+    if (result && typeof result === "object" && "cancel" in result && result.cancel)
+      fake.emit("session_compact_failed", {
+        type: "session_compact_failed",
+        reason,
+        aborted: true,
+      });
+    return result;
+  };
+
+  it("actually vetoes native threshold checks, repeats without starting an active manual compaction, and never weakens FORCE", () => {
+    const { fake, audit, path } = setup();
+    expect(check(fake, 30_000)).toEqual({ cancel: true });
+    expect(check(fake, 35_000)).toEqual({ cancel: true });
+    expect(check(fake, 150_000)).toBeUndefined();
+    expect(fake.compactions).toHaveLength(0);
+    const controls = readFileSync(audit, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(controls.map((r) => r.resolution)).toEqual(["veto", "veto", "allow"]);
+    expect(controls[0]).toMatchObject({
+      applied: true,
+      basis: "frozen-candidate",
+      runtimeBoundary: "preflight",
+    });
+    expect(controls[2]).toMatchObject({ applied: true, basis: "safety" });
+    const vetoes = readTrace(path).filter(
+      (e) => e.type === "compaction" && e.errorCode === "vetoed",
+    );
+    expect(vetoes).toHaveLength(2);
+  });
+
+  it("allows native behavior when continuity or durable audit is unavailable", () => {
+    const unknown = setup(false);
+    expect(check(unknown.fake, 30_000)).toBeUndefined();
+    expect(JSON.parse(readFileSync(unknown.audit, "utf8"))).toMatchObject({
+      applied: false,
+      basis: "native-fallback",
+    });
+    const broken = setup(true, true);
+    expect(check(broken.fake, 30_000)).toBeUndefined();
+  });
+
+  it("also honors a genuine non-FORCE compact decision from the frozen cold-path fallback", () => {
+    const { fake, audit } = setup();
+    const cold = { ...MODEL, promptCache: undefined };
+    fake.emit("context", { type: "context" }, fake.ctxWith(30_000, cold));
+    fake.emit(
+      "message_end",
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          usage: { input: 30_000, output: 10, cacheRead: 0, cacheWrite: 0 },
+        },
+      },
+      fake.ctxWith(30_000, cold),
+    );
+    expect(
+      fake.emit(
+        "session_before_compact",
+        {
+          type: "session_before_compact",
+          reason: "threshold",
+          preparation: { tokensBefore: 30_000 },
+        },
+        fake.ctxWith(30_000, cold),
+      ),
+    ).toBeUndefined();
+    expect(JSON.parse(readFileSync(audit, "utf8"))).toMatchObject({
+      applied: true,
+      basis: "frozen-candidate",
+      resolution: "allow",
+      prediction: { status: "evaluated", action: "COMPACT", baselineAction: "KEEP" },
+    });
+  });
+
+  it("does not intercept manual or overflow recovery, and requires explicit opt-in", () => {
+    const { fake } = setup();
+    expect(check(fake, 30_000, "manual")).toBeUndefined();
+    expect(check(fake, 30_000, "overflow")).toBeUndefined();
+    expect(() =>
+      createFoldPointObserver({ experimentalSteadyControl: { path: newTracePath("bad-control") } })(
+        fakePi().pi,
+      ),
+    ).toThrow(/explicit act/);
+    const tracePath = newTracePath("collision");
+    expect(() =>
+      createFoldPointObserver({
+        tracePath,
+        mode: "act",
+        compaction: "off",
+        experimentalSteadyControl: { path: tracePath },
+      })(fakePi().pi),
+    ).toThrow(/separate audit/);
+  });
+
+  it("treats preflight as a new runtime, and falls back after an unknown active request", () => {
+    const { fake, audit } = setup();
+    fake.emit("agent_start", { type: "agent_start" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(30_000));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        usage: { input: 30_000, output: 10, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    fake.emit("agent_end", { type: "agent_end" });
+    check(fake, 35_000);
+    const first = JSON.parse(readFileSync(audit, "utf8").trim());
+    expect(first.runtimeBoundary).toBe("preflight");
+    expect(first.prediction.snapshot.options.durationModel.completedCalls).toBe(0);
+    fake.emit("agent_start", { type: "agent_start" });
+    fake.emit("message_end", { type: "message_end", message: { role: "assistant" } });
+    expect(check(fake, 35_000)).toBeUndefined();
+    const last = JSON.parse(readFileSync(audit, "utf8").trim().split("\n").at(-1) as string);
+    expect(last).toMatchObject({
+      applied: false,
+      basis: "native-fallback",
+      prediction: { reason: "runtime-lifecycle-mismatch" },
+    });
+    fake.runCommand("foldpoint", "auto");
+    expect(fake.notifications.at(-1)).toContain("legacy compaction off");
+  });
+});
 
 const SYSTEM_PROMPT = "You are a coding agent.\n\n## Tools\nread, bash, edit, write\n";
 

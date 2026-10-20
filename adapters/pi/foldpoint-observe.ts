@@ -62,6 +62,7 @@ import {
   type TraceOutcome,
   TraceRecorder,
 } from "../../src/index";
+import { evaluatePiSteadyControl } from "./steady-control";
 import { PiSteadyLifecycle } from "./steady-lifecycle";
 import { evaluatePiSteadyShadow, type PiSteadyShadowOptions } from "./steady-shadow";
 
@@ -226,6 +227,11 @@ export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
 // ============================================================================
 
 export interface FoldPointObserverOptions {
+  /** Test-only native threshold control. Requires explicit mode=act, compaction=off.
+   * Pi must be configured to ask frequently; this does not change settings or start summaries.
+   * Unknown metadata/errors allow native handling, never veto manual/overflow recovery.
+   */
+  experimentalSteadyControl?: PiSteadyShadowOptions;
   /** Default off. Writes a separate research prediction; never controls Pi or replaces decide(). */
   experimentalSteadyShadow?: PiSteadyShadowOptions;
   /**
@@ -234,7 +240,8 @@ export interface FoldPointObserverOptions {
    * when continuity is unknown. This is NOT a prediction of provider cache hits.
    * The host must account for every request transform, system/tool change and compaction.
    * Stock Pi context events alone cannot prove this; no automatic inference is enabled.
-   * Called only for a model-call context decision, not a preflight or compaction-policy check.
+   * Normally called only for model-call decisions; explicit steady control also calls it
+   * at native threshold checks. The proof must cover that boundary too.
    */
   getReusablePrefixTokens?: (input: PiPrefixVerificationInput) => number | undefined;
   /** Where the JSONL trace goes. Defaults to `$FOLDPOINT_TRACE` or `~/.foldpoint/traces`. */
@@ -699,11 +706,20 @@ export function createFoldPointObserver(
   return function foldPointObserver(pi: PiExtensionAPI): void {
     const tracePath = options.tracePath ?? defaultTracePath(now);
     const steadyShadow = options.experimentalSteadyShadow;
+    const steadyControl = options.experimentalSteadyControl;
     const normalizePath = (path: string) =>
       process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
     if (steadyShadow && normalizePath(steadyShadow.path) === normalizePath(tracePath)) {
       throw new RangeError("steady shadow must use a separate trace path");
     }
+    if (steadyControl && (options.mode !== "act" || options.compaction !== "off"))
+      throw new RangeError("steady control requires explicit act mode and legacy auto off");
+    if (
+      steadyControl &&
+      (normalizePath(steadyControl.path) === normalizePath(tracePath) ||
+        (steadyShadow && normalizePath(steadyControl.path) === normalizePath(steadyShadow.path)))
+    )
+      throw new RangeError("steady control must use a separate audit path");
     const prefixStorePath = options.prefixStorePath ?? defaultPrefixStorePath();
     const mode = options.mode ?? modeFromEnv();
     const compactionModeFromOptions = options.compaction ?? compactionFromEnv();
@@ -719,7 +735,7 @@ export function createFoldPointObserver(
       now,
     });
     const foldPoint = new FoldPoint({ defaults });
-    const steadyLifecycle = steadyShadow ? new PiSteadyLifecycle() : undefined;
+    const steadyLifecycle = steadyShadow || steadyControl ? new PiSteadyLifecycle() : undefined;
     const runtimeStartSeconds = Math.floor(now() / 1_000);
     let sessionCount = 0;
     let runtimeCount = 0;
@@ -922,6 +938,10 @@ export function createFoldPointObserver(
         }
         if (next === undefined) {
           ctx.ui?.notify("usage: /foldpoint [status|suggest|auto [on|off]|off]", "warning");
+          return;
+        }
+        if (steadyControl && next !== "off") {
+          ctx.ui?.notify("Experimental steady control requires legacy compaction off", "warning");
           return;
         }
         state.compactionMode = next;
@@ -1435,25 +1455,71 @@ export function createFoldPointObserver(
       ) {
         return;
       }
-      const profile = profileFromModel(model, state.prefixId);
+      const policyPrefix = steadyControl
+        ? prefixIdFromSystemPrompt(readSystemPrompt(ctx))
+        : state.prefixId;
+      const profile = profileFromModel(model, policyPrefix);
       const vetoAt = now();
       const idleMs = idleSinceCacheRefresh(vetoAt, model);
       const vetoInput = {
         sessionId: sessionKey,
         runtimeId,
-        runtimeStatus,
+        runtimeStatus: steadyControl ? ("active" as const) : runtimeStatus,
         profile,
         timestamp: vetoAt,
         contextTokens: tokensBefore,
         safeBoundary: true,
         compactionAllowed: true,
         ...(idleMs === undefined ? {} : { idleMs }),
-        ...(state.fixedPrefixTokens === undefined
+        ...(state.fixedPrefixTokens === undefined || policyPrefix !== state.prefixId
           ? {}
           : { fixedPrefixTokens: state.fixedPrefixTokens }),
       };
       const startedAt = now();
-      const vetoDecision = foldPoint.decide(vetoInput);
+      let vetoDecision = foldPoint.decide(vetoInput);
+      if (steadyControl && steadyLifecycle) {
+        try {
+          const verified = options.getReusablePrefixTokens?.({
+            sessionId: sessionKey,
+            timestamp: vetoAt,
+            contextTokens: tokensBefore,
+            provider: model.provider,
+            modelId: model.id,
+            prefixId: policyPrefix,
+          });
+          if (
+            verified !== undefined &&
+            (!Number.isFinite(verified) || verified < 0 || verified > tokensBefore)
+          )
+            throw new RangeError("invalid prefix metadata");
+          const input = {
+            ...vetoInput,
+            ...(verified === undefined ? {} : { reusablePrefixTokens: verified }),
+          };
+          const lifecycle = steadyLifecycle.snapshot();
+          const metadata = steadyControl.getMetadata?.(structuredClone(input), { ...lifecycle });
+          const control = evaluatePiSteadyControl(input, vetoDecision, metadata, lifecycle);
+          // Audit must succeed BEFORE the veto. An I/O failure must not silently delay safety.
+          mkdirSync(dirname(steadyControl.path), { recursive: true });
+          appendFileSync(steadyControl.path, `${JSON.stringify(control)}\n`, "utf8");
+          vetoDecision = {
+            ...vetoDecision,
+            action:
+              control.resolution === "veto"
+                ? "KEEP"
+                : vetoDecision.action === "FORCE"
+                  ? "FORCE"
+                  : "COMPACT",
+            reasons: control.basis === "safety" ? vetoDecision.reasons : [],
+          };
+        } catch {
+          warnOnce(
+            "steady-control-failed",
+            "experimental steady control unavailable; native compaction allowed",
+          );
+          vetoDecision = { ...vetoDecision, action: "COMPACT", reasons: [] };
+        }
+      }
       const policyLatencyMs = Math.max(0, now() - startedAt);
       // A threshold check is not a model-call decision. It gets its own record - the compaction
       // attempt Pi is about to make, marked as vetoed - so that a session where FoldPoint is

@@ -188,7 +188,50 @@ and `policyChanged` all remain false. It cannot authorize a general Pi prefix as
 promotion into active timing. A final serialized-request / provider-boundary verification is
 still required before a real-provider comparison can rely on the same cache contract.
 
-#### Actual serialized-request boundary audit (loopback only)
+#### Experimental native-threshold control (test-only, default off)
+
+`createFoldPointObserver({ mode: "act", compaction: "off", experimentalSteadyControl:
+{ path, getMetadata }, getReusablePrefixTokens })` explicitly enables the frozen candidate
+at **native threshold checks**. Its audit path must differ from both ordinary and shadow traces.
+There is no environment-only enable switch, no settings rewrite, and no call to `ctx.compact()`.
+Legacy automatic compaction remains off, including attempts to enable it with `/foldpoint auto`.
+
+Pi must be configured to ask early enough for the candidate to control timing. Lowering the native
+threshold by increasing `reserveTokens` can also change Pi's summary output budget: pin the same
+model output cap, keepRecent setting and other compactor settings as the historical comparator.
+Do not copy a low-threshold test configuration into normal use without its extension loaded.
+
+The gate uses the unchanged frozen selector and survival estimate, not the old SDK verdict.
+KEEP vetoes only threshold checks; COMPACT/FORCE allows Pi to run its own summary. A blocked
+prediction, callback error or audit-write failure allows native handling instead of silently
+delaying compaction. Manual/overflow recovery bypasses the gate. A successful audit write precedes
+every candidate veto. The ordinary trace records actual vetoes; detailed candidate predictions
+are in the separate control audit, so ordinary baseline predictions are not mislabelled as candidate ones.
+
+Before `agent_start`, runtime age is explicitly zero. The previous runtime's completed-call
+count is not carried forward; active-loop checks still use the real lifecycle and reject unknown
+request outcomes. Compatible compactor observations/priors and prefix proof remain host obligations.
+This is **not yet a complete live long-task adapter**, and does not automatically learn those
+parameters or establish prefix continuity for arbitrary extensions.
+
+```powershell
+node --import tsx tools/pi-wire-prefix-probe.mjs --pi D:/pi --out traces/pi-control-new --control
+```
+
+This loopback-only fixture uses the actual Pi SDK and serializer, deliberately frequent native
+checks, explicit synthetic token models/TTL and zero declared prefix reuse. It verifies actual
+veto execution (two ordinary requests, no summary), not learned economics, remote cache or savings.
+Without `--control`, the existing seven-case observation audit remains unchanged. The separate
+tests exercise safety release, non-FORCE compact release, unknown metadata/outcomes, durable-audit
+failure, repeated checks, manual/overflow bypass and new-runtime age reset.
+
+For the next paid long-task diagnostic, retain the old fixed60 full run and native failed run.
+Only the dynamic arm needs new paid execution. Historical fixed60 is a cross-batch reference,
+not a contemporaneous paired trial; native failures with unpriced summaries are not a cheap
+completed baseline. Do not launch an old `--arm dynamic` command and label it this candidate:
+that runner still loads the legacy extension until a dedicated wiring path is supplied.
+
+#### Observation-only HTTP audit
 
 ```powershell
 node --import tsx tools/pi-wire-prefix-probe.mjs --pi D:/pi --out traces/pi-wire-new

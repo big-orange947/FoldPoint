@@ -18,6 +18,33 @@ const env = () => ({
 
 describe("Pi serialized HTTP boundary", () => {
   it.skipIf(!available)(
+    "actually changes real Pi threshold behavior without starting or racing a manual compaction",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-wire-control-")), "result");
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", script, "--pi", piRoot, "--out", out, "--control"],
+        { encoding: "utf8", timeout: 45_000, env: env() },
+      );
+      const r = JSON.parse(output);
+      expect(r).toMatchObject({ completed: true, policyChanged: true, paidCalls: 0 });
+      expect(r.usage).toMatchObject({ httpCalls: 2, externalAttempts: 0 });
+      expect(r.rows[0]).toMatchObject({
+        ordinaryRequests: 2,
+        summaryRequests: 0,
+        pricedSummaries: 0,
+      });
+      expect(r.rows[0].controlChecks.length).toBeGreaterThan(0);
+      expect(
+        r.rows[0].controlChecks.every(
+          (c: { applied: boolean; resolution: string }) => c.applied && c.resolution === "veto",
+        ),
+      ).toBe(true);
+      expect(output).not.toContain(sentinel);
+    },
+    45_000,
+  );
+  it.skipIf(!available)(
     "checks actual loopback bodies after payload transforms and reconciles multi-request summary usage",
     () => {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-wire-test-")), "result");

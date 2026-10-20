@@ -10,14 +10,18 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
 import { summaryUsageBill } from "../src/experimental-cycle.ts";
-import { parseTraceJsonl, resolveUnitPrices } from "../src/index.ts";
+import { parseTraceJsonl, profileKey, resolveUnitPrices } from "../src/index.ts";
 import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
 
 const args = process.argv.slice(2);
-for (let i = 0; i < args.length; i += 2)
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--control") continue;
   if (!["--pi", "--out"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--"))
     throw new Error("usage: --pi <local Pi checkout> --out <fresh directory>");
+  i++;
+}
+const controlMode = args.includes("--control");
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const piRoot = resolve(value("--pi", "D:/pi"));
 const outArg = value("--out", undefined);
@@ -46,15 +50,17 @@ const wireView = (body) => ({
   // Strict request-field equality, not a claim about any real provider's cache key.
   fields: hash(Object.fromEntries(Object.entries(body).filter(([key]) => key !== "messages"))),
 });
-const cases = [
-  "append-only",
-  "payload-conversation",
-  "payload-system",
-  "payload-tools",
-  "payload-model",
-  "payload-truncation",
-  "native-compaction",
-];
+const cases = controlMode
+  ? ["steady-threshold-control"]
+  : [
+      "append-only",
+      "payload-conversation",
+      "payload-system",
+      "payload-tools",
+      "payload-model",
+      "payload-truncation",
+      "native-compaction",
+    ];
 const rows = [];
 let active;
 let phase = "ordinary";
@@ -167,7 +173,7 @@ const report = {
   providerSerializationExercised: false,
   boundary: "loopback-openai-chat-completions",
   paidCalls: 0,
-  policyChanged: false,
+  policyChanged: controlMode,
   cacheHitsMeasured: false,
   taskQualityMeasured: false,
   budget,
@@ -175,7 +181,9 @@ const report = {
   limitations: [
     "Strict structural message-prefix/request-field checks, not byte/token-prefix equality or a provider cache-key specification.",
     "Controlled synthetic SDK sessions and one OpenAI-compatible serializer; not a universal stock-Pi continuity guarantee.",
-    "No automatic prefix hint or economic approval is supplied to FoldPoint; no remote provider, savings or quality measurement.",
+    controlMode
+      ? "Control fixture explicitly supplies token models, a TTL and zero reuse; it tests timing veto execution, not learned economics or remote cache behavior."
+      : "No automatic prefix hint or economic approval is supplied to FoldPoint; no remote provider, savings or quality measurement.",
   ],
 };
 try {
@@ -241,6 +249,7 @@ try {
   const registry = await helpers.createModelRegistry(auth, modelsPath);
   const model = registry.find("localtest", "wire-probe");
   assert(model);
+  if (controlMode) model.promptCache = { short: 300 }; // Explicit fixture TTL, not measured caching.
   for (const id of cases) {
     phase = "ordinary";
     active = {
@@ -257,12 +266,48 @@ try {
     const directory = join(out, id);
     mkdirSync(directory);
     const tracePath = join(directory, "trace.jsonl");
+    const controlPath = join(directory, "control.jsonl");
     const observer = createFoldPointObserver({
       tracePath,
       prefixStorePath: join(directory, "prefix.json"),
-      mode: "observe",
+      mode: controlMode ? "act" : "observe",
       compaction: "off",
       log: () => {},
+      ...(controlMode
+        ? {
+            // Explicit controlled-fixture assumption, NOT a stock-Pi prefix detector.
+            getReusablePrefixTokens: () => 0,
+            experimentalSteadyControl: {
+              path: controlPath,
+              getMetadata: (input, life) => ({
+                profileKey: profileKey(input.profile),
+                compactorTokenModel: {
+                  after: { slope: 0.1, intercept: 0, residual: 0 },
+                  output: { slope: 0.002, intercept: 0, residual: 0 },
+                  samples: 0,
+                  minBefore: 0,
+                  maxBefore: 0,
+                  summaryInputCostPerToken: 3e-6,
+                },
+                durationModel: {
+                  completedCalls: life.runtimeActive ? life.completedOrdinaryCalls : 0,
+                  components: [
+                    { weight: 0.8, continuationProbability: 0.8 },
+                    { weight: 0.2, continuationProbability: 0.98 },
+                  ],
+                },
+                executionConstraints: {
+                  hasAttempt: false,
+                  minCallsBetweenCompactions: 3,
+                  minReclaimTokens: 4096,
+                  minReclaimRatio: 0.2,
+                  softWindowTokens: 0,
+                },
+                cycleBilling: {},
+              }),
+            },
+          }
+        : {}),
     });
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
@@ -302,7 +347,11 @@ try {
     );
     const settings = SettingsManager.create(directory, directory);
     settings.applyOverrides({
-      compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 4096 },
+      compaction: {
+        enabled: controlMode,
+        keepRecentTokens: 1,
+        reserveTokens: controlMode ? 999_999 : 4096,
+      },
       retry: { enabled: false, maxRetries: 0 },
       cacheWarming: "off",
     });
@@ -382,12 +431,26 @@ try {
       assert.equal(cost.unpricedCompactions, 0);
       assert.equal(active.serverErrors, 0);
       const expected =
-        id === "append-only" ? [true] : id === "native-compaction" ? [true, false, true] : [false];
+        id === "append-only" || controlMode
+          ? [true]
+          : id === "native-compaction"
+            ? [true, false, true]
+            : [false];
       assert.deepEqual(
         active.comparisons.map((c) => c.wirePrefixUnchanged),
         expected,
       );
       if (id.startsWith("payload-")) assert.equal(active.comparisons[0].earlyAppendOnly, true);
+      let controlChecks;
+      if (controlMode) {
+        controlChecks = readFileSync(controlPath, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line));
+        assert(controlChecks.length > 0);
+        assert(controlChecks.every((c) => c.applied && c.resolution === "veto"));
+        assert.equal(active.summaryRequests, 0);
+      }
       const { previousWire: _privateWire, ...row } = active;
       rows.push({
         ...row,
@@ -399,6 +462,7 @@ try {
         simulatedCost: cost.totalCost,
         expectedSimulatedCost: expectedCost,
         aggregateInputLearning,
+        controlChecks,
       });
     } finally {
       session.dispose();
