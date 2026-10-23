@@ -1,0 +1,80 @@
+{
+  "kind": "real-paid-dynamic-only-cross-batch-diagnostic",
+  "measuredCommit": "a1900d2",
+  "controller": "total-floor-v2-affine-risk",
+  "declaredWindowTokens": 1000000,
+  "stages": 140,
+  "currency": "USD",
+  "costBasis": "provider usage multiplied by frozen local Pi model prices, not a provider invoice",
+  "newPaidArms": ["dynamic"],
+  "budgetStopUsd": 3,
+  "budgetTruncated": false,
+  "manifestAndPricingMatchHistoricalFixed60": true,
+  "results": {
+    "floorV2": {
+      "correct": 140,
+      "ordinaryCalls": 140,
+      "summaries": 11,
+      "ordinaryCost": 0.846358452,
+      "summaryCost": 0.6757866,
+      "prewarmCost": 0,
+      "total": 1.522145052,
+      "promptTokens": 17087495,
+      "maxObservedContext": 222726,
+      "failures": 0,
+      "unpricedSummaries": 0
+    },
+    "historicalFixed60": {
+      "correct": 140,
+      "ordinaryCalls": 140,
+      "summaries": 3,
+      "ordinaryCost": 0.963861912,
+      "summaryCost": 0.5361915,
+      "prewarmCost": 0,
+      "total": 1.500053412
+    },
+    "historicalAffine": {
+      "correct": 140,
+      "ordinaryCalls": 140,
+      "summaries": 9,
+      "ordinaryCost": 0.850989756,
+      "summaryCost": 0.6392169,
+      "prewarmCost": 0,
+      "total": 1.490206656
+    }
+  },
+  "control": {
+    "checks": 266,
+    "applied": 266,
+    "vetoes": 255,
+    "economicAllowed": 11,
+    "safetyAllowed": 0,
+    "nativeFallbacks": 0
+  },
+  "immediateFeedback": {
+    "samples": 11,
+    "missingSizes": 0,
+    "unknownUsage": 0,
+    "hostEstimateOnly": true,
+    "policyConsumed": false,
+    "meanSignedRelativeSizeError": -0.08882208385481373,
+    "meanAbsoluteRelativeSizeError": 0.08882208385481373,
+    "afterMin": 23251,
+    "afterMax": 24226,
+    "predictedSummaryCost": 0.685868101988933,
+    "actualSummaryCost": 0.6757866
+  },
+  "rawSha256": {
+    "report": "fec4596dd25d6f5dedd765d25233f1f130ebf48d14468131c584c3389d5bb0c4",
+    "trace": "a191d7d3309181acafd7cca82a636dea93defab0de53d8296fddf3c3723cddb4",
+    "feedback": "72ae85896f1dc208504d802acb99b7b6e8f6404edab896ffd3d514450e67e470",
+    "control": "e2bea1ae7f67bbb1b91f317fd30851d8b78109e1afa785dbc1931e4b9fc80b3b"
+  },
+  "limitations": [
+    "Same development task, cross-batch historical comparators; not a contemporaneous paired experiment or heldout proof.",
+    "Piecewise cycle selection with legacy affine risk envelope, not a fully piecewise rollout.",
+    "Immediate host estimates are not provider token truth; feedback is diagnostic, not learned by this controller.",
+    "140 correct marker/field answers do not establish general agent task quality.",
+    "Higher observed bill; do not promote this variant as a savings improvement."
+  ]
+}

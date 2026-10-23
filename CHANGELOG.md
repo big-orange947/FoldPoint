@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Real paid floor-cycle diagnostic: not promoted
+
+- Run a new 140-stage dynamic-only DeepSeek trial at measured commit a1900d2, with 1M declared
+  window and USD 3 stage-boundary stop. All 140 answers pass, 11 summaries, no failures/unpriced
+  summaries; estimated full bill USD 1.522145052, 1.47% higher than historical fixed60.
+- Capture all eleven immediate host-size estimates. Keep cross-batch limitations and the
+  conservative legacy risk envelope explicit; do not promote the variant or rewrite old results.
+
 ### Opt-in paid trial variant
 
 - Add explicit `--steady-retention total-floor-v2` to the dedicated history-seeded RPC runner.
