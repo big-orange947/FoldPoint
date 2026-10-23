@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Paired synthetic retained-floor execution
+
+- Execute isolated affine, floor and fixed60 selectors against identical exogenous growth
+  and actual compactor laws in 144 synthetic warm-cache worlds. Bill summary output and
+  post-summary rebuilds; keep task endpoints out of selector inputs.
+- Report wins/ties/losses and full-bill sums, including five long-task losses against fixed60.
+  Long-task floor-vs-affine change is only -0.24%; do not attribute prior advantages to this patch.
+- Keep default and frozen Pi paths unchanged. No paid calls, quality claims or provider results.
+
 ### Research-only overlapping retention budget
 
 - Add a separate total-retention floor predictor and exact piecewise stable-cycle solution;
