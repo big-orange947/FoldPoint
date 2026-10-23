@@ -1,0 +1,60 @@
+{
+  "kind": "offline-cross-scale-host-estimate-diagnostic",
+  "paidCalls": 0,
+  "policyChanged": false,
+  "fixedCheckpoints": [
+    {
+      "before": 609860,
+      "reconstructedAfter": 23134,
+      "delayedTraceAfter": 56102,
+      "priorAfter": 60986,
+      "summaryCost": 0.1786236
+    },
+    {
+      "before": 610324,
+      "reconstructedAfter": 23133,
+      "delayedTraceAfter": 56102,
+      "priorAfter": 61032.4,
+      "summaryCost": 0.1787847
+    },
+    {
+      "before": 610324,
+      "reconstructedAfter": 23135,
+      "delayedTraceAfter": 56103,
+      "priorAfter": 61032.4,
+      "summaryCost": 0.1787832
+    }
+  ],
+  "summary": {
+    "fixedMeanBefore": 610169.3333333334,
+    "fixedMeanReconstructedAfter": 23134,
+    "fixedMeanPriorAfter": 61016.93333333333,
+    "fixedMeanRelativeOverestimate": 1.6375435899265287,
+    "candidateMeanImmediateAfter": 23666.363636363636,
+    "candidateMeanActualInterval": 12,
+    "candidateMeanPredictedInterval": 11
+  },
+  "firstDecisionSensitivity": {
+    "originalBefore": 201433.94183105894,
+    "originalCalls": 11,
+    "retrospectiveFixedSizeBefore": 237386.4654021263,
+    "retrospectiveFixedSizeCalls": 13,
+    "retrospectiveHostSize": 23134,
+    "onlyRetentionChanged": true,
+    "policyExecuted": false,
+    "realizedSavings": null
+  },
+  "hashes": {
+    "v2Report": "fec4596dd25d6f5dedd765d25233f1f130ebf48d14468131c584c3389d5bb0c4",
+    "v2Audit": "e2bea1ae7f67bbb1b91f317fd30851d8b78109e1afa785dbc1931e4b9fc80b3b",
+    "v2Feedback": "72ae85896f1dc208504d802acb99b7b6e8f6404edab896ffd3d514450e67e470",
+    "fixedReport": "089cdc88025f8e0709b5d9188c07b80930176cfa53b14f1b718d16012dd86e08",
+    "fixedSession": "bb3c353d4e33b63b7c55749dab8fd60737c30ad3a77e333a3a205a6b1b49f747"
+  },
+  "limitations": [
+    "Historical fixed sizes are offline Pi projections, not captured immediate/provider truth; CLI matching does not prove source/build identity.",
+    "Both input scales belong to the same repeatedly examined development task and different run times.",
+    "Fixed-size sensitivity is not a proposed constant default, deployed model or counterfactual paid execution.",
+    "Does not prove all extra cost is caused by retention extrapolation; finite endpoints and cache effects remain."
+  ]
+}

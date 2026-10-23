@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Offline cross-scale retention attribution
+
+- Recover three historical fixed60 host-size projections without backfilling old traces;
+  reconcile their USD 0.5361915 summary bill and preserve input hashes.
+- Identify a 10% prior extrapolation gap at 610k inputs (61k forecast versus 23.1k recovered
+  host estimate). Publish same-state retrospective sensitivity, explicitly not realized savings.
+- Do not deploy a constant task-specific retention rule or run additional paid requests.
+
 ### Real paid floor-cycle diagnostic: not promoted
 
 - Run a new 140-stage dynamic-only DeepSeek trial at measured commit a1900d2, with 1M declared
