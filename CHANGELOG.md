@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Opt-in paid trial variant
+
+- Add explicit `--steady-retention total-floor-v2` to the dedicated history-seeded RPC runner.
+  Cycle selection uses the piecewise retained floor; risk qualification deliberately keeps a
+  conservative additive affine envelope. Label it `total-floor-v2-affine-risk`, not the frozen
+  candidate or a fully piecewise rollout. Defaults and old trial paths remain unchanged.
+- Audit actual variant application, preserve startup refusal, record variant source hashes,
+  and score immediate retained-size feedback with the selected forecast semantics.
+
 ### Paired synthetic retained-floor execution
 
 - Execute isolated affine, floor and fixed60 selectors against identical exogenous growth

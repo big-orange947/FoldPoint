@@ -16,6 +16,7 @@ import {
 import { gradeStageResponse, type StageExpectation } from "./pi-million-oracle";
 import { buildSteadyHistory, summaryHistoryBinding } from "./pi-steady-history";
 import { extractImmediateSummary, scoreImmediateSummary } from "./pi-summary-feedback";
+import { predictRetainedFloor } from "./retained-floor";
 import { analyzeTraceEvents } from "./trace-analyze";
 
 interface Stage extends StageExpectation {
@@ -783,6 +784,7 @@ async function runArm(
   runWindowTokens: number,
   cacheRunId: string,
   steadyHistory?: string,
+  steadyRetention = "legacy",
 ): Promise<ArmResult> {
   const {
     agentDir,
@@ -824,6 +826,7 @@ async function runArm(
             FOLDPOINT_COMPACTION: "off",
             FOLDPOINT_STEADY_HISTORY: steadyHistory,
             FOLDPOINT_STEADY_AUDIT: `${out}-steady-control.jsonl`,
+            FOLDPOINT_STEADY_RETENTION: steadyRetention,
           }
         : {}),
       PI_CODING_AGENT_DIR: agentDir,
@@ -878,7 +881,11 @@ async function runArm(
             .filter(Boolean)
             .some((line) => {
               const c = JSON.parse(line);
-              return c.applied && c.basis === "frozen-candidate";
+              return (
+                c.applied &&
+                c.basis ===
+                  (steadyRetention === "total-floor-v2" ? "total-floor-v2" : "frozen-candidate")
+              );
             });
         if (!applied) {
           reason = "steady-controller-not-applied-in-preflight";
@@ -933,9 +940,22 @@ async function runArm(
             feedbackPath,
             `${JSON.stringify({
               ...feedback,
+              forecastVariant: steadyRetention,
               score: scoreImmediateSummary(
                 feedback,
-                compatibleForecast,
+                compatibleForecast && steadyRetention === "total-floor-v2"
+                  ? {
+                      ...compatibleForecast,
+                      after: {
+                        slope: 0,
+                        residual: 0,
+                        intercept: predictRetainedFloor(
+                          { totalRatio: 0.1, recentBudgetTokens: MILLION_KEEP_RECENT_TOKENS },
+                          feedback.beforeTokens,
+                        ),
+                      },
+                    }
+                  : compatibleForecast,
                 resolveUnitPrices(observedProfile.pricing),
               ),
             })}\n`,
@@ -1128,6 +1148,12 @@ async function main(): Promise<void> {
   const selectedArm = value("--arm");
   const steadyHistoryArg = value("--steady-history");
   const steadyHistory = steadyHistoryArg === undefined ? undefined : resolve(steadyHistoryArg);
+  const steadyRetention = value("--steady-retention") ?? "legacy";
+  if (
+    !["legacy", "total-floor-v2"].includes(steadyRetention) ||
+    (steadyRetention !== "legacy" && !steadyHistory)
+  )
+    throw new Error("Retention variant requires a valid explicit steady history trial");
   if (
     steadyHistory &&
     (selectedArm !== "dynamic" || !existsSync(steadyHistory) || maxCostUsd === null)
@@ -1203,6 +1229,7 @@ async function main(): Promise<void> {
       runWindowTokens,
       cacheRunId,
       steadyHistory,
+      steadyRetention,
     );
     results.push(result);
     const last = result.lastFailure;
@@ -1245,8 +1272,10 @@ async function main(): Promise<void> {
           .filter(Boolean)
           .map((line) => JSON.parse(line))
       : [];
+  const expectedBasis =
+    steadyRetention === "total-floor-v2" ? "total-floor-v2" : "frozen-candidate";
   const steadyControlVerified =
-    !steadyHistory || controls.some((c) => c.applied && c.basis === "frozen-candidate");
+    !steadyHistory || controls.some((c) => c.applied && c.basis === expectedBasis);
   const feedbackPath = `${output}-summary-feedback.jsonl`;
   const feedback: Array<{ usage: unknown; score: unknown }> =
     steadyHistory && existsSync(feedbackPath)
@@ -1258,7 +1287,11 @@ async function main(): Promise<void> {
       : [];
   const report = {
     runner: "foldpoint.pi-million-rpc.v1",
-    controller: steadyHistory ? "frozen-steady-86bde86" : "legacy",
+    controller: steadyHistory
+      ? steadyRetention === "total-floor-v2"
+        ? "total-floor-v2-affine-risk"
+        : "frozen-steady-86bde86"
+      : "legacy",
     immediateSummaryFeedback: steadyHistory
       ? {
           path: feedbackPath,
@@ -1280,17 +1313,32 @@ async function main(): Promise<void> {
           verified: steadyControlVerified,
           auditPath: controlAuditPath,
           checks: controls.length,
-          candidateApplied: controls.filter((c) => c.applied && c.basis === "frozen-candidate")
-            .length,
+          candidateApplied: controls.filter((c) => c.applied && c.basis === expectedBasis).length,
           vetoes: controls.filter((c) => c.applied && c.resolution === "veto").length,
           economicAllowed: controls.filter(
-            (c) => c.applied && c.basis === "frozen-candidate" && c.resolution === "allow",
+            (c) => c.applied && c.basis === expectedBasis && c.resolution === "allow",
           ).length,
           safetyAllowed: controls.filter((c) => c.basis === "safety").length,
           nativeFallbacks: controls.filter((c) => !c.applied).length,
           cacheProof:
             "controlled sole-extension trial; unexpected wire-prefix changes abort requests; not a stock Pi guarantee",
           historyIsDevelopmentData: true,
+          retentionVariant: steadyRetention,
+          riskModel:
+            steadyRetention === "total-floor-v2" ? "legacy-affine-upper-envelope" : "legacy-affine",
+          variantSources: Object.fromEntries(
+            [
+              "./steady-floor-choice.ts",
+              "./retained-floor.ts",
+              "../adapters/pi/steady-shadow.ts",
+              "../adapters/pi/steady-control.ts",
+            ].map((path) => [
+              path,
+              createHash("sha256")
+                .update(readFileSync(new URL(path, import.meta.url)))
+                .digest("hex"),
+            ]),
+          ),
           rpcSourceSha256: createHash("sha256")
             .update(readFileSync(fileURLToPath(import.meta.url)))
             .digest("hex"),
@@ -1305,7 +1353,9 @@ async function main(): Promise<void> {
           path: steadyHistory,
           sha256: createHash("sha256").update(readFileSync(steadyHistory)).digest("hex"),
           retentionBasis:
-            "delayed estimate proxy plus explicit retained-budget prior; not exact calibration",
+            steadyRetention === "total-floor-v2"
+              ? "total-ratio overlapping recent budget for cycle selection; additive upper envelope for legacy risk; billing learned, immediate sizes diagnostic only"
+              : "delayed estimate proxy plus explicit retained-budget prior; not exact calibration",
         }
       : null,
     runMode: fullCorpus ? "full" : "preflight",

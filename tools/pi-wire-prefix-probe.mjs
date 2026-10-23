@@ -20,7 +20,7 @@ const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (["--control", "--feedback"].includes(args[i])) continue;
   if (
-    !["--pi", "--out", "--trial-history"].includes(args[i]) ||
+    !["--pi", "--out", "--trial-history", "--retention-variant"].includes(args[i]) ||
     !args[i + 1] ||
     args[i + 1].startsWith("--")
   )
@@ -29,6 +29,12 @@ for (let i = 0; i < args.length; i++) {
 }
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const trialHistory = value("--trial-history", undefined);
+const retentionVariant = value("--retention-variant", "legacy");
+if (
+  !["legacy", "total-floor-v2"].includes(retentionVariant) ||
+  (retentionVariant !== "legacy" && !trialHistory)
+)
+  throw new Error("Variant requires explicit trial history");
 const controlMode = args.includes("--control") || trialHistory !== undefined;
 const feedbackMode = args.includes("--feedback");
 if (feedbackMode && controlMode) throw new Error("Feedback audit does not control timing");
@@ -287,6 +293,7 @@ try {
           tracePath,
           auditPath: controlPath,
           prefixStorePath: join(directory, "prefix.json"),
+          retentionVariant,
         })
       : createFoldPointObserver({
           tracePath,

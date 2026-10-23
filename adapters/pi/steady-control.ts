@@ -37,7 +37,8 @@ export function evaluatePiSteadyControl(
   const prediction = evaluatePiSteadyShadow(input, effectiveBaseline, metadata, boundary);
   const common = {
     runner: "foldpoint.pi-steady-control.v1" as const,
-    candidateCommit: "86bde86",
+    candidateCommit: prediction.candidateCommit,
+    variant: prediction.variant,
     sessionId: input.sessionId,
     timestamp: input.timestamp,
     runtimeBoundary: lifecycle.runtimeActive ? "active" : "preflight",
@@ -54,6 +55,11 @@ export function evaluatePiSteadyControl(
     ...common,
     applied: true,
     resolution: prediction.action === "KEEP" ? ("veto" as const) : ("allow" as const),
-    basis: prediction.status === "safety" ? ("safety" as const) : ("frozen-candidate" as const),
+    basis:
+      prediction.status === "safety"
+        ? ("safety" as const)
+        : metadata?.cycleRetention
+          ? ("total-floor-v2" as const)
+          : ("frozen-candidate" as const),
   };
 }

@@ -31,7 +31,10 @@ export function createSteadyTrial({
   auditPath,
   prefixStorePath,
   keepRecentTokens = 20_000,
+  retentionVariant = "legacy",
 }) {
+  if (!["legacy", "total-floor-v2"].includes(retentionVariant))
+    throw new Error("Invalid retention variant");
   const history = readEvents(historyPath);
   if (!history.some((e) => e.type === "compaction" && e.success))
     throw new Error("No successful historical summaries");
@@ -89,6 +92,11 @@ export function createSteadyTrial({
           );
           if (!learned) return undefined;
           return {
+            ...(retentionVariant === "total-floor-v2"
+              ? {
+                  cycleRetention: { totalRatio: 0.1, recentBudgetTokens: keepRecentTokens },
+                }
+              : {}),
             profileKey: profileKey(input.profile),
             compactorTokenModel: learned.model,
             ordinaryCallsSinceLastAttempt: callsSinceAttempt,
@@ -163,5 +171,6 @@ export default function steadyTrial(pi) {
     tracePath,
     auditPath,
     prefixStorePath: `${auditPath}.prefix.json`,
+    retentionVariant: process.env.FOLDPOINT_STEADY_RETENTION ?? "legacy",
   })(pi);
 }

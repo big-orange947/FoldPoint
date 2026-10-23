@@ -66,6 +66,32 @@ function fixture() {
 }
 
 describe("Pi steady shadow bridge", () => {
+  it("uses the opt-in floor cycle with an explicitly labeled conservative affine risk envelope", () => {
+    const f = fixture();
+    const result = evaluatePiSteadyShadow(f.input, f.baseline, {
+      ...f.metadata,
+      cycleRetention: { totalRatio: 0.1, recentBudgetTokens: 20000 },
+    });
+    expect(result).toMatchObject({
+      candidateCommit: null,
+      variant: "total-floor-v2-affine-risk",
+      status: "evaluated",
+    });
+    if (result.status !== "evaluated" || !result.selected) throw new Error("missing v2 cycle");
+    expect(result.selected.after).toBeCloseTo(Math.max(result.selected.before * 0.1, 20000), 7);
+    expect(result.snapshot.options.compactorTokenModel?.after).toEqual({
+      slope: 0.1,
+      intercept: 20000,
+      residual: 0,
+    });
+    expect(result.riskModel).toBe("legacy-affine-upper-envelope");
+    expect(() =>
+      evaluatePiSteadyShadow(f.input, f.baseline, {
+        ...f.metadata,
+        cycleRetention: { totalRatio: 1, recentBudgetTokens: 20000 },
+      }),
+    ).toThrow();
+  });
   it("rejects stale runtime ages and unknown runtime outcomes instead of trusting host estimates", () => {
     const f = fixture(),
       life = new PiSteadyLifecycle();

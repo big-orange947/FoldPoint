@@ -169,6 +169,8 @@ describe("Pi serialized HTTP boundary", () => {
             trialOut,
             "--trial-history",
             join(out, "native-compaction", "trace.jsonl"),
+            "--retention-variant",
+            "total-floor-v2",
           ],
           { encoding: "utf8", timeout: 45_000, env: env() },
         ),
@@ -176,6 +178,12 @@ describe("Pi serialized HTTP boundary", () => {
       expect(trial).toMatchObject({ completed: true, paidCalls: 0, policyChanged: true });
       expect(trial.rows[0]).toMatchObject({ ordinaryRequests: 2, summaryRequests: 0 });
       expect(trial.rows[0].controlChecks.some((c: { applied: boolean }) => c.applied)).toBe(true);
+      expect(
+        trial.rows[0].controlChecks.every(
+          (c: { basis: string; variant: string }) =>
+            c.basis === "total-floor-v2" && c.variant === "total-floor-v2-affine-risk",
+        ),
+      ).toBe(true);
       const retry = spawnSync(process.execPath, ["--import", "tsx", script, "--out", out], {
         encoding: "utf8",
         timeout: 10_000,

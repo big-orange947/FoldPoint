@@ -6,11 +6,15 @@ import {
   profileKey,
   type RuntimeSurvivalOptions,
 } from "../../src/index";
+import { predictRetainedFloor } from "../../tools/retained-floor";
 import { chooseSteadyCycle } from "../../tools/steady-choice";
+import { chooseSteadyFloorCycle } from "../../tools/steady-floor-choice";
 import type { PiSteadyLifecycleSnapshot } from "./steady-lifecycle";
 
 /** The host must supply compatible past observations, not fixture truth or a known endpoint. */
 export interface PiSteadyMetadata {
+  /** Explicit research variant. Risk continues to use an affine upper envelope. */
+  cycleRetention?: { totalRatio: number; recentBudgetTokens: number };
   /** Control-only host counter when trace-sized summary feedback is delayed. */
   ordinaryCallsSinceLastAttempt?: number;
   profileKey: string;
@@ -39,7 +43,8 @@ export function evaluatePiSteadyShadow(
 ) {
   const common = {
     runner: "foldpoint.pi-steady-shadow.v1" as const,
-    candidateCommit: "86bde86",
+    candidateCommit: metadata?.cycleRetention ? null : "86bde86",
+    variant: metadata?.cycleRetention ? "total-floor-v2-affine-risk" : "frozen-affine",
     applied: false as const,
     estimatedOnly: true as const,
     sessionId: input.sessionId,
@@ -115,13 +120,26 @@ export function evaluatePiSteadyShadow(
     stressWaitSelection: "paired-policy",
     futureQualification: { maxChecksPerPath: 2 },
   };
+  if (metadata.cycleRetention) {
+    // The additive envelope is >= max(r*T,B). Do not claim the old risk rollout is piecewise.
+    predictRetainedFloor(metadata.cycleRetention, input.contextTokens);
+    const model = options.compactorTokenModel;
+    if (!model) throw new Error("missing retention envelope");
+    model.after = {
+      slope: metadata.cycleRetention.totalRatio,
+      intercept: metadata.cycleRetention.recentBudgetTokens,
+      residual: 0,
+    };
+  }
   const snapshot = { input: structuredClone(input), baseline: structuredClone(baseline), options };
   const estimate = estimateRuntimeSurvival(snapshot.input, snapshot.baseline, options);
   const incumbent = {
     action: estimate.shouldCompact ? ("COMPACT" as const) : ("KEEP" as const),
     estimatedBreakEvenCalls: null,
   };
-  const choice = chooseSteadyCycle(snapshot, estimate, incumbent);
+  const choice = metadata.cycleRetention
+    ? chooseSteadyFloorCycle(snapshot, estimate, incumbent, metadata.cycleRetention)
+    : chooseSteadyCycle(snapshot, estimate, incumbent);
   return {
     ...common,
     status: "evaluated" as const,
@@ -129,6 +147,15 @@ export function evaluatePiSteadyShadow(
     reason: choice.reason,
     selected: choice.selected,
     candidates: choice.candidates,
+    ...(metadata.cycleRetention
+      ? {
+          cycleRetention: {
+            totalRatio: metadata.cycleRetention.totalRatio,
+            recentBudgetTokens: metadata.cycleRetention.recentBudgetTokens,
+          },
+          riskModel: "legacy-affine-upper-envelope",
+        }
+      : {}),
     snapshot,
     estimate,
   };
