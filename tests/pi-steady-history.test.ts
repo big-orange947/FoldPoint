@@ -72,6 +72,20 @@ it("does not require the same cache-namespace prefix but does require compatible
   ).toBe(1);
 });
 
+it("learns complete billing without inventing a retention sample when after-size is unknown", () => {
+  const unknown = events.map((e) => (e.type === "compaction" ? { ...e, afterTokens: null } : e));
+  const learned = buildSteadyHistory(unknown, profile, 20_000);
+  expect(learned).toMatchObject({
+    samples: 0,
+    billingSamples: 1,
+    retentionSource: "retention-prior-only-with-retained-budget",
+    model: { samples: 0 },
+  });
+  expect(learned?.model.summaryInputCostPerToken).toBeCloseTo((590000 * 3e-6) / 600000, 12);
+  const mixed = buildSteadyHistory([...events, ...unknown], profile, 20_000);
+  expect(mixed).toMatchObject({ samples: 1, billingSamples: 2 });
+});
+
 it("refuses an invalid paid seed before loading a Pi process or task manifest", () => {
   const dir = mkdtempSync(join(tmpdir(), "steady-bad-seed-")),
     seed = join(dir, "seed.jsonl"),

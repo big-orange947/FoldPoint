@@ -12,12 +12,13 @@ import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
 import { createSteadyTrial } from "../adapters/pi/steady-trial.mjs";
 import { summaryUsageBill } from "../src/experimental-cycle.ts";
 import { parseTraceJsonl, profileKey, resolveUnitPrices } from "../src/index.ts";
+import { extractImmediateSummary, scoreImmediateSummary } from "./pi-summary-feedback.ts";
 import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
 
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--control") continue;
+  if (["--control", "--feedback"].includes(args[i])) continue;
   if (
     !["--pi", "--out", "--trial-history"].includes(args[i]) ||
     !args[i + 1] ||
@@ -29,6 +30,8 @@ for (let i = 0; i < args.length; i++) {
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const trialHistory = value("--trial-history", undefined);
 const controlMode = args.includes("--control") || trialHistory !== undefined;
+const feedbackMode = args.includes("--feedback");
+if (feedbackMode && controlMode) throw new Error("Feedback audit does not control timing");
 const piRoot = resolve(value("--pi", "D:/pi"));
 const outArg = value("--out", undefined);
 if (!outArg) throw new Error("A fresh --out directory is required");
@@ -56,17 +59,19 @@ const wireView = (body) => ({
   // Strict request-field equality, not a claim about any real provider's cache key.
   fields: hash(Object.fromEntries(Object.entries(body).filter(([key]) => key !== "messages"))),
 });
-const cases = controlMode
-  ? ["steady-threshold-control"]
-  : [
-      "append-only",
-      "payload-conversation",
-      "payload-system",
-      "payload-tools",
-      "payload-model",
-      "payload-truncation",
-      "native-compaction",
-    ];
+const cases = feedbackMode
+  ? ["native-compaction"]
+  : controlMode
+    ? ["steady-threshold-control"]
+    : [
+        "append-only",
+        "payload-conversation",
+        "payload-system",
+        "payload-tools",
+        "payload-model",
+        "payload-truncation",
+        "native-compaction",
+      ];
 const rows = [];
 let active;
 let phase = "ordinary";
@@ -197,11 +202,12 @@ try {
   const [
     { createAgentSession },
     { AuthStorage },
-    { SessionManager },
+    { SessionManager, buildSessionProjection },
     { SettingsManager },
     helpers,
     utilities,
     { emitSessionShutdownEvent },
+    { estimateTokens },
   ] = await Promise.all([
     load("packages/coding-agent/src/core/sdk.ts"),
     load("packages/coding-agent/src/core/auth-storage.ts"),
@@ -210,6 +216,7 @@ try {
     load("packages/coding-agent/test/model-runtime-test-utils.ts"),
     load("packages/coding-agent/test/utilities.ts"),
     load("packages/coding-agent/src/core/extensions/runner.ts"),
+    load("packages/coding-agent/src/core/compaction/index.ts"),
   ]);
   mkdirSync(out, { recursive: true });
   report.piCommit = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -267,6 +274,7 @@ try {
       earlyAppendOnly: null,
       previousWire: undefined,
       comparisons: [],
+      ...(feedbackMode ? { summaryFeedback: [] } : {}),
     };
     let previousEarly;
     const directory = join(out, id);
@@ -386,10 +394,66 @@ try {
       await session.prompt("Synthetic continuation. Reply only ACK.");
       if (id === "native-compaction") {
         phase = "summary";
-        await session.compact();
+        const frozenForecast = {
+          after: { slope: 0.1, intercept: 1, residual: 0 },
+          output: { slope: 0.002, intercept: 0, residual: 0 },
+          samples: 0,
+          minBefore: 0,
+          maxBefore: 0,
+          summaryInputCostPerToken: 3e-6,
+        };
+        const captureSummary = async () => {
+          const beforeForecast = structuredClone(frozenForecast);
+          const result = await session.compact();
+          if (feedbackMode) {
+            const entries = session.sessionManager.getEntries();
+            const lastCompaction = entries.findLast((e) => e.type === "compaction");
+            assert(lastCompaction);
+            const projection = buildSessionProjection(entries, lastCompaction.id);
+            const reconstructedAfter = projection.messages.reduce(
+              (n, m) => n + estimateTokens(m),
+              0,
+            );
+            assert.equal(reconstructedAfter, result.estimatedTokensAfter);
+            const sample = extractImmediateSummary(result, {
+              sequence: active.summaryFeedback.length + 1,
+              stage: active.ordinaryRequests,
+              binding: hash(["localtest", model.id, model.cost]),
+              compactorBinding: hash([report.piCommit, 1, 2048, 4096]),
+            });
+            assert(sample);
+            const score = scoreImmediateSummary(
+              sample,
+              beforeForecast,
+              resolveUnitPrices({
+                inputPerMillion: 3,
+                outputPerMillion: 15,
+                cacheReadPerMillion: 0.3,
+                cacheWritePerMillion: 3.75,
+              }),
+            );
+            active.summaryFeedback.push({
+              ...sample,
+              score,
+              reconstructedAfterTokens: reconstructedAfter,
+            });
+            writeFileSync(
+              join(directory, "summary-feedback.jsonl"),
+              `${active.summaryFeedback.map((s) => JSON.stringify(s)).join("\n")}\n`,
+            );
+          }
+        };
+        await captureSummary();
         phase = "ordinary";
         await session.prompt("Synthetic continuation after summary. Reply only ACK.");
         await session.prompt("Synthetic additional continuation. Reply only ACK.");
+        if (feedbackMode) {
+          phase = "summary";
+          await captureSummary();
+          phase = "ordinary";
+          await session.prompt("Synthetic continuation after second summary. Reply only ACK.");
+          await session.prompt("Synthetic additional update after second summary. Reply only ACK.");
+        }
       }
       await emitSessionShutdownEvent(session.extensionRunner, {
         type: "session_shutdown",
@@ -400,9 +464,9 @@ try {
       const analysis = analyzeTraceEvents(parsed.events);
       const cost = analysis.sessionCosts[0];
       assert.equal(cost.calls, active.ordinaryRequests);
-      assert.equal(cost.compactions, id === "native-compaction" ? 1 : 0);
+      assert.equal(cost.compactions, id === "native-compaction" ? (feedbackMode ? 2 : 1) : 0);
       let aggregateInputLearning;
-      if (active.summaryRequests > 0) {
+      if (active.summaryRequests > 0 && !feedbackMode) {
         const summary = parsed.events.find((e) => e.type === "compaction" && e.success);
         assert.equal(summary.usage.promptTokens, active.summaryRequests * 10_000);
         assert.equal(summary.usage.outputTokens, active.summaryRequests * 300);
@@ -443,8 +507,9 @@ try {
       assert(Math.abs(cost.totalCost - expectedCost) < 1e-12);
       assert.equal(cost.unpricedCompactions, 0);
       assert.equal(active.serverErrors, 0);
-      const expected =
-        id === "append-only" || controlMode
+      const expected = feedbackMode
+        ? [true, false, true, false, true]
+        : id === "append-only" || controlMode
           ? [true]
           : id === "native-compaction"
             ? [true, false, true]
@@ -454,6 +519,22 @@ try {
         expected,
       );
       if (id.startsWith("payload-")) assert.equal(active.comparisons[0].earlyAppendOnly, true);
+      if (feedbackMode) {
+        assert.equal(active.summaryFeedback.length, 2);
+        assert.equal(
+          active.summaryFeedback.reduce((n, s) => n + s.usage.promptTokens, 0),
+          active.summaryRequests * 10000,
+        );
+        assert.equal(
+          active.summaryFeedback.reduce((n, s) => n + s.usage.outputTokens, 0),
+          active.summaryRequests * 300,
+        );
+        assert(
+          active.summaryFeedback.every(
+            (s) => s.afterTokens >= 0 && s.score.policyConsumed === false,
+          ),
+        );
+      }
       let controlChecks;
       if (controlMode) {
         controlChecks = readFileSync(controlPath, "utf8")

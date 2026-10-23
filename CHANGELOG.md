@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi summary observation and historical billing separation
+
+- Add numeric-only immediate host-size feedback to the opt-in steady RPC diagnostic;
+  freeze the scoring model before the stage and keep the sidecar out of policy learning.
+- Learn complete historical summary bills/output even when retained size is unknown;
+  expose billing and retention sample counts separately. Future experimental forecasts
+  can change; no historical trial is backfilled or rescored as a new savings result.
+- Add read-only session projection reconstruction with source hashes and billing reconciliation,
+  and a local real-Pi serializer check comparing immediate and reconstructed host estimates.
+- Document nine historical projections: mean retained-size overestimate 90.33%, aggregate
+  summary-cost overestimate 2.95%. These are host estimates, not provider token truth;
+  retain the prior 0.66% cross-batch result and default-off status unchanged.
+
 ### Real DeepSeek steady long-task diagnostic
 
 - Complete the 140-stage 1M declared-window dynamic-only trial with the frozen candidate:

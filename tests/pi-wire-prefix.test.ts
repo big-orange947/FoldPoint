@@ -18,6 +18,39 @@ const env = () => ({
 
 describe("Pi serialized HTTP boundary", () => {
   it.skipIf(!available)(
+    "captures two immediate host estimates independently of delayed context usage",
+    () => {
+      const out = join(mkdtempSync(join(tmpdir(), "foldpoint-feedback-wire-")), "result");
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", script, "--pi", piRoot, "--out", out, "--feedback"],
+        { encoding: "utf8", timeout: 45_000, env: env() },
+      );
+      const r = JSON.parse(output),
+        row = r.rows[0];
+      expect(r).toMatchObject({ completed: true, policyChanged: false, paidCalls: 0 });
+      expect(row).toMatchObject({ ordinaryRequests: 6, pricedSummaries: 2, unpricedSummaries: 0 });
+      expect(row.summaryFeedback).toHaveLength(2);
+      expect(row.summaryFeedback.map((s: { sequence: number }) => s.sequence)).toEqual([1, 2]);
+      for (const sample of row.summaryFeedback) {
+        expect(sample.afterTokens).toBeGreaterThan(0);
+        expect(sample.estimatedOnly).toBe(true);
+        expect(sample.canDrivePolicy).toBe(false);
+        expect(sample.score.policyConsumed).toBe(false);
+        expect(sample.reconstructedAfterTokens).toBe(sample.afterTokens);
+        expect(sample.afterTokens).not.toBe(sample.usage.outputTokens);
+      }
+      const persisted = readFileSync(
+        join(out, "native-compaction", "summary-feedback.jsonl"),
+        "utf8",
+      );
+      expect(persisted).not.toContain(sentinel);
+      expect(persisted).not.toContain("Synthetic");
+      expect(r.usage.externalAttempts).toBe(0);
+    },
+    45_000,
+  );
+  it.skipIf(!available)(
     "actually changes real Pi threshold behavior without starting or racing a manual compaction",
     () => {
       const out = join(mkdtempSync(join(tmpdir(), "foldpoint-wire-control-")), "result");

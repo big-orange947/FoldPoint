@@ -1,18 +1,21 @@
 /** Persistent, staged Pi RPC runner for the three-arm 1M trial. No prompt text in reports. */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseTraceJsonl, type TraceEvent } from "../src/index";
+import { parseTraceJsonl, resolveUnitPrices, type TraceEvent } from "../src/index";
 import {
   MILLION_KEEP_RECENT_TOKENS,
   MILLION_MODEL_WINDOW_TOKENS,
   MILLION_RUN_WINDOW_TOKENS,
+  MILLION_SUMMARY_MAX_TOKENS,
   type MillionArmId,
   prepareMillionAgentDir,
 } from "./pi-million-config";
 import { gradeStageResponse, type StageExpectation } from "./pi-million-oracle";
+import { buildSteadyHistory, summaryHistoryBinding } from "./pi-steady-history";
+import { extractImmediateSummary, scoreImmediateSummary } from "./pi-summary-feedback";
 import { analyzeTraceEvents } from "./trace-analyze";
 
 interface Stage extends StageExpectation {
@@ -840,6 +843,22 @@ async function runArm(
    * stopped waiting on a live Pi or Pi actually died.
    */
   let rpcLoss: RpcLossKind | null = null;
+  const seedEvents = steadyHistory
+    ? parseTraceJsonl(readFileSync(steadyHistory, "utf8")).events
+    : [];
+  const feedbackPath = `${out}-summary-feedback.jsonl`;
+  const compactorBinding = steadyHistory
+    ? createHash("sha256")
+        .update(
+          JSON.stringify([
+            MILLION_KEEP_RECENT_TOKENS,
+            MILLION_SUMMARY_MAX_TOKENS,
+            createHash("sha256").update(readFileSync(piCli)).digest("hex"),
+          ]),
+        )
+        .digest("hex")
+    : "";
+  let feedbackSequence = 0;
   try {
     await rpc.command("get_state");
     if (
@@ -868,6 +887,15 @@ async function runArm(
       }
       const from = rpc.events.length;
       stageStarts.push(from);
+      // Freeze the model before this stage. A completed result is never fed backward
+      // into its own prediction or into this diagnostic's timing controller.
+      const beforeEvents = steadyHistory
+        ? [...seedEvents, ...parseTraceJsonl(readFileSync(tracePath, "utf8")).events]
+        : [];
+      const beforeProfile = beforeEvents.filter((e) => e.type === "decision").at(-1)?.profile;
+      const beforeForecast = beforeProfile
+        ? buildSteadyHistory(beforeEvents, beforeProfile, MILLION_KEEP_RECENT_TOKENS)?.model
+        : undefined;
       // The prompt response is emitted only *after* preflight, and preflight can run a threshold
       // compaction of its own (`agent-session.ts:1697` before `:1759`), so this wait sits inside a
       // summarization call whenever Pi decides the context needs one before the next prompt.
@@ -878,6 +906,42 @@ async function runArm(
         COMPACTION_WAIT_TIMEOUT_MS,
       );
       await rpc.settleTurn(from, COMPACTION_WAIT_TIMEOUT_MS);
+      const observedProfile = steadyHistory
+        ? parseTraceJsonl(readFileSync(tracePath, "utf8"))
+            .events.filter((e) => e.type === "decision")
+            .at(-1)?.profile
+        : undefined;
+      if (steadyHistory && observedProfile) {
+        const compatibleForecast =
+          beforeProfile &&
+          summaryHistoryBinding(beforeProfile) === summaryHistoryBinding(observedProfile)
+            ? beforeForecast
+            : undefined;
+        for (const event of rpc.events.slice(from)) {
+          if (event.type !== "compaction_end" || event.aborted === true || !event.result) continue;
+          const feedback = extractImmediateSummary(event.result, {
+            sequence: feedbackSequence + 1,
+            stage: index + 1,
+            binding: createHash("sha256")
+              .update(summaryHistoryBinding(observedProfile))
+              .digest("hex"),
+            compactorBinding,
+          });
+          if (!feedback) continue;
+          feedbackSequence++;
+          appendFileSync(
+            feedbackPath,
+            `${JSON.stringify({
+              ...feedback,
+              score: scoreImmediateSummary(
+                feedback,
+                compatibleForecast,
+                resolveUnitPrices(observedProfile.pricing),
+              ),
+            })}\n`,
+          );
+        }
+      }
       const replies = rpc.events
         .slice(from)
         .filter((event) => event.type === "message_end" && event.message?.role === "assistant");
@@ -1113,7 +1177,14 @@ async function main(): Promise<void> {
   const fullCorpus = maxStages === manifestData.prompts.length;
   const prompts = manifestData.prompts.slice(0, maxStages);
   const reportPath = `${output}-report.json`;
-  if (existsSync(reportPath) || selectedArms.some((arm) => existsSync(`${output}-${arm}.jsonl`))) {
+  if (
+    existsSync(reportPath) ||
+    selectedArms.some((arm) => existsSync(`${output}-${arm}.jsonl`)) ||
+    (steadyHistory &&
+      ["-steady-control.jsonl", "-summary-feedback.jsonl"].some((suffix) =>
+        existsSync(`${output}${suffix}`),
+      ))
+  ) {
     throw new Error("Refusing to overwrite an existing 1M trial result");
   }
   mkdirSync(dirname(output), { recursive: true });
@@ -1176,9 +1247,34 @@ async function main(): Promise<void> {
       : [];
   const steadyControlVerified =
     !steadyHistory || controls.some((c) => c.applied && c.basis === "frozen-candidate");
+  const feedbackPath = `${output}-summary-feedback.jsonl`;
+  const feedback: Array<{ usage: unknown; score: unknown }> =
+    steadyHistory && existsSync(feedbackPath)
+      ? readFileSync(feedbackPath, "utf8")
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
   const report = {
     runner: "foldpoint.pi-million-rpc.v1",
     controller: steadyHistory ? "frozen-steady-86bde86" : "legacy",
+    immediateSummaryFeedback: steadyHistory
+      ? {
+          path: feedbackPath,
+          samples: feedback.length,
+          successfulCompactions: results.reduce((n, r) => n + r.compactions, 0),
+          missingImmediateSizes: Math.max(
+            0,
+            results.reduce((n, r) => n + r.compactions, 0) - feedback.length,
+          ),
+          scored: feedback.filter((s) => s.score !== null).length,
+          unknownUsage: feedback.filter((s) => s.usage === null).length,
+          comparedWithHostEstimate: true,
+          policyConsumed: false,
+          canDrivePolicy: false,
+        }
+      : null,
     steadyControl: steadyHistory
       ? {
           verified: steadyControlVerified,
