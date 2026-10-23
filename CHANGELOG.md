@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Research-only overlapping retention budget
+
+- Add a separate total-retention floor predictor and exact piecewise stable-cycle solution;
+  do not add an overlapping recent-history budget twice or change the frozen affine controller.
+- Reconcile cycle forecasts against iterative recurrence and per-request bills. Retain explicit
+  256-call limits and unavailable comparison cells. Publish forecast-only comparisons, not savings.
+- Leave SDK defaults, Pi execution, old paid artifacts and the 0.66% result unchanged.
+
 ### Pi summary observation and historical billing separation
 
 - Add numeric-only immediate host-size feedback to the opt-in steady RPC diagnostic;
