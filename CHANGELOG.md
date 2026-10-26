@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Supported offline cycles with explicit fixed60 fallback
+
+- Gate learned cycle candidates by identified compatible host models and observed input support;
+  ignore the old billing after-prior. Missing support uses fixed60; FORCE safety remains first.
+- Execute 72 paired synthetic worlds with complete bills. All 36 cold cases equal fixed60;
+  36 explicit past-wide cases are 27/6/3 and -7.73% in aggregate, not cold-start/provider evidence.
+- Keep live Pi/default paths unchanged and expose the persistent cold-history coverage limitation.
+
 ### Immediate retention learning, diagnostic only
 
 - Reuse the bounded uncertain affine learner behind profile/compactor/estimator bindings.

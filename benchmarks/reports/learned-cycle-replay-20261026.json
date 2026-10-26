@@ -1,0 +1,37 @@
+{
+  "kind": "supported-cycle-synthetic-replay",
+  "paidCalls": 0,
+  "realTask": false,
+  "livePolicyChanged": false,
+  "summary": [
+    {
+      "history": "cold",
+      "cells": 36,
+      "wins": 0,
+      "ties": 36,
+      "losses": 0,
+      "total": 152.43508882199998,
+      "baseline": 152.43508882199998,
+      "relativeDifference": 0,
+      "learnedDecisions": 0
+    },
+    {
+      "history": "past-wide",
+      "cells": 36,
+      "wins": 27,
+      "ties": 6,
+      "losses": 3,
+      "total": 140.65146542399998,
+      "baseline": 152.43508882199998,
+      "relativeDifference": -0.07730256523653722,
+      "learnedDecisions": 8124
+    }
+  ],
+  "rawSha256": "a265efa8dac0f83d4bcfbf5197e5c2bb5161ed0014d7397551c0a713a322bd79",
+  "limitations": [
+    "Cold and past-wide must not be pooled as a cold-start savings claim.",
+    "Past-wide has three explicit compatible past synthetic observations; collecting them is not free and is not included in this task ledger.",
+    "No Pi runtime-risk gate, TTL, summary failures or quality model; supported nominal fit is not a confidence bound.",
+    "No live policy changes or new paid evidence."
+  ]
+}
