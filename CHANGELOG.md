@@ -6,6 +6,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Immediate retention learning, diagnostic only
+
+- Reuse the bounded uncertain affine learner behind profile/compactor/estimator bindings.
+  Accept immediate host sizes independently of billing availability, reject reconstructed labels,
+  and audit predictions before learning each target. Defaults and paid paths remain unchanged.
+- Make cold priors, low-span local fallbacks and unknown extrapolations distinct; invalidate
+  fitted windows on explicit in-range drift. No confidence or policy-authority claim.
+- Reaudit 11 real immediate samples: one prior, one local forecast, nine refused extrapolations,
+  no identifiable slope. Preserve missing coverage rather than advertise single-point accuracy.
+
 ### Offline cross-scale retention attribution
 
 - Recover three historical fixed60 host-size projections without backfilling old traces;
