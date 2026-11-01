@@ -6,6 +6,7 @@ import type { CompactorTokenModel } from "../src/experimental-compactor";
 import { costOfCall, resolveUnitPrices } from "../src/pricing";
 import { chooseWithBaselineGate } from "./learned-cycle-baseline-gate";
 import { chooseSupportedCycle } from "./learned-cycle-choice";
+import { chooseWithFiniteGate } from "./learned-finite-gate";
 import { PiImmediateRetentionLearner } from "./pi-retention-learner";
 
 export interface LearnedReplayWorld {
@@ -29,7 +30,8 @@ function actualAfter(law: LearnedReplayWorld["law"], before: number) {
 
 export function executeLearnedReplay(
   world: LearnedReplayWorld,
-  policy: "supported" | "fixed60" | "gated",
+  policy: "supported" | "fixed60" | "gated" | "finite",
+  continuationProbability = 0.98,
 ) {
   if (
     !Number.isSafeInteger(world.steps) ||
@@ -95,7 +97,12 @@ export function executeLearnedReplay(
   for (let step = 0; step < world.steps; step++) {
     const choice =
       policy !== "fixed60"
-        ? (policy === "gated" ? chooseWithBaselineGate : chooseSupportedCycle)({
+        ? (policy === "gated"
+            ? chooseWithBaselineGate
+            : policy === "finite"
+              ? (x: Parameters<typeof chooseWithFiniteGate>[0]) =>
+                  chooseWithFiniteGate(x, continuationProbability)
+              : chooseSupportedCycle)({
             contextTokens: context,
             growthTokens: growth,
             prices,

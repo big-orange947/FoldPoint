@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Finite-horizon risk-gate experiment
+
+- Add a research-only same-state discounted cost comparison without access to future task endpoint.
+  It includes summary/rebuild costs, rejects unsupported retention extrapolation and excessive tail.
+- In the existing synthetic 72-cell grid, cold remains 36 ties; supplied-history gives 22/13/1
+  and -7.28% aggregate, versus prior 27/6/3 and -7.73%. Fixed 0.98 survival is uncalibrated.
+- No Pi/default policy changes, paid calls, independent holdout or production-savings claim.
+
 ### Experimental threshold-cycle comparison
 
 - Compare candidate and fixed60 threshold-cycle forecasts on the same learned model, refusing
