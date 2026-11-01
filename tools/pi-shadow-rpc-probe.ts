@@ -5,6 +5,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createPiLearnedShadow } from "../adapters/pi/learned-shadow";
+import { resolveUnitPrices } from "../src/pricing";
 import { RpcSession } from "./pi-million-rpc";
 import { openPiShadowJournal } from "./pi-shadow-journal";
 
@@ -136,10 +137,30 @@ const makeShadow = (journal: ReturnType<typeof openPiShadowJournal>) =>
     appendFeedback: journal.appendFeedback,
     writeEvaluation: () => {},
   });
+const evaluationInput = {
+  contextTokens: 55000,
+  growthTokens: 2000,
+  prices: resolveUnitPrices({ inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3 }),
+  billingModel: {
+    after: { slope: 0.1, intercept: 2000, residual: 0 },
+    output: { slope: 0.002, intercept: 10, residual: 0 },
+    samples: 0,
+    minBefore: 0,
+    maxBefore: 70000,
+    summaryInputCostPerToken: 3e-6,
+  },
+  softBoundary: 50000,
+  fallbackBoundary: 60000,
+  forceBoundary: 70000,
+};
 let rpc: RpcSession | undefined;
 try {
   let journal = openPiShadowJournal(journalPath, binding, assumptions);
   let shadow = makeShadow(journal);
+  const cold = shadow.evaluate(evaluationInput);
+  assert.equal(cold.status, "evaluated");
+  assert("recommendation" in cold);
+  assert.equal(cold.recommendation.reason, "unidentified-retention");
   rpc = openRpc();
   await rpc.command("get_state");
   for (let i = 0; i < 2; i++) {
@@ -154,24 +175,41 @@ try {
   assert(summaryCalls >= 1);
   assert.equal(shadow.observeImmediate(result.data, { sequence: 1, stage: 2 }).accepted, true);
   const expected = shadow.snapshot();
+  const expectedEvaluation = shadow.evaluate(evaluationInput);
   await rpc.close();
   rpc = undefined;
   journal.close();
   journal = openPiShadowJournal(journalPath, binding, assumptions);
   shadow = makeShadow(journal);
   assert.deepEqual(shadow.snapshot(), expected);
+  assert.deepEqual(shadow.evaluate(evaluationInput), expectedEvaluation);
   rpc = openRpc();
   await rpc.command("get_state");
-  const start = rpc.events.length;
-  await rpc.command("prompt", { message: "Synthetic task after restart: reply ACK." });
-  await rpc.waitFor((event) => event.type === "agent_settled", start, 15000);
-  await rpc.settleTurn(start, 15000);
+  for (let i = 0; i < 2; i++) {
+    const start = rpc.events.length;
+    await rpc.command("prompt", { message: `Synthetic task after restart ${i}: reply ACK.` });
+    await rpc.waitFor((event) => event.type === "agent_settled", start, 15000);
+    await rpc.settleTurn(start, 15000);
+  }
   assert.equal(shadow.snapshot().retainedSamples, 1);
+  const beforeSecondSummary = calls;
+  const secondResult = await rpc.command("compact", {}, 15000);
+  const secondSummaryCalls = calls - beforeSecondSummary;
+  assert(secondSummaryCalls >= 1);
+  assert.equal(
+    shadow.observeImmediate(secondResult.data, { sequence: 2, stage: 4 }).accepted,
+    true,
+  );
+  assert.equal(
+    shadow.observeImmediate(secondResult.data, { sequence: 2, stage: 4 }).accepted,
+    false,
+  );
+  assert.equal(shadow.snapshot().retainedSamples, 2);
   assert(!readFileSync(journalPath, "utf8").includes("Synthetic"));
-  assert.equal(calls, 3 + summaryCalls);
+  assert.equal(calls, 4 + summaryCalls + secondSummaryCalls);
   journal.close();
   process.stdout.write(
-    `${JSON.stringify({ completed: true, piRpcProcesses: 2, ordinaryCalls: 3, summaryCalls, restoredSamples: 1, paidCalls: 0, applied: false })}\n`,
+    `${JSON.stringify({ completed: true, piRpcProcesses: 2, ordinaryCalls: 4, summaryCalls: summaryCalls + secondSummaryCalls, restoredSamples: 1, finalSamples: 2, evaluationRestored: true, paidCalls: 0, applied: false })}\n`,
   );
 } finally {
   if (rpc) await rpc.close();

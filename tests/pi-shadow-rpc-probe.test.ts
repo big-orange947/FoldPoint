@@ -22,8 +22,10 @@ it.skipIf(!existsSync(join(pi, "packages/coding-agent/dist/cli.js")))(
     expect(report).toMatchObject({
       completed: true,
       piRpcProcesses: 2,
-      ordinaryCalls: 3,
+      ordinaryCalls: 4,
       restoredSamples: 1,
+      finalSamples: 2,
+      evaluationRestored: true,
       paidCalls: 0,
       applied: false,
     });
