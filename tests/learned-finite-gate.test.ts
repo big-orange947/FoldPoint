@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { resolveUnitPrices } from "../src/pricing";
 import { evaluateFiniteGate } from "../tools/finite-gate-eval";
@@ -125,4 +129,15 @@ it("keeps the hypothetical runtime mixture separate from the fixed-probability r
   expect(r.durationPrior).toContain("unvalidated");
   expect(r.summary[0]).toMatchObject({ wins: 0, ties: 36, losses: 0 });
   expect(r.summary[1]).toMatchObject({ wins: 22, ties: 13, losses: 1 });
+});
+
+it("rejects unsupported CLI modes without writing an output", () => {
+  const out = join(mkdtempSync(join(tmpdir(), "finite-eval-")), "report.json");
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "tools/finite-gate-eval.ts", "--out", out, "--unknown"],
+    { encoding: "utf8", timeout: 10000 },
+  );
+  expect(result.status).not.toBe(0);
+  expect(existsSync(out)).toBe(false);
 });

@@ -65,7 +65,7 @@ export function evaluateFiniteGate(
     summary,
     cells,
     limitations: [
-      "A fixed survival assumption is hypothetical, not learned from these tasks or proof of their completion probability.",
+      "The fixed or mixture survival prior is hypothetical, not learned from these tasks or proof of their completion probability.",
       "Simulated warm cache and successful single-request summaries only; no quality, provider, failure or TTL validation.",
       "Forecasts are truncated at 128 calls; fallback if the residual survival probability exceeds 0.1.",
       "Past-wide synthetic history is supplied, not free newly acquired observations; no future task endpoint enters policy.",
@@ -74,9 +74,16 @@ export function evaluateFiniteGate(
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  if (args.length !== 2 || args[0] !== "--out" || !args[1] || existsSync(args[1]))
+  if (
+    (args.length !== 2 && args.length !== 3) ||
+    args[0] !== "--out" ||
+    !args[1] ||
+    args[1].startsWith("--") ||
+    (args.length === 3 && args[2] !== "--mixture") ||
+    existsSync(args[1])
+  )
     throw new Error("A fresh --out path is required");
-  const report = evaluateFiniteGate();
+  const report = evaluateFiniteGate(0.98, args[2] === "--mixture" ? "finite-mixture" : "finite");
   writeFileSync(args[1], `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   process.stdout.write(`${JSON.stringify(report.summary, null, 2)}\n`);
 }

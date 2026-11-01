@@ -43,6 +43,7 @@
 
 ```powershell
 node --import tsx tools/finite-gate-eval.ts --out traces/finite-gate-fresh.json
+node --import tsx tools/finite-gate-eval.ts --out traces/finite-mixture-fresh.json --mixture
 ```
 
 下一步应以真实轨迹或独立任务检验不同runtime阶段的继续概率与预测误差，并验证成本及延迟。
