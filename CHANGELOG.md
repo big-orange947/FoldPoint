@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Offline observed-cycle reconciliation
+
+- Compare ten complete paid-run cycles with their recorded steady-cycle forecasts; separate
+  ordinary output, omit the final censored interval, and disclose coordinate/attribution limits.
+- No new paid calls, policy changes, or counterfactual savings claim.
+
 ### Local Pi SDK learned-shadow lifecycle
 
 - Exercise the learned shadow around two real local Pi SDK compactions with loopback responses;
