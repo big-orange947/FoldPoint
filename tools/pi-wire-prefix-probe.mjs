@@ -9,6 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
+import { createPiLearnedShadow } from "../adapters/pi/learned-shadow.ts";
 import { createSteadyTrial } from "../adapters/pi/steady-trial.mjs";
 import { summaryUsageBill } from "../src/experimental-cycle.ts";
 import { parseTraceJsonl, profileKey, resolveUnitPrices } from "../src/index.ts";
@@ -401,6 +402,25 @@ try {
       await session.prompt("Synthetic continuation. Reply only ACK.");
       if (id === "native-compaction") {
         phase = "summary";
+        const shadowJournal = [],
+          shadowEvaluations = [];
+        const makeShadow = () =>
+          createPiLearnedShadow({
+            binding: {
+              profileBinding: hash(["localtest", model.id, model.cost]),
+              compactorBinding: hash([report.piCommit, 1, 2048, 4096]),
+              estimatorId: "pi-host/v1",
+            },
+            assumptions: { beforeErrorTokens: 0, afterErrorTokens: 0, driftToleranceRatio: 0.05 },
+            loadHistory: () => shadowJournal,
+            appendFeedback: (sample) => {
+              shadowJournal.push(sample);
+            },
+            writeEvaluation: (record) => {
+              shadowEvaluations.push(record);
+            },
+          });
+        let shadow = makeShadow();
         const frozenForecast = {
           after: { slope: 0.1, intercept: 1, residual: 0 },
           output: { slope: 0.002, intercept: 0, residual: 0 },
@@ -411,8 +431,35 @@ try {
         };
         const captureSummary = async () => {
           const beforeForecast = structuredClone(frozenForecast);
+          if (feedbackMode) {
+            const evaluation = shadow.evaluate({
+              contextTokens: 550000,
+              growthTokens: 20000,
+              prices: resolveUnitPrices({
+                inputPerMillion: 3,
+                outputPerMillion: 15,
+                cacheReadPerMillion: 0.3,
+              }),
+              billingModel: beforeForecast,
+              softBoundary: 500000,
+              fallbackBoundary: 600000,
+              forceBoundary: 700000,
+            });
+            assert.equal(evaluation.applied, false);
+            assert.equal(evaluation.support.samples, shadowJournal.length);
+          }
           const result = await session.compact();
           if (feedbackMode) {
+            assert.equal(
+              shadow.observeImmediate(result, {
+                sequence: shadowJournal.length + 1,
+                stage: active.ordinaryRequests,
+              }).accepted,
+              true,
+            );
+            const restored = makeShadow();
+            assert.deepEqual(restored.snapshot(), shadow.snapshot());
+            shadow = restored;
             const entries = session.sessionManager.getEntries();
             const lastCompaction = entries.findLast((e) => e.type === "compaction");
             assert(lastCompaction);
@@ -460,6 +507,12 @@ try {
           phase = "ordinary";
           await session.prompt("Synthetic continuation after second summary. Reply only ACK.");
           await session.prompt("Synthetic additional update after second summary. Reply only ACK.");
+          active.learnedShadow = {
+            samples: shadowJournal.length,
+            evaluations: shadowEvaluations.length,
+            reloadedSamples: shadow.snapshot().retainedSamples,
+            applied: false,
+          };
         }
       }
       await emitSessionShutdownEvent(session.extensionRunner, {

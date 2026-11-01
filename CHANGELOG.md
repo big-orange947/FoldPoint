@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Local Pi SDK learned-shadow lifecycle
+
+- Exercise the learned shadow around two real local Pi SDK compactions with loopback responses;
+  evaluate before feedback, then replay the journal into a fresh bridge after each compaction.
+- No paid calls or policy application. Bridge reload is not an RPC process restart or disk durability proof.
+
 ### Host-driven learned shadow bridge
 
 - Add a repo-local numeric-only RPC/host bridge for immediate feedback and supported-cycle

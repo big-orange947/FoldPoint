@@ -30,6 +30,7 @@ describe("Pi serialized HTTP boundary", () => {
         row = r.rows[0];
       expect(r).toMatchObject({ completed: true, policyChanged: false, paidCalls: 0 });
       expect(row).toMatchObject({ ordinaryRequests: 6, pricedSummaries: 2, unpricedSummaries: 0 });
+      expect(row.learnedShadow).toEqual({ samples: 2, evaluations: 2, reloadedSamples: 2, applied: false });
       expect(row.summaryFeedback).toHaveLength(2);
       expect(row.summaryFeedback.map((s: { sequence: number }) => s.sequence)).toEqual([1, 2]);
       for (const sample of row.summaryFeedback) {
