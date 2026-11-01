@@ -11,6 +11,7 @@ import {
   type TraceEvent,
   type UnitPrices,
 } from "../src/index";
+import { chooseColdStartCandidate } from "./cold-start-candidate";
 import { chooseSupportedCycle } from "./learned-cycle-choice";
 import { matchSummaryFeedback } from "./match-summary-feedback";
 import { PiImmediateRetentionLearner } from "./pi-retention-learner";
@@ -93,7 +94,7 @@ export interface SimulationWorld {
 
 export function simulateTraceWorld(
   world: SimulationWorld,
-  policy: "fixed60" | "fixed50" | "supported",
+  policy: "fixed60" | "fixed50" | "supported" | "cold-prior",
 ) {
   if (
     !Number.isSafeInteger(world.initialContext) ||
@@ -133,35 +134,46 @@ export function simulateTraceWorld(
     if (context > 700000) forceBoundaryOvershoots++;
     const state = learner.snapshot();
     const choice =
-      policy !== "supported"
+      policy === "cold-prior"
         ? {
-            action:
-              context >= 700000
-                ? "FORCE"
-                : context >= (policy === "fixed50" ? 500000 : 600000)
-                  ? "COMPACT"
-                  : "KEEP",
-            reason: policy,
+            ...chooseColdStartCandidate({
+              context,
+              growth: observedGrowth,
+              prices: world.prices,
+              summaryInputRate: world.summaryInputRate,
+              summaryOutput: world.summaryOutput,
+            }),
             usedLearnedModel: false,
           }
-        : chooseSupportedCycle({
-            contextTokens: context,
-            growthTokens: observedGrowth,
-            prices: world.prices,
-            billingModel: {
-              after: { slope: 0.1, intercept: 0, residual: 0 },
-              output: { slope: 0, intercept: world.summaryOutput, residual: 0 },
-              samples: 0,
-              minBefore: 0,
-              maxBefore: 700000,
-              summaryInputCostPerToken: world.summaryInputRate,
-            },
-            retention: state,
-            expectedBasis: state.basis,
-            softBoundary: 500000,
-            fallbackBoundary: 600000,
-            forceBoundary: 700000,
-          });
+        : policy !== "supported"
+          ? {
+              action:
+                context >= 700000
+                  ? "FORCE"
+                  : context >= (policy === "fixed50" ? 500000 : 600000)
+                    ? "COMPACT"
+                    : "KEEP",
+              reason: policy,
+              usedLearnedModel: false,
+            }
+          : chooseSupportedCycle({
+              contextTokens: context,
+              growthTokens: observedGrowth,
+              prices: world.prices,
+              billingModel: {
+                after: { slope: 0.1, intercept: 0, residual: 0 },
+                output: { slope: 0, intercept: world.summaryOutput, residual: 0 },
+                samples: 0,
+                minBefore: 0,
+                maxBefore: 700000,
+                summaryInputCostPerToken: world.summaryInputRate,
+              },
+              retention: state,
+              expectedBasis: state.basis,
+              softBoundary: 500000,
+              fallbackBoundary: 600000,
+              forceBoundary: 700000,
+            });
     if (choice.usedLearnedModel) learnedChoices++;
     if (choice.action !== "KEEP") {
       const before = context;
@@ -240,6 +252,7 @@ export function stressTraceWorld(world: SimulationWorld) {
         };
         const fixed = simulateTraceWorld(scenario, "fixed60");
         const supported = simulateTraceWorld(scenario, "supported");
+        const candidate = simulateTraceWorld(scenario, "cold-prior");
         const early = simulateTraceWorld(scenario, "fixed50");
         return {
           calls,
@@ -247,16 +260,20 @@ export function stressTraceWorld(world: SimulationWorld) {
           cache,
           fixedCost: fixed.totalCost,
           supportedCost: supported.totalCost,
+          candidateCost: candidate.totalCost,
+          candidateDelta: candidate.totalCost - fixed.totalCost,
           diagnosticEarlyCost: early.totalCost,
           supportedDelta: supported.totalCost - fixed.totalCost,
           diagnosticEarlyDelta: early.totalCost - fixed.totalCost,
           fixedSummaries: fixed.summaries,
           supportedSummaries: supported.summaries,
+          candidateSummaries: candidate.summaries,
           diagnosticEarlySummaries: early.summaries,
           supportedLearnedChoices: supported.learnedChoices,
           forceBoundaryOvershoots: Math.max(
             fixed.forceBoundaryOvershoots,
             supported.forceBoundaryOvershoots,
+            candidate.forceBoundaryOvershoots,
             early.forceBoundaryOvershoots,
           ),
         };
@@ -316,7 +333,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     ordinaryOutput: 300,
   };
   const fixed = simulateTraceWorld(world, "fixed60"),
-    supported = simulateTraceWorld(world, "supported");
+    supported = simulateTraceWorld(world, "supported"),
+    candidate = simulateTraceWorld(world, "cold-prior");
   process.stdout.write(
     `${JSON.stringify(
       {
@@ -342,6 +360,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         },
         fixed,
         supported,
+        candidate,
         sensitivity: stressTraceWorld(world),
         limitations: [
           "counterfactual-not-real-replay",
