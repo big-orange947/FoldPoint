@@ -16,6 +16,12 @@ npm run trace:analyze -- traces/example.jsonl
 
 ## 1. What a trace contains
 
+An ordinary `request` may include an optional host-supplied `runtimeId`, including when
+the preceding decision was unavailable. This is runtime attribution, not a fabricated
+decision or a completion outcome. Older traces without the field remain valid. The Pi adapter
+emits it for an unpaired request only while a runtime is active. See
+[`runtime-evidence`](../benchmarks/runtime-evidence.md) for pairing and censoring limitations.
+
 One JSON object per line, in observation order. Every event is **metadata only**: timestamps,
 token counts, prices, cache usage, the decision and the model's estimates. There is no field for
 prompt text, tool output, chat content or credentials, and none may be added.

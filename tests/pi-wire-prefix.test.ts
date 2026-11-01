@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parseTraceJsonl } from "../src/index";
+import { summarizeRuntimeEvidence } from "../tools/runtime-evidence";
 
 const piRoot = resolve(process.env.FOLDPOINT_PI_ROOT ?? "D:/pi");
 const available = existsSync(join(piRoot, "packages/coding-agent/src/core/sdk.ts"));
@@ -52,6 +54,18 @@ describe("Pi serialized HTTP boundary", () => {
       );
       expect(persisted).not.toContain(sentinel);
       expect(persisted).not.toContain("Synthetic");
+      const trace = parseTraceJsonl(
+        readFileSync(join(out, "native-compaction", "trace.jsonl"), "utf8"),
+      );
+      expect(trace.errors).toEqual([]);
+      expect(summarizeRuntimeEvidence(trace.events)).toMatchObject({
+        totalRuntimesWithDecisionOrEnd: 6,
+        eligibleObservedEnd: 6,
+        unpairedRequests: 2,
+        assignedWithoutDecision: 2,
+        unassignedRequests: 0,
+        usableForCalibration: false,
+      });
       expect(r.usage.externalAttempts).toBe(0);
     },
     45_000,

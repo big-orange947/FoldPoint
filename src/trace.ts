@@ -165,6 +165,8 @@ export interface TraceRequestEvent {
   timestamp: number;
   sessionId: string;
   callId: string;
+  /** Runtime identity when known, including calls without a pre-request decision. */
+  runtimeId?: string;
   /** What the provider reported for the call, after it returned. */
   usage: RequestObservation;
   latencyMs?: number;
@@ -397,7 +399,7 @@ export class TraceRecorder {
     sessionId: string,
     callId: string,
     usage: RequestObservation,
-    options: { latencyMs?: number; outcome?: TraceOutcome } = {},
+    options: { latencyMs?: number; outcome?: TraceOutcome; runtimeId?: string } = {},
   ): TraceRequestEvent {
     assertTraceLabel("sessionId", sessionId);
     assertTraceLabel("callId", callId);
@@ -415,6 +417,10 @@ export class TraceRecorder {
     }
     if (options.outcome !== undefined) {
       event.outcome = options.outcome;
+    }
+    if (options.runtimeId !== undefined) {
+      assertTraceLabel("runtimeId", options.runtimeId);
+      event.runtimeId = options.runtimeId;
     }
     return event;
   }
@@ -802,6 +808,7 @@ export function validateTraceEvent(value: unknown): TraceEvent {
     }
     case "request": {
       assertTraceLabel("callId", event.callId);
+      if (event.runtimeId !== undefined) assertTraceLabel("runtimeId", event.runtimeId);
       assertFinite("usage.promptTokens", event.usage?.promptTokens, 0);
       if (event.usage.cachedInputTokens !== undefined) {
         assertFinite("usage.cachedInputTokens", event.usage.cachedInputTokens, 0);

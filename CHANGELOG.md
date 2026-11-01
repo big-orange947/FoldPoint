@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Runtime evidence and unpaired request identity
+
+- Record optional active runtime identity for a Pi request lacking a decision because host context
+  size is unknown; preserve the absence of a fabricated decision and keep old traces readable.
+- Add descriptive runtime evidence aggregation with explicit censoring, failed/ambiguous request
+  exclusion and calibration blockers. Existing runtime_end lacks completion outcome.
+- Old paid trace contains 11 unpaired requests immediately after compaction stages; no backfill,
+  new paid calls, or continuation-probability calibration was performed.
+
 ### Finite-horizon risk-gate experiment
 
 - Add a research-only same-state discounted cost comparison without access to future task endpoint.

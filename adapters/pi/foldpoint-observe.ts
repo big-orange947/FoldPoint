@@ -1388,6 +1388,7 @@ export function createFoldPointObserver(
             observation,
             {
               outcome,
+              ...(runtimeId === undefined || runtimeStatus !== "active" ? {} : { runtimeId }),
             },
           ),
         );

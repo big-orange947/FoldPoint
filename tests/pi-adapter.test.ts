@@ -1151,6 +1151,44 @@ describe("Pi observer adapter", () => {
     expect(messages.some((message) => message.includes("skipped"))).toBe(true);
   });
 
+  it("tags an unpaired post-compaction ordinary request with the active runtime without inventing a decision", () => {
+    const path = newTracePath("unknown-size-runtime");
+    const fake = fakePi();
+    createFoldPointObserver({ tracePath: path, now: () => 1_000_000, log: () => undefined })(
+      fake.pi,
+    );
+    fake.emit("session_start", { type: "session_start", reason: "startup" });
+    fake.emit("agent_start", { type: "agent_start" });
+    fake.emit("context", { type: "context" }, fake.ctxWith(null));
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 10 },
+      },
+    });
+    fake.emit("agent_end", { type: "agent_end" });
+    const events = readTrace(path);
+    const request = events.find((event) => event.type === "request");
+    const end = events.find((event) => event.type === "runtime_end");
+    expect(events.filter((event) => event.type === "decision")).toHaveLength(0);
+    expect(request?.runtimeId).toBe(end?.runtimeId);
+    expect(request?.runtimeId).toBeDefined();
+    fake.emit("message_end", {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 10 },
+      },
+    });
+    const outside = readTrace(path)
+      .filter((event) => event.type === "request")
+      .at(-1);
+    expect(outside?.runtimeId).toBeUndefined();
+  });
+
   it("waits for a known context size before recording a compaction", () => {
     // Pi reports `tokens: null` until the first response after a compaction, so the record
     // cannot be written at the call right after it: the size is only known one call later,

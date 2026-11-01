@@ -193,6 +193,22 @@ describe("trace format", () => {
     expect(requestEvent.callId).toBe("call-1");
     expect(requestEvent.usage.promptTokens).toBe(100_000);
     expect("prediction" in requestEvent).toBe(false);
+    const tagged = trace.request(
+      "session-a",
+      "unpaired",
+      { timestamp: BASE_TIMESTAMP, promptTokens: 10 },
+      { runtimeId: "run-1" },
+    );
+    expect(tagged.runtimeId).toBe("run-1");
+    expect(parseTraceJsonl(JSON.stringify(tagged)).errors).toEqual([]);
+    expect(() =>
+      trace.request(
+        "session-a",
+        "unpaired",
+        { timestamp: BASE_TIMESTAMP, promptTokens: 10 },
+        { runtimeId: "bad runtime text" },
+      ),
+    ).toThrow();
   });
 
   it("generates a callId when the host does not supply one", () => {
