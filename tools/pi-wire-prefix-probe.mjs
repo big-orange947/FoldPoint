@@ -281,7 +281,7 @@ try {
       earlyAppendOnly: null,
       previousWire: undefined,
       comparisons: [],
-      ...(feedbackMode ? { summaryFeedback: [] } : {}),
+      ...(feedbackMode ? { summaryFeedback: [], settleEvents: [] } : {}),
     };
     let previousEarly;
     const directory = join(out, id);
@@ -341,6 +341,19 @@ try {
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
         (pi) => {
+          if (feedbackMode) {
+            pi.on("agent_before_settle", (event) => {
+              active.settleEvents.push({
+                type: "before_settle",
+                outcome: ["completed", "aborted", "error"].includes(event.outcome)
+                  ? event.outcome
+                  : "unknown",
+              });
+            });
+            pi.on("agent_settled", () => {
+              active.settleEvents.push({ type: "settled" });
+            });
+          }
           pi.on("context", (event) => {
             const current = event.messages.map(hash);
             active.earlyAppendOnly = previousEarly ? prefix(previousEarly, current) : null;

@@ -38,6 +38,16 @@ describe("Pi serialized HTTP boundary", () => {
         reloadedSamples: 2,
         applied: false,
       });
+      expect(row.settleEvents).toHaveLength(12);
+      expect(
+        row.settleEvents.filter(
+          (e: { type: string; outcome?: string }) =>
+            e.type === "before_settle" && e.outcome === "completed",
+        ),
+      ).toHaveLength(6);
+      expect(row.settleEvents.filter((e: { type: string }) => e.type === "settled")).toHaveLength(
+        6,
+      );
       expect(row.summaryFeedback).toHaveLength(2);
       expect(row.summaryFeedback.map((s: { sequence: number }) => s.sequence)).toEqual([1, 2]);
       for (const sample of row.summaryFeedback) {
