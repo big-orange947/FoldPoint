@@ -6,6 +6,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Pi settlement lifecycle evidence
+
+- Exercise local Pi SDK success, error, retry and abort with loopback responses only.
+  Retry emits multiple agent loops; abort can settle without before-settle outcome.
+  Keep runtime calibration blocked until outcome and retry semantics are recorded safely.
+- Add a separate non-authoritative settled-activity observer; group attempts through final
+  settlement, keep missing outcomes unknown, and avoid claiming assistant-message counts
+  are calibrated ordinary calls. No production trace or policy integration.
+
 ### Runtime evidence and unpaired request identity
 
 - Record optional active runtime identity for a Pi request lacking a decision because host context

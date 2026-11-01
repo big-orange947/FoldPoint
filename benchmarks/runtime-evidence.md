@@ -35,6 +35,25 @@ trace的 `request.runtimeId` 是可选增量字段；旧记录仍可解析，新
 这些是成功路径的本地探针，不验证错误、取消、重试或旧版Pi；
 观察工具只记录固定枚举，不记录事件中的消息正文。目前仍未写入生产trace或解除校准阻断。
 
+本地SDK回环又覆盖了成功、HTTP错误、一次503后重试成功和主动中止四种情况：
+成功与普通错误均为 `agent_end → agent_before_settle(outcome) → agent_settled`；
+重试场景则有两次 `agent_start/agent_end`，中间有重试事件，最终才结算。
+主动中止为 `agent_end → agent_settled`，没有 `agent_before_settle`。
+因此缺少结算前状态不能按completed填充；尝试级 `agent_end` 也不能等同用户任务最终结束。
+这只是本地Pi SDK和模拟网络，不代表所有Pi版本或所有失败方式；尚未修改生产trace。
+
+新增独立研究观察器，以最终settled为活动边界，计数其中的agent尝试和assistant消息，
+输出Pi报告的状态或unknown。回环中，重试成功被记录成2次尝试、最终completed；
+主动中止因没有before-settle状态而记录unknown。completed只表示Pi活动状态，不代表任务正确。
+assistant消息计数未证明能排除所有摘要或预热，因此不称为校准用普通调用数。
+该观察器不写生产trace、不驱动策略，未解决多进程持久化和配置绑定，也不能用于训练概率。
+
+复跑须使用新目录：
+
+```powershell
+node --import tsx tools/pi-settlement-probe.mjs --pi D:/pi --out traces/pi-settlement-fresh
+```
+
 复跑旧数据（输出需为新路径）：
 
 ```powershell
