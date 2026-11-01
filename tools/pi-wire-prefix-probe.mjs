@@ -13,6 +13,7 @@ import { createPiLearnedShadow } from "../adapters/pi/learned-shadow.ts";
 import { createSteadyTrial } from "../adapters/pi/steady-trial.mjs";
 import { summaryUsageBill } from "../src/experimental-cycle.ts";
 import { parseTraceJsonl, profileKey, resolveUnitPrices } from "../src/index.ts";
+import { openPiShadowJournal } from "./pi-shadow-journal.ts";
 import { extractImmediateSummary, scoreImmediateSummary } from "./pi-summary-feedback.ts";
 import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { analyzeTraceEvents } from "./trace-analyze.ts";
@@ -417,16 +418,27 @@ try {
         phase = "summary";
         const shadowJournal = [],
           shadowEvaluations = [];
+        const shadowBinding = {
+          profileBinding: hash(["localtest", model.id, model.cost]),
+          compactorBinding: hash([report.piCommit, 1, 2048, 4096]),
+          estimatorId: "pi-host/v1",
+        };
+        const shadowAssumptions = {
+          beforeErrorTokens: 0,
+          afterErrorTokens: 0,
+          driftToleranceRatio: 0.05,
+        };
+        const shadowPath = join(directory, "shadow-journal.jsonl");
+        let diskJournal = feedbackMode
+          ? openPiShadowJournal(shadowPath, shadowBinding, shadowAssumptions)
+          : undefined;
         const makeShadow = () =>
           createPiLearnedShadow({
-            binding: {
-              profileBinding: hash(["localtest", model.id, model.cost]),
-              compactorBinding: hash([report.piCommit, 1, 2048, 4096]),
-              estimatorId: "pi-host/v1",
-            },
-            assumptions: { beforeErrorTokens: 0, afterErrorTokens: 0, driftToleranceRatio: 0.05 },
-            loadHistory: () => shadowJournal,
+            binding: shadowBinding,
+            assumptions: shadowAssumptions,
+            loadHistory: () => (diskJournal ? diskJournal.loadHistory() : shadowJournal),
             appendFeedback: (sample) => {
+              diskJournal?.appendFeedback(sample);
               shadowJournal.push(sample);
             },
             writeEvaluation: (record) => {
@@ -470,6 +482,8 @@ try {
               }).accepted,
               true,
             );
+            diskJournal.close();
+            diskJournal = openPiShadowJournal(shadowPath, shadowBinding, shadowAssumptions);
             const restored = makeShadow();
             assert.deepEqual(restored.snapshot(), shadow.snapshot());
             shadow = restored;
@@ -527,6 +541,7 @@ try {
             applied: false,
           };
         }
+        diskJournal?.close();
       }
       await emitSessionShutdownEvent(session.extensionRunner, {
         type: "session_shutdown",

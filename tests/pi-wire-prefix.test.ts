@@ -64,6 +64,18 @@ describe("Pi serialized HTTP boundary", () => {
       );
       expect(persisted).not.toContain(sentinel);
       expect(persisted).not.toContain("Synthetic");
+      const shadowJournal = readFileSync(
+        join(out, "native-compaction", "shadow-journal.jsonl"),
+        "utf8",
+      );
+      expect(shadowJournal).not.toContain(sentinel);
+      expect(shadowJournal).not.toContain("Synthetic");
+      const journalRows = shadowJournal
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(journalRows[0]).toMatchObject({ v: 1, type: "pi-shadow-feedback" });
+      expect(journalRows.slice(1).map((row: { sequence: number }) => row.sequence)).toEqual([1, 2]);
       const trace = parseTraceJsonl(
         readFileSync(join(out, "native-compaction", "trace.jsonl"), "utf8"),
       );
