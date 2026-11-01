@@ -27,6 +27,15 @@ npx tsx tools/trace-workload-audit.ts traces/pi-ledger-floor-v2-20261023-full-01
 
 此关联依赖本实验保存的 sidecar 与报告，哈希只校验文件一致性，不证明来源身份。工具拒绝缺失、冲突、重复摘要签名或配置变化，输出白名单数字以供后续重放；不同时间点、不同摘要内容的反事实仍然未知。
 
+## 逐次预测验证
+
+按时间顺序，先预测本次、再学习本次：11 次摘要中，固定 10% 的长度平均绝对相对误差为 8.88%；以上一次的即时长度预测下一次，在后 10 次上的误差为 0.86%。费用预测使用此前最多 8 次摘要的实际输入费用／压缩前长度，加此前输出 token 均值；首条无历史不预测，后 10 次平均绝对相对误差为 1.17%。计价按轨迹中当时的价格和已报告用量，不是供应商发票。
+
+这些结果用于验证模型在**已见的单一规则任务**上的逐次拟合，不是新策略节费，也没有验证跨任务精度。简单复用上一次长度在压缩器设置、工作负载改变时可能失效；历史数据没有覆盖不同触发点，不能视为不同策略下的真实摘要。
+
+现有保守的可辨识性学习器在同一数据上接受 11 条，但样本输入范围仅 214331–216607，无法辨识完整的长度模型；10 次后续预测中 9 次超出此前范围，最终仍不可辨识。这是覆盖不足的实测结果，不能把其未预测样本计作准确。
+
 ```powershell
 npx tsx tools/match-summary-feedback.ts traces/pi-ledger-floor-v2-20261023-full-01-dynamic.jsonl traces/pi-ledger-floor-v2-20261023-full-01-summary-feedback.jsonl benchmarks/reports/pi-floor-v2-20261023.json
+npx tsx tools/summary-prequential.ts traces/pi-ledger-floor-v2-20261023-full-01-dynamic.jsonl traces/pi-ledger-floor-v2-20261023-full-01-summary-feedback.jsonl benchmarks/reports/pi-floor-v2-20261023.json
 ```
