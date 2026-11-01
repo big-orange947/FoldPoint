@@ -6,6 +6,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Explicit settled-runtime correlation audit
+
+- Add fail-closed explicit session/runtime joins, detecting duplicate claims, missing endings,
+  failed requests and cross-session mismatches. Bind the manifest to the exact completed trace.
+- Exercise Pi SDK loopback artifacts from fresh processes; truncated/mismatched files fail.
+  Host-provided identity association is not authenticated and remains calibration-ineligible.
+
 ### Pi settlement lifecycle evidence
 
 - Exercise local Pi SDK success, error, retry and abort with loopback responses only.

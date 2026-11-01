@@ -76,6 +76,32 @@ it.skipIf(!available)(
       ambiguousRuntimes: 1,
       usableForCalibration: false,
     });
+    for (const name of ["success", "error", "retry", "abort"]) {
+      const reportPath = join(out, name, "reopened-audit.json");
+      const reopened = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "tools/settled-runtime-audit.ts",
+          "--trace",
+          join(out, name, "trace.jsonl"),
+          "--manifest",
+          join(out, name, "settled-manifest.json"),
+          "--out",
+          reportPath,
+        ],
+        { encoding: "utf8", timeout: 10000 },
+      );
+      expect(reopened.status).toBe(0);
+      const joined = JSON.parse(readFileSync(reportPath, "utf8"));
+      expect(joined).toMatchObject({
+        usableForCalibration: false,
+        valid: name === "success" ? 1 : 0,
+        incomplete: name === "success" ? 0 : 1,
+      });
+      expect(reopened.stdout).not.toContain("Synthetic task");
+    }
     expect(byName.retry.events).toEqual([
       { type: "agent_start" },
       { type: "agent_end" },

@@ -12,6 +12,8 @@ import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
 import { attachPiSettlementObserver } from "../adapters/pi/settlement-observer.ts";
 import { parseTraceJsonl } from "../src/index.ts";
 import { summarizeRuntimeEvidence } from "./runtime-evidence.ts";
+import { auditSettledRuntime } from "./settled-runtime-audit.ts";
+import { joinSettledActivities } from "./settled-runtime-join.ts";
 
 const args = process.argv.slice(2);
 if (
@@ -164,7 +166,8 @@ try {
     const dir = join(out, name);
     mkdirSync(dir);
     const events = [],
-      activities = [];
+      activities = [],
+      linkedActivities = [];
     const tracePath = join(dir, "trace.jsonl");
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
@@ -191,10 +194,30 @@ try {
                 endings.length,
               );
               assert.equal(new Set(endings.map((event) => event.sessionId)).size, 1);
+              const joined = joinSettledActivities(parsed.events, [
+                {
+                  sessionId: endings[0].sessionId,
+                  runtimeIds: endings.map((event) => event.runtimeId),
+                  reportedOutcome: record.reportedOutcome,
+                  settled: true,
+                },
+              ]);
+              linkedActivities.push({
+                sessionId: endings[0].sessionId,
+                runtimeIds: endings.map((event) => event.runtimeId),
+                reportedOutcome: record.reportedOutcome,
+                settled: true,
+              });
               activities.push({
                 ...record,
                 linkedRuntimeEnds: endings.length,
                 identifierJoin: "exact-emitted-ids",
+                joinEvidence: {
+                  valid: joined.valid,
+                  incomplete: joined.incomplete,
+                  ordinaryCalls: joined.ordinaryCalls,
+                  usableForCalibration: joined.usableForCalibration,
+                },
               });
             },
           );
@@ -248,10 +271,24 @@ try {
       }
       await run.catch(() => {});
       await session.waitForIdle();
-      const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
+      const traceText = readFileSync(tracePath, "utf8");
+      const parsed = parseTraceJsonl(traceText);
       assert.equal(parsed.errors.length, 0);
       const evidence = summarizeRuntimeEvidence(parsed.events);
       assert.equal(activities.length, 1);
+      const manifest = {
+        v: 1,
+        traceSha256: createHash("sha256").update(traceText, "utf8").digest("hex"),
+        activities: linkedActivities,
+      };
+      const manifestPath = join(dir, "settled-manifest.json");
+      writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`, { flag: "wx" });
+      const persistedJoin = auditSettledRuntime(
+        readFileSync(tracePath, "utf8"),
+        JSON.parse(readFileSync(manifestPath, "utf8")),
+      );
+      assert.equal(persistedJoin.valid, activities[0].joinEvidence.valid);
+      assert.equal(persistedJoin.incomplete, activities[0].joinEvidence.incomplete);
       report.cases.push({
         scenario: name,
         calls,
