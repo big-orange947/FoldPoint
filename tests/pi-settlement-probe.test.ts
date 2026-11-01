@@ -77,6 +77,16 @@ it.skipIf(!available)(
       usableForCalibration: false,
     });
     for (const name of ["success", "error", "retry", "abort"]) {
+      const journal = readFileSync(join(out, name, "settled-journal.jsonl"), "utf8");
+      expect(journal.endsWith("\n")).toBe(true);
+      expect(journal).not.toContain("sentinel-never-persist");
+      const manifest = JSON.parse(readFileSync(join(out, name, "settled-manifest.json"), "utf8"));
+      expect(
+        journal
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line)),
+      ).toEqual(manifest.activities);
       const reportPath = join(out, name, "reopened-audit.json");
       const reopened = spawnSync(
         process.execPath,

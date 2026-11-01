@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
@@ -169,6 +169,9 @@ try {
       activities = [],
       linkedActivities = [];
     const tracePath = join(dir, "trace.jsonl");
+    const journalPath = join(dir, "settled-journal.jsonl");
+    writeFileSync(journalPath, "", { flag: "wx", mode: 0o600 });
+    let pendingIdentities = [];
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
         (pi) => {
@@ -178,12 +181,27 @@ try {
             mode: "observe",
             compaction: "off",
             log: () => {},
+            onRuntimeIdentity: (identity) => pendingIdentities.push(identity),
           })(pi);
           attachPiSettlementObserver(
             (type, handler) => pi.on(type, handler),
             (record) => {
-              // The default observer writes each runtime_end synchronously before settlement.
-              // Join by emitted identifiers, never by timestamps; keep identifiers out of report.
+              // Capture identity at agent_start, not by guessing from the completed trace.
+              // A fresh per-probe journal prevents reuse across independent processes.
+              assert.equal(pendingIdentities.length, record.attempts);
+              assert.equal(new Set(pendingIdentities.map((id) => id.sessionId)).size, 1);
+              assert.equal(
+                new Set(pendingIdentities.map((id) => id.runtimeId)).size,
+                record.attempts,
+              );
+              const linked = {
+                sessionId: pendingIdentities[0].sessionId,
+                runtimeIds: pendingIdentities.map((id) => id.runtimeId),
+                reportedOutcome: record.reportedOutcome,
+                settled: true,
+              };
+              appendFileSync(journalPath, `${JSON.stringify(linked)}\n`, { encoding: "utf8" });
+              pendingIdentities = [];
               const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
               assert.equal(parsed.errors.length, 0);
               const endings = parsed.events.filter((event) => event.type === "runtime_end");
@@ -194,20 +212,8 @@ try {
                 endings.length,
               );
               assert.equal(new Set(endings.map((event) => event.sessionId)).size, 1);
-              const joined = joinSettledActivities(parsed.events, [
-                {
-                  sessionId: endings[0].sessionId,
-                  runtimeIds: endings.map((event) => event.runtimeId),
-                  reportedOutcome: record.reportedOutcome,
-                  settled: true,
-                },
-              ]);
-              linkedActivities.push({
-                sessionId: endings[0].sessionId,
-                runtimeIds: endings.map((event) => event.runtimeId),
-                reportedOutcome: record.reportedOutcome,
-                settled: true,
-              });
+              const joined = joinSettledActivities(parsed.events, [linked]);
+              linkedActivities.push(linked);
               activities.push({
                 ...record,
                 linkedRuntimeEnds: endings.length,
@@ -276,10 +282,18 @@ try {
       assert.equal(parsed.errors.length, 0);
       const evidence = summarizeRuntimeEvidence(parsed.events);
       assert.equal(activities.length, 1);
+      assert.equal(pendingIdentities.length, 0);
+      const journalText = readFileSync(journalPath, "utf8");
+      assert.ok(journalText.endsWith("\n"));
+      const persistedActivities = journalText
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      assert.deepEqual(persistedActivities, linkedActivities);
       const manifest = {
         v: 1,
         traceSha256: createHash("sha256").update(traceText, "utf8").digest("hex"),
-        activities: linkedActivities,
+        activities: persistedActivities,
       };
       const manifestPath = join(dir, "settled-manifest.json");
       writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`, { flag: "wx" });

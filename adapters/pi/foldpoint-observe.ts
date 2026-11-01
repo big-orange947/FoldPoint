@@ -227,6 +227,8 @@ export const OBSERVED_EVENTS: readonly (keyof PiEventMap)[] = [
 // ============================================================================
 
 export interface FoldPointObserverOptions {
+  /** Research-only identity notification. Identifiers are local to this observer instance. */
+  onRuntimeIdentity?: (identity: { sessionId: string; runtimeId: string }) => void;
   /** Test-only native threshold control. Requires explicit mode=act, compaction=off.
    * Pi must be configured to ask frequently; this does not change settings or start summaries.
    * Unknown metadata/errors allow native handling, never veto manual/overflow recovery.
@@ -1099,6 +1101,13 @@ export function createFoldPointObserver(
       runtimeId = `run-${runtimeStartSeconds}-${runtimeCount}`;
       runtimeStatus = "active";
       steadyLifecycle?.startRuntime(runtimeId);
+      if (state.sessionKey !== null && options.onRuntimeIdentity) {
+        try {
+          options.onRuntimeIdentity({ sessionId: state.sessionKey, runtimeId });
+        } catch {
+          warnOnce("runtime-identity-failed", "runtime identity observer failed");
+        }
+      }
     });
     pi.on("agent_end", (_event, ctx) => {
       if (state.sessionKey !== null && runtimeId !== undefined) {
