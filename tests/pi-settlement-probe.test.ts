@@ -47,10 +47,35 @@ it.skipIf(!available)(
         assistantOtherOrUnknownMessages: 1,
         reportedOutcome: "completed",
         canDrivePolicy: false,
+        linkedRuntimeEnds: 2,
+        identifierJoin: "exact-emitted-ids",
       },
     ]);
     expect(byName.error.activities).toMatchObject([{ attempts: 1, reportedOutcome: "error" }]);
     expect(byName.abort.activities).toMatchObject([{ attempts: 1, reportedOutcome: "unknown" }]);
+    expect(byName.success.traceEvidence).toMatchObject({
+      totalRuntimesWithDecisionOrEnd: 1,
+      eligibleObservedEnd: 1,
+      ambiguousRuntimes: 0,
+      usableForCalibration: false,
+    });
+    expect(byName.error.traceEvidence).toMatchObject({
+      totalRuntimesWithDecisionOrEnd: 1,
+      eligibleObservedEnd: 0,
+      ambiguousRuntimes: 1,
+      usableForCalibration: false,
+    });
+    expect(byName.retry.traceEvidence).toMatchObject({
+      totalRuntimesWithDecisionOrEnd: 2,
+      eligibleObservedEnd: 1,
+      ambiguousRuntimes: 1,
+      usableForCalibration: false,
+    });
+    expect(byName.abort.traceEvidence).toMatchObject({
+      eligibleObservedEnd: 0,
+      ambiguousRuntimes: 1,
+      usableForCalibration: false,
+    });
     expect(byName.retry.events).toEqual([
       { type: "agent_start" },
       { type: "agent_end" },

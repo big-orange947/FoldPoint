@@ -8,7 +8,10 @@ import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createFoldPointObserver } from "../adapters/pi/foldpoint-observe.ts";
 import { attachPiSettlementObserver } from "../adapters/pi/settlement-observer.ts";
+import { parseTraceJsonl } from "../src/index.ts";
+import { summarizeRuntimeEvidence } from "./runtime-evidence.ts";
 
 const args = process.argv.slice(2);
 if (
@@ -162,13 +165,37 @@ try {
     mkdirSync(dir);
     const events = [],
       activities = [];
+    const tracePath = join(dir, "trace.jsonl");
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
         (pi) => {
+          createFoldPointObserver({
+            tracePath,
+            prefixStorePath: join(dir, "prefix.json"),
+            mode: "observe",
+            compaction: "off",
+            log: () => {},
+          })(pi);
           attachPiSettlementObserver(
             (type, handler) => pi.on(type, handler),
             (record) => {
-              activities.push(record);
+              // The default observer writes each runtime_end synchronously before settlement.
+              // Join by emitted identifiers, never by timestamps; keep identifiers out of report.
+              const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
+              assert.equal(parsed.errors.length, 0);
+              const endings = parsed.events.filter((event) => event.type === "runtime_end");
+              assert.equal(endings.length, record.agentEnds);
+              assert.equal(
+                new Set(endings.map((event) => JSON.stringify([event.sessionId, event.runtimeId])))
+                  .size,
+                endings.length,
+              );
+              assert.equal(new Set(endings.map((event) => event.sessionId)).size, 1);
+              activities.push({
+                ...record,
+                linkedRuntimeEnds: endings.length,
+                identifierJoin: "exact-emitted-ids",
+              });
             },
           );
           for (const type of ["agent_start", "agent_end", "agent_before_settle", "agent_settled"])
@@ -221,7 +248,26 @@ try {
       }
       await run.catch(() => {});
       await session.waitForIdle();
-      report.cases.push({ scenario: name, calls, events, activities });
+      const parsed = parseTraceJsonl(readFileSync(tracePath, "utf8"));
+      assert.equal(parsed.errors.length, 0);
+      const evidence = summarizeRuntimeEvidence(parsed.events);
+      assert.equal(activities.length, 1);
+      report.cases.push({
+        scenario: name,
+        calls,
+        events,
+        activities,
+        traceEvidence: {
+          totalRuntimesWithDecisionOrEnd: evidence.totalRuntimesWithDecisionOrEnd,
+          eligibleObservedEnd: evidence.eligibleObservedEnd,
+          eligibleCensored: evidence.eligibleCensored,
+          ambiguousRuntimes: evidence.ambiguousRuntimes,
+          unpairedRequests: evidence.unpairedRequests,
+          assignedWithoutDecision: evidence.assignedWithoutDecision,
+          unassignedRequests: evidence.unassignedRequests,
+          usableForCalibration: evidence.usableForCalibration,
+        },
+      });
     } finally {
       session.dispose();
     }
