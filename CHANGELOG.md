@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Host-driven learned shadow bridge
+
+- Add a repo-local numeric-only RPC/host bridge for immediate feedback and supported-cycle
+  recommendations. It never registers native handlers or controls compaction.
+- Replay ordered compatible journals, reject missing immediate sizes, and disable shadow
+  evaluation after storage/history failures. Keep native task behavior independent.
+- Contract tests only: real Pi lifecycle validation remains pending; no paid calls or savings claims.
+
 ### Supported offline cycles with explicit fixed60 fallback
 
 - Gate learned cycle candidates by identified compatible host models and observed input support;
