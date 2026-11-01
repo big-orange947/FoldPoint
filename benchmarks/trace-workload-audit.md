@@ -20,3 +20,13 @@ npx tsx tools/trace-workload-audit.ts traces/pi-ledger-floor-v2-20261023-full-01
 ```
 
 输出包含输入文件哈希和汇总统计，不输出对话或会话标识；非法 UTF-8 或格式损坏的轨迹拒绝分析。
+
+## 即时摘要反馈的关联
+
+已另行核对动态组对应的反馈文件：使用已保存报告中的两个文件哈希校验输入，校验模型配置绑定、样本序号、阶段顺序，以及 11 次摘要的压缩前长度和四项用量逐项相等。11 条均匹配；即时宿主估计的保留比例为 10.75%–11.19%，均值约 10.98%。这补全了本次开发轨迹的即时观测，不是补写旧 trace，也不是独立任务或服务商 token 真值。
+
+此关联依赖本实验保存的 sidecar 与报告，哈希只校验文件一致性，不证明来源身份。工具拒绝缺失、冲突、重复摘要签名或配置变化，输出白名单数字以供后续重放；不同时间点、不同摘要内容的反事实仍然未知。
+
+```powershell
+npx tsx tools/match-summary-feedback.ts traces/pi-ledger-floor-v2-20261023-full-01-dynamic.jsonl traces/pi-ledger-floor-v2-20261023-full-01-summary-feedback.jsonl benchmarks/reports/pi-floor-v2-20261023.json
+```
