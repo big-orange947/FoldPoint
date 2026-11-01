@@ -62,10 +62,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       existsSync(args[5])
     )
       throw new Error("invalid args");
-    const report = auditSettledRuntime(
-      readFileSync(args[1], "utf8"),
-      JSON.parse(readFileSync(args[3], "utf8")),
-    );
+    const bytes = readFileSync(args[1]);
+    const trace = bytes.toString("utf8");
+    // Reject lossy UTF-8 decoding: the manifest hash must identify the exact bytes on disk.
+    if (!Buffer.from(trace, "utf8").equals(bytes)) throw new Error("invalid UTF-8 trace");
+    const report = auditSettledRuntime(trace, JSON.parse(readFileSync(args[3], "utf8")));
     writeFileSync(args[5], `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
     process.stdout.write(`${JSON.stringify(report)}\n`);
   } catch {

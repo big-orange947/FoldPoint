@@ -88,3 +88,40 @@ it("reopens persisted files in fresh processes and refuses truncated or mismatch
   expect(existsSync(invalid)).toBe(false);
   expect(run(first).status).toBe(1);
 });
+
+it("rejects invalid UTF-8 bytes instead of hashing a silently repaired string", () => {
+  const dir = mkdtempSync(join(tmpdir(), "settled-utf8-"));
+  const tracePath = join(dir, "trace.jsonl"),
+    manifestPath = join(dir, "manifest.json"),
+    out = join(dir, "report.json");
+  const { text, manifest } = fixture();
+  const bytes = Buffer.from(
+    text.replace('"producer":"test"', '"producer":"test","extra":"badX"'),
+    "utf8",
+  );
+  const index = bytes.indexOf(Buffer.from("badX"));
+  expect(index).toBeGreaterThanOrEqual(0);
+  bytes[index + 3] = 0xff;
+  const decoded = bytes.toString("utf8");
+  const altered = { ...manifest, traceSha256: createHash("sha256").update(decoded).digest("hex") };
+  expect(auditSettledRuntime(decoded, altered).valid).toBe(1);
+  writeFileSync(tracePath, bytes);
+  writeFileSync(manifestPath, JSON.stringify(altered));
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "tools/settled-runtime-audit.ts",
+      "--trace",
+      tracePath,
+      "--manifest",
+      manifestPath,
+      "--out",
+      out,
+    ],
+    { encoding: "utf8", timeout: 10000 },
+  );
+  expect(result.status).toBe(1);
+  expect(existsSync(out)).toBe(false);
+});
