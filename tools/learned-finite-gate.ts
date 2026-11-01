@@ -1,14 +1,20 @@
 /** Offline experiment: compare current compaction with waiting to fixed60 under an explicit survival assumption. */
+
+import { estimateRuntimeDuration, type RuntimeDurationModel } from "../src/experimental-runtime";
 import { costOfCall } from "../src/pricing";
 import { chooseSupportedCycle, type LearnedCycleInput } from "./learned-cycle-choice";
 
-export function chooseWithFiniteGate(input: LearnedCycleInput, continuationProbability: number) {
-  if (
-    !Number.isFinite(continuationProbability) ||
-    continuationProbability < 0 ||
-    continuationProbability > 1
-  )
+export function chooseWithFiniteGate(
+  input: LearnedCycleInput,
+  duration: number | RuntimeDurationModel,
+) {
+  if (typeof duration === "number" && (!Number.isFinite(duration) || duration < 0 || duration > 1))
     throw new RangeError("invalid continuation probability");
+  const horizon = 128;
+  const survival =
+    typeof duration === "number"
+      ? Array.from({ length: horizon + 1 }, (_, i) => duration ** i)
+      : estimateRuntimeDuration(duration, horizon, 0).survival;
   const choice = chooseSupportedCycle(input);
   if (!choice.usedLearnedModel || choice.action !== "COMPACT")
     return { ...choice, comparison: null };
@@ -17,8 +23,7 @@ export function chooseWithFiniteGate(input: LearnedCycleInput, continuationProba
     high = input.retention.maxBefore;
   const growth = input.growthTokens;
   if (!fit || low === null || high === null || !growth) throw new Error("missing model");
-  const horizon = 128,
-    tailProbability = continuationProbability ** horizon;
+  const tailProbability = survival[horizon] ?? 1;
   const forecast = (threshold: number) => {
     let context = input.contextTokens,
       prefix = Math.max(0, context - growth),
@@ -46,7 +51,7 @@ export function chooseWithFiniteGate(input: LearnedCycleInput, continuationProba
         });
       prefix = context;
       context += growth;
-      weight *= continuationProbability;
+      weight = survival[i + 1] ?? 0;
       if (weight === 0) break;
     }
     return sum;
@@ -56,7 +61,8 @@ export function chooseWithFiniteGate(input: LearnedCycleInput, continuationProba
   const comparison = {
     candidate,
     baseline,
-    continuationProbability,
+    continuationProbability: typeof duration === "number" ? duration : null,
+    completedCalls: typeof duration === "number" ? null : duration.completedCalls,
     tailProbability,
     forecastOnly: true,
   };

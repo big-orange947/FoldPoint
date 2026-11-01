@@ -30,7 +30,7 @@ function actualAfter(law: LearnedReplayWorld["law"], before: number) {
 
 export function executeLearnedReplay(
   world: LearnedReplayWorld,
-  policy: "supported" | "fixed60" | "gated" | "finite",
+  policy: "supported" | "fixed60" | "gated" | "finite" | "finite-mixture",
   continuationProbability = 0.98,
 ) {
   if (
@@ -99,10 +99,19 @@ export function executeLearnedReplay(
       policy !== "fixed60"
         ? (policy === "gated"
             ? chooseWithBaselineGate
-            : policy === "finite"
+            : policy === "finite-mixture"
               ? (x: Parameters<typeof chooseWithFiniteGate>[0]) =>
-                  chooseWithFiniteGate(x, continuationProbability)
-              : chooseSupportedCycle)({
+                  chooseWithFiniteGate(x, {
+                    completedCalls: step,
+                    components: [
+                      { weight: 0.8, continuationProbability: 0.8 },
+                      { weight: 0.2, continuationProbability: 0.98 },
+                    ],
+                  })
+              : policy === "finite"
+                ? (x: Parameters<typeof chooseWithFiniteGate>[0]) =>
+                    chooseWithFiniteGate(x, continuationProbability)
+                : chooseSupportedCycle)({
             contextTokens: context,
             growthTokens: growth,
             prices,

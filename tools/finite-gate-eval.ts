@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { executeLearnedReplay } from "./learned-cycle-replay";
 
-export function evaluateFiniteGate(continuationProbability = 0.98) {
+export function evaluateFiniteGate(
+  continuationProbability = 0.98,
+  policy: "finite" | "finite-mixture" = "finite",
+) {
   const cells: Array<{
     world: Parameters<typeof executeLearnedReplay>[0];
     baseline: { total: number; compactions: number };
@@ -19,7 +22,7 @@ export function evaluateFiniteGate(continuationProbability = 0.98) {
             const world = { steps, growth, readRatio, law, history };
             const baseline = executeLearnedReplay(world, "fixed60");
             const original = executeLearnedReplay(world, "supported");
-            const candidate = executeLearnedReplay(world, "finite", continuationProbability);
+            const candidate = executeLearnedReplay(world, policy, continuationProbability);
             if (
               candidate.offeredGrowth !== baseline.offeredGrowth ||
               candidate.ordinaryCalls !== baseline.ordinaryCalls
@@ -56,7 +59,9 @@ export function evaluateFiniteGate(continuationProbability = 0.98) {
     paidCalls: 0,
     realTask: false,
     policyChanged: false,
-    continuationProbability,
+    continuationProbability: policy === "finite" ? continuationProbability : null,
+    durationPrior:
+      policy === "finite-mixture" ? "explicit-unvalidated-0.8x0.8-plus-0.2x0.98" : null,
     summary,
     cells,
     limitations: [

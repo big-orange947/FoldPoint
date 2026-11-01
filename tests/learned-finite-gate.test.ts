@@ -101,3 +101,28 @@ it("reports survival-assumption sensitivity without counting truncated 0.99 tail
   expect(evaluateFiniteGate(0.9).summary[1]).toMatchObject({ wins: 15, ties: 21, losses: 0 });
   expect(evaluateFiniteGate(0.99).summary[1]).toMatchObject({ wins: 0, ties: 36, losses: 0 });
 });
+
+it("uses the current runtime age to update a mixture without using a future endpoint", () => {
+  const f = fixture();
+  const components = [
+    { weight: 0.8, continuationProbability: 0.8 },
+    { weight: 0.2, continuationProbability: 0.98 },
+  ];
+  const young = chooseWithFiniteGate(f, { completedCalls: 0, components });
+  const older = chooseWithFiniteGate(f, { completedCalls: 100, components });
+  if (!young.comparison || !older.comparison) throw new Error("missing comparison");
+  expect(young.comparison.completedCalls).toBe(0);
+  expect(older.comparison.completedCalls).toBe(100);
+  expect(older.comparison.tailProbability).toBeGreaterThan(young.comparison.tailProbability);
+  expect(
+    chooseWithFiniteGate({ ...f, contextTokens: 700000 }, { completedCalls: 0, components }).action,
+  ).toBe("FORCE");
+});
+
+it("keeps the hypothetical runtime mixture separate from the fixed-probability report", () => {
+  const r = evaluateFiniteGate(0.98, "finite-mixture");
+  expect(r.continuationProbability).toBeNull();
+  expect(r.durationPrior).toContain("unvalidated");
+  expect(r.summary[0]).toMatchObject({ wins: 0, ties: 36, losses: 0 });
+  expect(r.summary[1]).toMatchObject({ wins: 22, ties: 13, losses: 1 });
+});
