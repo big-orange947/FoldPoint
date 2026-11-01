@@ -87,6 +87,8 @@ export interface SimulationWorld {
   summaryInputRate: number;
   summaryOutput: number;
   ordinaryOutput: number;
+  /** Exogenous per-call cache availability; omitted means always alive. */
+  cacheAlive?: readonly boolean[];
 }
 
 export function simulateTraceWorld(
@@ -101,6 +103,9 @@ export function simulateTraceWorld(
     world.initialPrompt > world.initialContext ||
     !world.growth.length ||
     world.growth.some((g) => !Number.isSafeInteger(g) || g < 0) ||
+    (world.cacheAlive !== undefined &&
+      (world.cacheAlive.length !== world.growth.length + 1 ||
+        world.cacheAlive.some((v) => typeof v !== "boolean"))) ||
     !Number.isFinite(world.retentionRatio) ||
     world.retentionRatio <= 0 ||
     world.retentionRatio >= 1 ||
@@ -183,7 +188,11 @@ export function simulateTraceWorld(
     ordinaryCost += costOfCall(
       world.prices,
       prompt,
-      { prefixTokens: prefix, aliveProbability: 1, cachingInPlay: world.prices.hasCacheDiscount },
+      {
+        prefixTokens: prefix,
+        aliveProbability: world.cacheAlive?.[step] === false ? 0 : 1,
+        cachingInPlay: world.prices.hasCacheDiscount,
+      },
       world.ordinaryOutput,
     );
     prefix = prompt;
@@ -209,6 +218,51 @@ export function simulateTraceWorld(
     forceBoundaryOvershoots,
     actions,
   };
+}
+
+/** Stress assumptions are exogenous and identical for all branches, not provider observations. */
+export function stressTraceWorld(world: SimulationWorld) {
+  const lengths = [
+    ...new Set([
+      Math.min(40, world.growth.length + 1),
+      Math.min(80, world.growth.length + 1),
+      world.growth.length + 1,
+    ]),
+  ];
+  return lengths.flatMap((calls) =>
+    [0.05, 0.11, 0.2].flatMap((retentionRatio) =>
+      ["warm", "periodic-expiry"].map((cache) => {
+        const scenario = {
+          ...world,
+          growth: world.growth.slice(0, calls - 1),
+          retentionRatio,
+          cacheAlive: Array.from({ length: calls }, (_, i) => cache === "warm" || i % 8 !== 0),
+        };
+        const fixed = simulateTraceWorld(scenario, "fixed60");
+        const supported = simulateTraceWorld(scenario, "supported");
+        const early = simulateTraceWorld(scenario, "fixed50");
+        return {
+          calls,
+          retentionRatio,
+          cache,
+          fixedCost: fixed.totalCost,
+          supportedCost: supported.totalCost,
+          diagnosticEarlyCost: early.totalCost,
+          supportedDelta: supported.totalCost - fixed.totalCost,
+          diagnosticEarlyDelta: early.totalCost - fixed.totalCost,
+          fixedSummaries: fixed.summaries,
+          supportedSummaries: supported.summaries,
+          diagnosticEarlySummaries: early.summaries,
+          supportedLearnedChoices: supported.learnedChoices,
+          forceBoundaryOvershoots: Math.max(
+            fixed.forceBoundaryOvershoots,
+            supported.forceBoundaryOvershoots,
+            early.forceBoundaryOvershoots,
+          ),
+        };
+      }),
+    ),
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -288,6 +342,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         },
         fixed,
         supported,
+        sensitivity: stressTraceWorld(world),
         limitations: [
           "counterfactual-not-real-replay",
           "segments-concatenated",
