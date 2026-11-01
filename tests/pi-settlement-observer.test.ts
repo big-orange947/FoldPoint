@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { createPiSettlementObserver } from "../adapters/pi/settlement-observer";
+import {
+  attachPiSettlementObserver,
+  createPiSettlementObserver,
+} from "../adapters/pi/settlement-observer";
 
 it("groups retries until settled and never turns an absent outcome into completion", () => {
   const records: unknown[] = [],
@@ -50,4 +53,31 @@ it("does not treat a fire-and-forget persistence callback as a successful write"
   expect(observer.snapshot().blocked).toBe(true);
   await Promise.resolve();
   expect(JSON.stringify(observer.snapshot())).not.toContain("private-async-error");
+});
+
+it("registers only observational lifecycle hooks and never returns a control instruction", () => {
+  const handlers = new Map<string, (event: { type: string; outcome?: unknown }) => void>();
+  const records: unknown[] = [];
+  attachPiSettlementObserver(
+    (name, handler) => {
+      handlers.set(name, handler);
+    },
+    (record) => {
+      records.push(record);
+    },
+  );
+  expect([...handlers.keys()]).toEqual([
+    "agent_start",
+    "agent_end",
+    "agent_before_settle",
+    "agent_settled",
+    "message_end",
+  ]);
+  expect(handlers.get("agent_start")?.({ type: "agent_start" })).toBeUndefined();
+  expect(handlers.get("agent_end")?.({ type: "agent_end" })).toBeUndefined();
+  expect(
+    handlers.get("agent_before_settle")?.({ type: "agent_before_settle", outcome: "completed" }),
+  ).toBeUndefined();
+  expect(handlers.get("agent_settled")?.({ type: "agent_settled" })).toBeUndefined();
+  expect(records).toHaveLength(1);
 });

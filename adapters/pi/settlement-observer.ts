@@ -71,3 +71,27 @@ export function createPiSettlementObserver(write: (record: unknown) => void) {
     },
   };
 }
+
+/** Explicit opt-in registration. The host owns persistence and version compatibility. */
+export function attachPiSettlementObserver(
+  register: (
+    event: "agent_start" | "agent_end" | "agent_before_settle" | "agent_settled" | "message_end",
+    handler: (event: {
+      type: string;
+      outcome?: unknown;
+      message?: { role?: unknown; stopReason?: unknown };
+    }) => void,
+  ) => void,
+  write: (record: unknown) => void,
+) {
+  const observer = createPiSettlementObserver(write);
+  for (const type of [
+    "agent_start",
+    "agent_end",
+    "agent_before_settle",
+    "agent_settled",
+    "message_end",
+  ] as const)
+    register(type, (event) => observer.observe(event));
+  return observer;
+}

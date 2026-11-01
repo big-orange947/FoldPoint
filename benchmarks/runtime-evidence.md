@@ -47,6 +47,9 @@ trace的 `request.runtimeId` 是可选增量字段；旧记录仍可解析，新
 主动中止因没有before-settle状态而记录unknown。completed只表示Pi活动状态，不代表任务正确。
 assistant消息计数未证明能排除所有摘要或预热，因此不称为校准用普通调用数。
 该观察器不写生产trace、不驱动策略，未解决多进程持久化和配置绑定，也不能用于训练概率。
+现提供显式 `attachPiSettlementObserver` 供宿主注册，默认Pi适配器不会自动启用；
+测试通过真实Pi SDK的注册路径。记录不含sessionId、runtimeId或模型标识，宿主若持久化
+必须另行提供安全的兼容性绑定，不能跨模型或会话随意合并；回调只支持同步写入。
 
 复跑须使用新目录：
 

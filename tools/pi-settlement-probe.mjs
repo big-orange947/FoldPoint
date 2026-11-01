@@ -8,7 +8,7 @@ import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createPiSettlementObserver } from "../adapters/pi/settlement-observer.ts";
+import { attachPiSettlementObserver } from "../adapters/pi/settlement-observer.ts";
 
 const args = process.argv.slice(2);
 if (
@@ -162,15 +162,17 @@ try {
     mkdirSync(dir);
     const events = [],
       activities = [];
-    const observer = createPiSettlementObserver((record) => {
-      activities.push(record);
-    });
     const extensionsResult = await utilities.createTestExtensionsResult(
       [
         (pi) => {
+          attachPiSettlementObserver(
+            (type, handler) => pi.on(type, handler),
+            (record) => {
+              activities.push(record);
+            },
+          );
           for (const type of ["agent_start", "agent_end", "agent_before_settle", "agent_settled"])
             pi.on(type, (event) => {
-              observer.observe(event);
               events.push({
                 type,
                 ...(type === "agent_before_settle"
@@ -182,9 +184,6 @@ try {
                   : {}),
               });
             });
-          pi.on("message_end", (event) => {
-            observer.observe(event);
-          });
         },
       ],
       dir,
