@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Experimental threshold-cycle comparison
+
+- Compare candidate and fixed60 threshold-cycle forecasts on the same learned model, refusing
+  unsupported extrapolation. Research-only; no Pi or default-policy change.
+- Three known finite-task synthetic losses remain losses, so this is not a claimed savings fix.
+
 ### Offline observed-cycle reconciliation
 
 - Compare ten complete paid-run cycles with their recorded steady-cycle forecasts; separate

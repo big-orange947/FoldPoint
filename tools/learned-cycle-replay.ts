@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CompactorTokenModel } from "../src/experimental-compactor";
 import { costOfCall, resolveUnitPrices } from "../src/pricing";
+import { chooseWithBaselineGate } from "./learned-cycle-baseline-gate";
 import { chooseSupportedCycle } from "./learned-cycle-choice";
 import { PiImmediateRetentionLearner } from "./pi-retention-learner";
 
@@ -26,7 +27,10 @@ function actualAfter(law: LearnedReplayWorld["law"], before: number) {
   );
 }
 
-export function executeLearnedReplay(world: LearnedReplayWorld, policy: "supported" | "fixed60") {
+export function executeLearnedReplay(
+  world: LearnedReplayWorld,
+  policy: "supported" | "fixed60" | "gated",
+) {
   if (
     !Number.isSafeInteger(world.steps) ||
     world.steps <= 0 ||
@@ -90,8 +94,8 @@ export function executeLearnedReplay(world: LearnedReplayWorld, policy: "support
   }> = [];
   for (let step = 0; step < world.steps; step++) {
     const choice =
-      policy === "supported"
-        ? chooseSupportedCycle({
+      policy !== "fixed60"
+        ? (policy === "gated" ? chooseWithBaselineGate : chooseSupportedCycle)({
             contextTokens: context,
             growthTokens: growth,
             prices,
