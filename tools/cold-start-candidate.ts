@@ -7,10 +7,13 @@ export interface ColdStartInput {
   prices: UnitPrices;
   summaryInputRate: number;
   summaryOutput: number;
+  hostProviderOffset?: number;
 }
 
 export function chooseColdStartCandidate(input: ColdStartInput) {
   const { context, growth, prices, summaryInputRate, summaryOutput } = input;
+  const offset = input.hostProviderOffset ?? 0;
+  if (!Number.isFinite(offset) || offset < 0) throw new Error("invalid host/provider offset");
   if (![context, summaryInputRate, summaryOutput].every((v) => Number.isFinite(v) && v >= 0))
     throw new Error("invalid candidate input");
   if (context >= 700000) return { action: "FORCE" as const, reason: "safety" };
@@ -22,7 +25,7 @@ export function chooseColdStartCandidate(input: ColdStartInput) {
   const survival = (i: number) => 0.5 * 0.9 ** i + 0.5 * 0.98 ** i;
   const forecast = (compactNow: boolean, retained: number) => {
     let current = context,
-      prefix = Math.max(0, current - growth),
+      prefix = Math.max(0, current - growth - offset),
       total = 0;
     for (let i = 0; i < 128; i++) {
       const weight = survival(i);
@@ -31,14 +34,15 @@ export function chooseColdStartCandidate(input: ColdStartInput) {
         current = Math.round(current * retained);
         prefix = 0;
       }
+      const prompt = Math.max(0, current - offset);
       total +=
         weight *
-        costOfCall(prices, current, {
+        costOfCall(prices, prompt, {
           prefixTokens: prefix,
           aliveProbability: 1,
           cachingInPlay: prices.hasCacheDiscount,
         });
-      prefix = current;
+      prefix = prompt;
       current += growth;
     }
     return total;

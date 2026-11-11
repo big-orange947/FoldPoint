@@ -27,4 +27,5 @@ it("retains the safety line and falls back when no growth is available", () => {
     }).action,
   ).toBe("COMPACT");
   expect(() => chooseColdStartCandidate({ ...input, context: NaN })).toThrow();
+  expect(() => chooseColdStartCandidate({ ...input, hostProviderOffset: -1 })).toThrow();
 });

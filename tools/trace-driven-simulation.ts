@@ -141,6 +141,7 @@ export function simulateTraceWorld(
               growth: observedGrowth,
               prices: world.prices,
               summaryInputRate: world.summaryInputRate,
+              hostProviderOffset: offset,
               summaryOutput: world.summaryOutput,
             }),
             usedLearnedModel: false,
