@@ -18,6 +18,7 @@ import {
 } from "../src/index.ts";
 import { ApproximateRetentionTracker } from "./approximate-feedback.ts";
 import { admitMeasuredFeedback } from "./compactor-feedback-probe.ts";
+import { PiRetainedShadow } from "./pi-retained-shadow.ts";
 import { repeatedMessages } from "./repeated-summary-corpus.ts";
 import { SummaryInputCostLearner } from "./summary-input-cost.ts";
 import { SummaryOutputLearner } from "./summary-output.ts";
@@ -29,6 +30,7 @@ for (let i = 0; i < args.length; i++) {
   if (
     [
       "--live",
+      "--retained-shadow",
       "--fake-summary-cap",
       "--fake-summary-error",
       "--steady-shadow",
@@ -50,6 +52,7 @@ for (let i = 0; i < args.length; i++) {
 }
 const value = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const live = args.includes("--live");
+const retainedShadowEnabled = args.includes("--retained-shadow");
 const modelProbe = args.includes("--steady-model-probe");
 const systemRewrite = args.includes("--fake-system-rewrite");
 const prefixRewrite = args.includes("--fake-prefix-rewrite") || systemRewrite;
@@ -142,6 +145,20 @@ const [
 const base = compat.getModel("deepseek", "deepseek-flash");
 if (!base) throw new Error("Local model config is missing");
 const model = { ...base, maxTokens: summaryCap };
+const retainedShadow = retainedShadowEnabled
+  ? new PiRetainedShadow(
+      resolveUnitPrices({
+        currency: "USD",
+        inputPerMillion: model.cost.input,
+        outputPerMillion: model.cost.output,
+        cacheReadPerMillion: model.cost.cacheRead,
+        cacheWritePerMillion: model.cost.cacheWrite,
+      }),
+    )
+  : undefined;
+const { estimateTokens } = retainedShadowEnabled
+  ? await load("packages/coding-agent/src/core/compaction/index.ts")
+  : {};
 const ledger = [];
 const afterModel = new UncertainAffineFeedback("pi-controlled-host/v1");
 const outputModel = new SummaryOutputLearner("pi-controlled-output/v1");
@@ -179,6 +196,12 @@ const streamFn = (requestedModel, context, options) => {
     stopReason: null,
   };
   ledger.push(row);
+  if (retainedShadow) {
+    const promptEstimate = compat
+      .normalizeContext(context)
+      .messages.reduce((n, m) => n + estimateTokens(m), 0);
+    retainedShadow.beforeRequest(currentStage, promptEstimate);
+  }
   if (modelProbe && currentStage !== "summary") {
     const actual = {
       conversation: conversation(context.messages),
@@ -291,6 +314,7 @@ const streamFn = (requestedModel, context, options) => {
         cacheRead: u.cacheRead,
         cacheWrite: u.cacheWrite,
       };
+      retainedShadow?.afterRequest(currentStage, row.usage);
     }
     row.stopReason = ["stop", "length", "error", "aborted", "toolUse"].includes(result.stopReason)
       ? result.stopReason
@@ -383,6 +407,10 @@ const boundaries = [];
 const extensionResult = await utilities.createTestExtensionsResult(
   [
     (pi) => {
+      if (retainedShadow)
+        pi.on("session_before_compact", (event) => {
+          retainedShadow.beforeSummary(event.preparation.tokensBefore);
+        });
       pi.on("context", (event, ctx) => {
         if (modelProbe) {
           const current = conversation(convertToLlm(event.messages));
@@ -479,6 +507,7 @@ try {
     throw new Error("pre-request-not-complete");
   stage = "summary";
   const result = await session.compact();
+  retainedShadow?.afterSummary(result.tokensBefore, result.estimatedTokensAfter);
   if (modelProbe) {
     previousRequest = undefined; // A summary replaces the conversation, never reuses its old proof.
     const before = result.tokensBefore,
@@ -688,6 +717,16 @@ try {
   process.exitCode = 1;
 } finally {
   session.dispose();
+  if (retainedShadow)
+    report.retainedShadow = {
+      ...retainedShadow.report(),
+      helperSha256: createHash("sha256")
+        .update(readFileSync(new URL("./pi-retained-shadow.ts", import.meta.url)))
+        .digest("hex"),
+      learnerSha256: createHash("sha256")
+        .update(readFileSync(new URL("./retained-size-choice.ts", import.meta.url)))
+        .digest("hex"),
+    };
   if (modelProbe)
     report.modelProbe = {
       assumedErrorFraction: errorAssumption,

@@ -1,0 +1,155 @@
+{
+  "runner": "foldpoint.pi-retained-shadow-live.v1",
+  "paidCallsByAnalyzer": 0,
+  "recordedPaidHttpCalls": 8,
+  "rawReportSha256": [
+    "c149d16e552b0dba598850af2615b3de1845d0ceb56a474c42442cd30d0085d3",
+    "0d41d37ecee60dcf6fe0e5c94b57cd6afcd79f35e3e4c7232a20935b359d7bdc"
+  ],
+  "runs": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "declaredWindowTokens": 1000000,
+      "piCommit": "d201760ffee16564aa8d9a759e0c85b70db33674",
+      "producerSha256": "c4c0698cb767e13badcfebddab03ecdc84b0f82516fb2106bce1b553d936d690",
+      "helperSha256": null,
+      "learnerSha256": null,
+      "httpCalls": 4,
+      "reportedTokens": 9360,
+      "totalCost": 0.00284478,
+      "calls": [
+        {
+          "stage": "pre-compaction",
+          "promptTokens": 3422,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 3558,
+          "promptRelativeError": 0.039742840444184635,
+          "priorSamples": 0,
+          "hypotheticalAfterHostTokens": null,
+          "totalCost": 0.0010278
+        },
+        {
+          "stage": "summary",
+          "promptTokens": 2937,
+          "cachedInputTokens": 0,
+          "cacheWriteTokens": 0,
+          "outputTokens": 456,
+          "promptHostEstimate": 3115,
+          "promptRelativeError": 0.06060606060606055,
+          "priorSamples": 0,
+          "hypotheticalAfterHostTokens": null,
+          "totalCost": 0.0014283
+        },
+        {
+          "stage": "first-post",
+          "promptTokens": 1262,
+          "cachedInputTokens": 256,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 1318,
+          "promptRelativeError": 0.044374009508716394,
+          "priorSamples": 1,
+          "hypotheticalAfterHostTokens": null,
+          "totalCost": 0.00030453599999999995
+        },
+        {
+          "stage": "second-post",
+          "promptTokens": 1280,
+          "cachedInputTokens": 1024,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 1332,
+          "promptRelativeError": 0.04062499999999991,
+          "priorSamples": 1,
+          "hypotheticalAfterHostTokens": null,
+          "totalCost": 0.000084144
+        }
+      ],
+      "maxActualPromptTokens": 3422,
+      "summaryPrediction": {
+        "beforeHostTokens": 3423,
+        "predictedAfterHostTokens": 342,
+        "actualAfterHostEstimate": 1276
+      },
+      "promptMeanAbsoluteRelativeError": 0.04633697763974037,
+      "policyChanged": false,
+      "timingControlExercised": false,
+      "qualityMeasured": false
+    },
+    {
+      "provider": "deepseek",
+      "model": "deepseek-flash",
+      "declaredWindowTokens": 1000000,
+      "piCommit": "d201760ffee16564aa8d9a759e0c85b70db33674",
+      "producerSha256": "973ec4e394fb08668bb4761e1cb94dc5c73fcde7040f3432384f1e4e262c93dc",
+      "helperSha256": "a0ddea3b3ac2011573dfaa1bc9b3d15590757a8e32dd5dd3751fc31e70b7dfc7",
+      "learnerSha256": "611fc6674dd776dcb279b8d7181eb39c6aad6700654b00cf203613609c51d3a6",
+      "httpCalls": 4,
+      "reportedTokens": 9288,
+      "totalCost": 0.001973676,
+      "calls": [
+        {
+          "stage": "pre-compaction",
+          "promptTokens": 3422,
+          "cachedInputTokens": 128,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 3558,
+          "promptRelativeError": 0.039742840444184635,
+          "priorSamples": 0,
+          "hypotheticalAfterHostTokens": 356,
+          "totalCost": 0.000990168
+        },
+        {
+          "stage": "summary",
+          "promptTokens": 2937,
+          "cachedInputTokens": 2688,
+          "cacheWriteTokens": 0,
+          "outputTokens": 432,
+          "promptHostEstimate": 3115,
+          "promptRelativeError": 0.06060606060606055,
+          "priorSamples": 0,
+          "hypotheticalAfterHostTokens": 312,
+          "totalCost": 0.0006092280000000001
+        },
+        {
+          "stage": "first-post",
+          "promptTokens": 1238,
+          "cachedInputTokens": 256,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 1287,
+          "promptRelativeError": 0.039579967689822304,
+          "priorSamples": 1,
+          "hypotheticalAfterHostTokens": 468,
+          "totalCost": 0.000297336
+        },
+        {
+          "stage": "second-post",
+          "promptTokens": 1256,
+          "cachedInputTokens": 1024,
+          "cacheWriteTokens": 0,
+          "outputTokens": 1,
+          "promptHostEstimate": 1301,
+          "promptRelativeError": 0.035828025477707026,
+          "priorSamples": 1,
+          "hypotheticalAfterHostTokens": 473,
+          "totalCost": 0.000076944
+        }
+      ],
+      "maxActualPromptTokens": 3422,
+      "summaryPrediction": {
+        "beforeHostTokens": 3423,
+        "predictedAfterHostTokens": 342,
+        "actualAfterHostEstimate": 1245
+      },
+      "promptMeanAbsoluteRelativeError": 0.04393922355444363,
+      "policyChanged": false,
+      "timingControlExercised": false,
+      "qualityMeasured": false
+    }
+  ]
+}
