@@ -92,10 +92,43 @@ export interface SimulationWorld {
   cacheAlive?: readonly boolean[];
 }
 
+/** Shared one-request transition for online simulation and evaluator-only search. */
+export function billSimulationStep(
+  world: SimulationWorld,
+  context: number,
+  prefix: number,
+  step: number,
+  compact: boolean,
+) {
+  const summaryCost = compact
+    ? context * world.summaryInputRate + world.summaryOutput * world.prices.outputPerToken
+    : 0;
+  const after = compact ? Math.round(context * world.retentionRatio) : context;
+  const prompt = Math.max(0, after - (world.initialContext - world.initialPrompt));
+  const ordinaryCost = costOfCall(
+    world.prices,
+    prompt,
+    {
+      prefixTokens: compact ? 0 : prefix,
+      aliveProbability: world.cacheAlive?.[step] === false ? 0 : 1,
+      cachingInPlay: world.prices.hasCacheDiscount,
+    },
+    world.ordinaryOutput,
+  );
+  return { after, prompt, summaryCost, ordinaryCost };
+}
+
 export function simulateTraceWorld(
   world: SimulationWorld,
-  policy: "fixed60" | "fixed50" | "supported" | "cold-prior",
+  policy: "fixed60" | "fixed50" | "supported" | "cold-prior" | { thresholdTokens: number },
 ) {
+  if (
+    typeof policy === "object" &&
+    (!Number.isFinite(policy.thresholdTokens) ||
+      policy.thresholdTokens < 500000 ||
+      policy.thresholdTokens > 700000)
+  )
+    throw new Error("invalid threshold");
   if (
     !Number.isSafeInteger(world.initialContext) ||
     world.initialContext <= 0 ||
@@ -116,7 +149,6 @@ export function simulateTraceWorld(
   )
     throw new Error("invalid world");
   const learner = new PiImmediateRetentionLearner(binding, assumptions);
-  const offset = world.initialContext - world.initialPrompt;
   let context = world.initialContext,
     prefix = 0,
     observedGrowth: number | undefined;
@@ -141,7 +173,7 @@ export function simulateTraceWorld(
               growth: observedGrowth,
               prices: world.prices,
               summaryInputRate: world.summaryInputRate,
-              hostProviderOffset: offset,
+              hostProviderOffset: world.initialContext - world.initialPrompt,
               summaryOutput: world.summaryOutput,
             }),
             usedLearnedModel: false,
@@ -151,10 +183,15 @@ export function simulateTraceWorld(
               action:
                 context >= 700000
                   ? "FORCE"
-                  : context >= (policy === "fixed50" ? 500000 : 600000)
+                  : context >=
+                      (typeof policy === "object"
+                        ? policy.thresholdTokens
+                        : policy === "fixed50"
+                          ? 500000
+                          : 600000)
                     ? "COMPACT"
                     : "KEEP",
-              reason: policy,
+              reason: typeof policy === "object" ? `fixed-${policy.thresholdTokens}` : policy,
               usedLearnedModel: false,
             }
           : chooseSupportedCycle({
@@ -176,12 +213,10 @@ export function simulateTraceWorld(
               forceBoundary: 700000,
             });
     if (choice.usedLearnedModel) learnedChoices++;
+    const bill = billSimulationStep(world, context, prefix, step, choice.action !== "KEEP");
     if (choice.action !== "KEEP") {
       const before = context;
-      summaryCost +=
-        before * world.summaryInputRate + world.summaryOutput * world.prices.outputPerToken;
-      context = Math.round(before * world.retentionRatio);
-      prefix = 0;
+      context = bill.after;
       summaries++;
       actions.push({ step, before, after: context, reason: choice.reason });
       const accepted = learner.observe({
@@ -197,18 +232,9 @@ export function simulateTraceWorld(
         throw new Error("simulated observation rejected");
     }
     maxContext = Math.max(maxContext, context);
-    const prompt = Math.max(0, context - offset);
-    ordinaryCost += costOfCall(
-      world.prices,
-      prompt,
-      {
-        prefixTokens: prefix,
-        aliveProbability: world.cacheAlive?.[step] === false ? 0 : 1,
-        cachingInPlay: world.prices.hasCacheDiscount,
-      },
-      world.ordinaryOutput,
-    );
-    prefix = prompt;
+    summaryCost += bill.summaryCost;
+    ordinaryCost += bill.ordinaryCost;
+    prefix = bill.prompt;
     const addition = world.growth[step];
     if (addition !== undefined) {
       context += addition;
@@ -283,14 +309,14 @@ export function stressTraceWorld(world: SimulationWorld) {
   );
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv.length !== 6)
+export function loadTraceSimulationWorld(paths: readonly string[]) {
+  if (paths.length !== 4)
     throw new Error(
       "Usage: trace-driven-simulation <growth-trace> <summary-trace> <feedback> <reference>",
     );
-  const [growthBytes, summaryBytes, feedbackBytes, referenceBytes] = process.argv
-    .slice(2)
-    .map((p) => readFileSync(p));
+  const [growthBytes, summaryBytes, feedbackBytes, referenceBytes] = paths.map((p) =>
+    readFileSync(p),
+  );
   if (!growthBytes || !summaryBytes || !feedbackBytes || !referenceBytes)
     throw new Error("missing input");
   const decode = (b: Buffer) => new TextDecoder("utf-8", { fatal: true }).decode(b);
@@ -333,6 +359,22 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     summaryOutput: output,
     ordinaryOutput: 300,
   };
+  return {
+    world,
+    workload,
+    rows,
+    inputRate,
+    output,
+    growthTraceSha256: hash(growthBytes),
+    summaryTraceSha256: hash(summaryBytes),
+    feedbackSha256: hash(feedbackBytes),
+    referenceSha256: hash(referenceBytes),
+  };
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { world, workload, rows, inputRate, output, growthTraceSha256, summaryTraceSha256 } =
+    loadTraceSimulationWorld(process.argv.slice(2));
   const fixed = simulateTraceWorld(world, "fixed60"),
     supported = simulateTraceWorld(world, "supported"),
     candidate = simulateTraceWorld(world, "cold-prior");
@@ -340,8 +382,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     `${JSON.stringify(
       {
         paidCalls: 0,
-        growthTraceSha256: hash(growthBytes),
-        summaryTraceSha256: hash(summaryBytes),
+        growthTraceSha256,
+        summaryTraceSha256,
         growthCount: workload.growth.length,
         skippedRequests: workload.skipped,
         joins: workload.joins,
