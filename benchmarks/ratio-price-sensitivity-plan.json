@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "purpose": "test frozen ratio-cycle candidate across hypothetical billing ratios; no provider performance claim",
+  "cacheReadToInput": [0.002, 0.02, 0.1, 0.5],
+  "summaryOutputMultipliers": [1, 8, 32],
+  "summaryInputRateMultipliers": [0.5, 1, 2],
+  "growthTokensPerCall": [4000, 16000, 32000],
+  "calls": [720, 1440],
+  "actualRetentionRatio": 0.14,
+  "candidateRetentionPrior": 0.1,
+  "initialContext": 100000,
+  "hostProviderOffset": 6176,
+  "fixedThresholdGrid": "50% through 70%, step 1%; out-of-boundary executions excluded from hindsight selection",
+  "comparators": ["fixed60", "fixed50", "hindsight best eligible fixed threshold"],
+  "sharedAssumptions": "all branches consume identical constant growth, first prompt has no cache prefix, later cache alive with reset after summary; output and summary-input multipliers apply to both world and candidate cost prior",
+  "interpretation": "long-run predictions and finite-run bills are separate metrics; hindsight threshold is evaluator-only; two lengths share prefixes; not confidence intervals, quality, real provider billing or generalization",
+  "paidCalls": 0,
+  "promotion": "no change to candidate parameters or production defaults based on this matrix"
+}
