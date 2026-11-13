@@ -1,0 +1,177 @@
+{
+  "runner": "foldpoint.archived-summary-calibration.v1",
+  "paidCalls": 0,
+  "prices": {
+    "inputPerToken": 3e-7,
+    "outputPerToken": 0.0000012,
+    "cacheReadPerToken": 6e-9,
+    "cacheWritePerToken": 3e-7,
+    "hasCacheDiscount": true,
+    "normalized": false
+  },
+  "sources": {
+    "trace": "447db6231f95612503fa966be089df90537eb2505a37eb9a8e6ce416ffe13cc7",
+    "archive": "bb3c353d4e33b63b7c55749dab8fd60737c30ad3a77e333a3a205a6b1b49f747",
+    "summary": "a191d7d3309181acafd7cca82a636dea93defab0de53d8296fddf3c3723cddb4",
+    "feedback": "72ae85896f1dc208504d802acb99b7b6e8f6404edab896ffd3d514450e67e470",
+    "projectionHelper": "ded5d65112f8666f0e3ae71dab39a302607c29a000745a3d06e00c2103c8f257",
+    "estimateHelper": "16973a169a6f5dc1b7a35875d0c9a186da5bbf53dd850dd64fe292d34b50b8b0",
+    "calibrationHelper": "a7c51b838252327ad6ff968aef6992574fcd5768dd0f2215427b09a3a8ff7c1f"
+  },
+  "assumptions": {
+    "hostEstimatesReconstructed": true,
+    "providerTokenTruth": false,
+    "summaryInputRate": 2.7743863874398526e-7,
+    "summaryOutput": 1347.5454545454545,
+    "hostProviderOffset": 6128
+  },
+  "rows": [
+    {
+      "sequence": 1,
+      "beforeHostTokens": 609860,
+      "reconstructedImmediateAfterHostTokens": 23134,
+      "reconstructedRetention": 0.03793329616633326,
+      "projectedBeforeFirstReplayHostTokens": 45733,
+      "projectedNewTokens": 22599,
+      "summaryUsage": {
+        "promptTokens": 593612,
+        "outputTokens": 450,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayUsage": {
+        "promptTokens": 33443,
+        "outputTokens": 58,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayTraceSeq": 75,
+      "compactionTraceSeq": 76,
+      "replayRecordedBeforeDeferredCompaction": true,
+      "actualSummaryCost": 0.1786236,
+      "predictedSummaryCost": 0.1708157827698614,
+      "summaryCostRelativeError": -0.04371100588129784,
+      "firstReplayCost": 0.010102499999999999,
+      "firstReplayInputCost": 0.010032899999999999,
+      "observedFirstReplayHostProviderOffset": 12290,
+      "estimates": [
+        {
+          "ratio": 0.1,
+          "predictedAfterHostTokens": 60986,
+          "retentionRelativeError": 1.636206449381862,
+          "predictedFirstReplayPrompt": 77457,
+          "predictedFirstReplayInputCost": 0.0232371,
+          "firstReplayInputCostRelativeError": 1.3160900636904587,
+          "retentionOnlyConditionedInputCostRelativeError": 1.131836258708848
+        },
+        {
+          "ratio": 0.11,
+          "predictedAfterHostTokens": 67084.6,
+          "retentionRelativeError": 1.8998270943200488,
+          "predictedFirstReplayPrompt": 83555.6,
+          "predictedFirstReplayInputCost": 0.02506668,
+          "firstReplayInputCostRelativeError": 1.4984481057321415,
+          "retentionOnlyConditionedInputCostRelativeError": 1.3141943007505312
+        }
+      ]
+    },
+    {
+      "sequence": 2,
+      "beforeHostTokens": 610324,
+      "reconstructedImmediateAfterHostTokens": 23133,
+      "reconstructedRetention": 0.037902818830653884,
+      "projectedBeforeFirstReplayHostTokens": 45732,
+      "projectedNewTokens": 22599,
+      "summaryUsage": {
+        "promptTokens": 594145,
+        "outputTokens": 451,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayUsage": {
+        "promptTokens": 33442,
+        "outputTokens": 58,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayTraceSeq": 147,
+      "compactionTraceSeq": 148,
+      "replayRecordedBeforeDeferredCompaction": true,
+      "actualSummaryCost": 0.1787847,
+      "predictedSummaryCost": 0.17094451429823862,
+      "summaryCostRelativeError": -0.04385266581402869,
+      "firstReplayCost": 0.010102199999999999,
+      "firstReplayInputCost": 0.0100326,
+      "observedFirstReplayHostProviderOffset": 12290,
+      "estimates": [
+        {
+          "ratio": 0.1,
+          "predictedAfterHostTokens": 61032.4,
+          "retentionRelativeError": 1.6383262006657158,
+          "predictedFirstReplayPrompt": 77503.4,
+          "predictedFirstReplayInputCost": 0.023251019999999997,
+          "firstReplayInputCostRelativeError": 1.3175467974403445,
+          "retentionOnlyConditionedInputCostRelativeError": 1.1332874828060522
+        },
+        {
+          "ratio": 0.11,
+          "predictedAfterHostTokens": 67135.64,
+          "retentionRelativeError": 1.902158820732287,
+          "predictedFirstReplayPrompt": 83606.64,
+          "predictedFirstReplayInputCost": 0.025081991999999997,
+          "firstReplayInputCostRelativeError": 1.5000490401291788,
+          "retentionOnlyConditionedInputCostRelativeError": 1.315789725494887
+        }
+      ]
+    },
+    {
+      "sequence": 3,
+      "beforeHostTokens": 610324,
+      "reconstructedImmediateAfterHostTokens": 23135,
+      "reconstructedRetention": 0.03790609577863561,
+      "projectedBeforeFirstReplayHostTokens": 45734,
+      "projectedNewTokens": 22599,
+      "summaryUsage": {
+        "promptTokens": 594144,
+        "outputTokens": 450,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayUsage": {
+        "promptTokens": 33443,
+        "outputTokens": 58,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "firstReplayTraceSeq": 219,
+      "compactionTraceSeq": 220,
+      "replayRecordedBeforeDeferredCompaction": true,
+      "actualSummaryCost": 0.1787832,
+      "predictedSummaryCost": 0.17094451429823862,
+      "summaryCostRelativeError": -0.043844643690018836,
+      "firstReplayCost": 0.010102499999999999,
+      "firstReplayInputCost": 0.010032899999999999,
+      "observedFirstReplayHostProviderOffset": 12291,
+      "estimates": [
+        {
+          "ratio": 0.1,
+          "predictedAfterHostTokens": 61032.4,
+          "retentionRelativeError": 1.6380981197320077,
+          "predictedFirstReplayPrompt": 77503.4,
+          "predictedFirstReplayInputCost": 0.023251019999999997,
+          "firstReplayInputCostRelativeError": 1.3174774990281972,
+          "retentionOnlyConditionedInputCostRelativeError": 1.1331937924229285
+        },
+        {
+          "ratio": 0.11,
+          "predictedAfterHostTokens": 67135.64,
+          "retentionRelativeError": 1.9019079317052086,
+          "predictedFirstReplayPrompt": 83606.64,
+          "predictedFirstReplayInputCost": 0.025081991999999997,
+          "firstReplayInputCostRelativeError": 1.499974284603654,
+          "retentionOnlyConditionedInputCostRelativeError": 1.3156905779983856
+        }
+      ]
+    }
+  ]
+}
