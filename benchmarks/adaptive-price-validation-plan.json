@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "candidate": "frozen retained-size selector and adaptive-cycle chooser from commit 5518fbc",
+  "priceGrid": "reuse complete 216-cell ratio-price-sensitivity grid without dropping losses",
+  "retentionFamilies": ["ratio", "absolute", "affine", "drift"],
+  "actualModels": {
+    "ratio": "0.14 * before",
+    "absolute": "24000",
+    "affine": "18000 + 0.06 * before",
+    "drift": "24000 before step 720, 0.14 * before at step 720 and after"
+  },
+  "comparators": ["old ratio candidate", "fixed50", "fixed60"],
+  "coldStart": "10% prior, no retained-size training history",
+  "metrics": "per-cell fee components, action positions, model-use counts, own-trigger prediction errors, eligibility; differences and action changes relative to all controls",
+  "billing": "shared existing simulator step, complete summary and ordinary input/output; fee prior equals world parameters, no calibration-error experiment",
+  "limits": "hypothetical cost ratios and retention laws; nested length prefixes and constant growth; not independent real tasks or provider comparisons; no quality claims",
+  "paidCalls": 0,
+  "promotion": "no policy parameter or production default changes after viewing results"
+}
