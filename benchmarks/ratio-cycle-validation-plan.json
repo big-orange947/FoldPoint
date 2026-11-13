@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "candidate": "tools/ratio-cycle-choice.ts",
+  "baseline": "fixed60",
+  "windowTokens": 1000000,
+  "candidateWindow": [500000, 700000],
+  "retentionPrior": 0.1,
+  "retentionUpdate": "first successful summary ratio replaces prior; then EMA alpha 0.3",
+  "growthUpdate": "existing observed growth EMA alpha 0.2",
+  "cycleEstimate": "64 deterministic cycles, discard first 8; no task horizon",
+  "development": "the 54 trace-opportunity cells; all already seen",
+  "validation": {
+    "seeds": [9173, 28711, 64013],
+    "families": ["steady-jitter", "slow-jitter", "fast-then-slow-jitter"],
+    "lengths": [360, 720],
+    "retentionRatios": [0.06, 0.14, 0.24],
+    "initialContext": 100000,
+    "offset": 6176,
+    "generation": "xorshift32; steady growth base 12000 plus uniform 0..12000, slow base 2000 plus uniform 0..6000; staged first 240 growth items steady then slow, same switch point at both lengths"
+  },
+  "billing": "existing simulator, all ordinary input/output and summary usage; summary rate and output from complete development feedback provided equally to candidate and world",
+  "caching": "no cached prefix on first call, then warm; each summary resets prefix",
+  "metrics": "per-cell cost components, summaries, growth fingerprint, prior/observed decisions, selected boundary histogram, 70% overshoots; retain all losses and ties",
+  "interpretation": "fresh synthetic workload check after defining candidate, not independent real tasks or proof of quality; no statistical generalization claim",
+  "promotion": "research simulator only; no production defaults, Pi control or paid requests",
+  "paidCalls": 0
+}

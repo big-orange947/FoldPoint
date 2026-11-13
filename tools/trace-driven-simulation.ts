@@ -15,6 +15,7 @@ import { chooseColdStartCandidate } from "./cold-start-candidate";
 import { chooseSupportedCycle } from "./learned-cycle-choice";
 import { matchSummaryFeedback } from "./match-summary-feedback";
 import { PiImmediateRetentionLearner } from "./pi-retention-learner";
+import { chooseRatioCycle } from "./ratio-cycle-choice";
 
 const binding = {
   profileBinding: "a".repeat(64),
@@ -120,7 +121,13 @@ export function billSimulationStep(
 
 export function simulateTraceWorld(
   world: SimulationWorld,
-  policy: "fixed60" | "fixed50" | "supported" | "cold-prior" | { thresholdTokens: number },
+  policy:
+    | "fixed60"
+    | "fixed50"
+    | "supported"
+    | "cold-prior"
+    | "ratio-cycle"
+    | { thresholdTokens: number },
 ) {
   if (
     typeof policy === "object" &&
@@ -149,6 +156,14 @@ export function simulateTraceWorld(
   )
     throw new Error("invalid world");
   const learner = new PiImmediateRetentionLearner(binding, assumptions);
+  let retentionEstimate = 0.1;
+  const cycleDecisions: Array<{
+    step: number;
+    boundary: number;
+    cost: number | null;
+    source: string;
+    retention: number;
+  }> = [];
   let context = world.initialContext,
     prefix = 0,
     observedGrowth: number | undefined;
@@ -166,57 +181,81 @@ export function simulateTraceWorld(
     if (context > 700000) forceBoundaryOvershoots++;
     const state = learner.snapshot();
     const choice =
-      policy === "cold-prior"
+      policy === "ratio-cycle"
         ? {
-            ...chooseColdStartCandidate({
+            ...chooseRatioCycle({
               context,
               growth: observedGrowth,
+              retention: retentionEstimate,
+              samples: summaries,
               prices: world.prices,
               summaryInputRate: world.summaryInputRate,
-              hostProviderOffset: world.initialContext - world.initialPrompt,
               summaryOutput: world.summaryOutput,
+              offset: world.initialContext - world.initialPrompt,
             }),
-            usedLearnedModel: false,
+            usedLearnedModel: summaries > 0,
           }
-        : policy !== "supported"
+        : policy === "cold-prior"
           ? {
-              action:
-                context >= 700000
-                  ? "FORCE"
-                  : context >=
-                      (typeof policy === "object"
-                        ? policy.thresholdTokens
-                        : policy === "fixed50"
-                          ? 500000
-                          : 600000)
-                    ? "COMPACT"
-                    : "KEEP",
-              reason: typeof policy === "object" ? `fixed-${policy.thresholdTokens}` : policy,
+              ...chooseColdStartCandidate({
+                context,
+                growth: observedGrowth,
+                prices: world.prices,
+                summaryInputRate: world.summaryInputRate,
+                hostProviderOffset: world.initialContext - world.initialPrompt,
+                summaryOutput: world.summaryOutput,
+              }),
               usedLearnedModel: false,
             }
-          : chooseSupportedCycle({
-              contextTokens: context,
-              growthTokens: observedGrowth,
-              prices: world.prices,
-              billingModel: {
-                after: { slope: 0.1, intercept: 0, residual: 0 },
-                output: { slope: 0, intercept: world.summaryOutput, residual: 0 },
-                samples: 0,
-                minBefore: 0,
-                maxBefore: 700000,
-                summaryInputCostPerToken: world.summaryInputRate,
-              },
-              retention: state,
-              expectedBasis: state.basis,
-              softBoundary: 500000,
-              fallbackBoundary: 600000,
-              forceBoundary: 700000,
-            });
+          : policy !== "supported"
+            ? {
+                action:
+                  context >= 700000
+                    ? "FORCE"
+                    : context >=
+                        (typeof policy === "object"
+                          ? policy.thresholdTokens
+                          : policy === "fixed50"
+                            ? 500000
+                            : 600000)
+                      ? "COMPACT"
+                      : "KEEP",
+                reason: typeof policy === "object" ? `fixed-${policy.thresholdTokens}` : policy,
+                usedLearnedModel: false,
+              }
+            : chooseSupportedCycle({
+                contextTokens: context,
+                growthTokens: observedGrowth,
+                prices: world.prices,
+                billingModel: {
+                  after: { slope: 0.1, intercept: 0, residual: 0 },
+                  output: { slope: 0, intercept: world.summaryOutput, residual: 0 },
+                  samples: 0,
+                  minBefore: 0,
+                  maxBefore: 700000,
+                  summaryInputCostPerToken: world.summaryInputRate,
+                },
+                retention: state,
+                expectedBasis: state.basis,
+                softBoundary: 500000,
+                fallbackBoundary: 600000,
+                forceBoundary: 700000,
+              });
     if (choice.usedLearnedModel) learnedChoices++;
+    if (policy === "ratio-cycle" && "boundary" in choice && "cost" in choice && "source" in choice)
+      cycleDecisions.push({
+        step,
+        boundary: choice.boundary,
+        cost: choice.cost,
+        source: choice.source,
+        retention: retentionEstimate,
+      });
     const bill = billSimulationStep(world, context, prefix, step, choice.action !== "KEEP");
     if (choice.action !== "KEEP") {
       const before = context;
       context = bill.after;
+      retentionEstimate =
+        summaries === 0 ? context / before : 0.7 * retentionEstimate + (0.3 * context) / before;
       summaries++;
       actions.push({ step, before, after: context, reason: choice.reason });
       const accepted = learner.observe({
@@ -244,6 +283,7 @@ export function simulateTraceWorld(
     }
   }
   return {
+    ...(policy === "ratio-cycle" ? { cycleDecisions } : {}),
     policy,
     ordinaryCalls: world.growth.length + 1,
     offeredGrowth,
