@@ -16,8 +16,8 @@ export function simulateRetentionWorld(
   world: SimulationWorld,
   actualModel: (step: number) => SizeModel,
   policy: "adaptive" | "ratio" | "fixed60" | "fixed50",
+  learner = new RetainedSizeChoice(),
 ) {
-  const learner = new RetainedSizeChoice();
   let context = world.initialContext,
     prefix = 0,
     growth: number | undefined,

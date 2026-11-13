@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "baseline": "frozen retained-size selector from 5518fbc",
+  "candidate": "opt-in change-aware wrapper; baseline behavior remains the default",
+  "trigger": "after at least 3 observations, two consecutive signed log residuals in the same direction larger than max(log(1.5), 3 * median of previous up to 8 absolute log residuals)",
+  "reset": "after the second result arrives, rebuild learner from only the two confirming observations; discard old scores and detector residuals",
+  "main": "all 864 cells of adaptive-price-validation, with no fee or model parameter changes",
+  "additionalFeedback": "fixed, proportional and affine; constant before=500k; stable +/-10% deterministic sinusoidal feedback, single 3x outlier, single 1/3x outlier, alternating +/-20%, abrupt upward and downward changes, 120 samples per stream",
+  "claims": "numeric trigger thresholds are assumptions, not calibrated confidence; gradual drift, correlated noise and sparse samples may fail",
+  "paidCalls": 0,
+  "promotion": "research wrapper only; no production defaults or Pi control changes; retain all losses and reset counts"
+}
