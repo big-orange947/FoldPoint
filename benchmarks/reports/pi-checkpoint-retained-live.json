@@ -1,0 +1,62 @@
+{
+  "runner": "foldpoint.pi-checkpoint-retained-public.v1",
+  "recordedPaidHttpCalls": 3,
+  "archiveSha256": "bb3c353d4e33b63b7c55749dab8fd60737c30ad3a77e333a3a205a6b1b49f747",
+  "producerSha256": "201df3dbdcf38f0e001fa9f4ca9147c21f8cda8688261cd17a96ffe4f2655844",
+  "helperSha256": "7810c93adddd1cc98f6b1557e91c6fe58b0bf067c848a6b22164e92522ceeb7c",
+  "declaredWindowTokens": 1000000,
+  "preparedBeforeHostTokens": 609860,
+  "actualAfterHostEstimate": 23180,
+  "priorAfterHostPrediction": 60986,
+  "retainedHostRatio": 0.03800872331354737,
+  "prices": {
+    "inputPerToken": 3e-7,
+    "outputPerToken": 0.0000012,
+    "cacheReadPerToken": 6e-9,
+    "cacheWritePerToken": 0,
+    "hasCacheDiscount": true,
+    "normalized": false
+  },
+  "calls": [
+    {
+      "stage": "summary",
+      "promptHostEstimate": 815459,
+      "promptTokens": 593612,
+      "outputTokens": 538,
+      "cachedInputTokens": 0,
+      "cacheWriteTokens": 0,
+      "cost": 0.17872919999999998,
+      "promptEstimateRelativeError": 0.37372391393704985
+    },
+    {
+      "stage": "first-post",
+      "promptHostEstimate": 23618,
+      "promptTokens": 17447,
+      "outputTokens": 1,
+      "cachedInputTokens": 0,
+      "cacheWriteTokens": 0,
+      "cost": 0.005235299999999999,
+      "promptEstimateRelativeError": 0.35369977646586803
+    },
+    {
+      "stage": "second-post",
+      "promptHostEstimate": 23636,
+      "promptTokens": 17466,
+      "outputTokens": 1,
+      "cachedInputTokens": 17280,
+      "cacheWriteTokens": 0,
+      "cost": 0.00016067999999999999,
+      "promptEstimateRelativeError": 0.35325775792969205
+    }
+  ],
+  "totalCost": 0.18412517999999997,
+  "reportedTokens": 629065,
+  "archiveUnchanged": true,
+  "unknownHttpCalls": 0,
+  "policyChanged": false,
+  "qualityMeasured": false,
+  "summaryInitiator": "manual",
+  "restoredInMemory": true,
+  "rawReportSha256": "9c3e21a59fbeef3e3430c815aa773fe9dcd8c1fbfef9f2dfa4bd9c4b9e5775dd",
+  "paidCallsByAnalyzer": 0
+}

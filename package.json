@@ -96,6 +96,8 @@
     "validate:steady-fresh:gate": "tsx tools/steady-validation.ts --require-pilot-ready",
     "capture:pi-feedback": "tsx tools/pi-feedback-capture.mjs",
     "report:pi-retained": "tsx tools/pi-retained-report.ts",
+    "capture:pi-checkpoint": "tsx tools/pi-checkpoint-retained.mjs",
+    "report:pi-checkpoint": "tsx tools/pi-checkpoint-report.ts",
     "trace:capture": "tsx examples/trace-capture.ts",
     "trace:analyze": "tsx tools/trace-analyze.ts",
     "diagnose:trace-opportunity": "tsx tools/trace-opportunity.ts",

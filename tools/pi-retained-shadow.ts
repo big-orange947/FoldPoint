@@ -46,7 +46,7 @@ export class PiRetainedShadow {
   }
   beforeRequest(stage: string, promptEstimate: number) {
     if (
-      !/^(pre-compaction|summary|first-post|second-post|third-post|fourth-post|fifth-post)$/.test(
+      !/^(pre-compaction|summary|summary-part2|first-post|second-post|third-post|fourth-post|fifth-post)$/.test(
         stage,
       )
     )
